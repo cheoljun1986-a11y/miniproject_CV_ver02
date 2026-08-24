@@ -72,6 +72,26 @@ export function createNinja(opacity = 0.13) {
   return group;
 }
 
+// Debug marker for a stored scan point. Green = horizontal surface (a spot the
+// ninja can be hidden on), orange = any other surface kept only in the full
+// pool. Drawn as an always-visible overlay (depthTest off) so the whole set of
+// collected points stays readable while scanning.
+export function createSurfaceMarker(position, horizontal) {
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.02, 10, 8),
+    new THREE.MeshBasicMaterial({
+      color: horizontal ? 0x33dd88 : 0xff7755,
+      transparent: true,
+      opacity: 0.85,
+      depthTest: false,
+    }),
+  );
+  marker.position.set(position[0], position[1], position[2]);
+  marker.renderOrder = 2;
+  marker.frustumCulled = false;
+  return marker;
+}
+
 export function setNinjaOpacity(root, opacity) {
   root.traverse((child) => {
     if (child.material?.transparent) {

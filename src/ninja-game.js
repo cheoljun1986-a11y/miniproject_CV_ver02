@@ -1,6 +1,7 @@
 import {
   DETECT_MAX_ANGLE_DEG,
   DETECT_MAX_DISTANCE_M,
+  HORIZONTAL_SURFACE_THRESHOLD,
   MAP_SECONDS,
   NINJA_CAMOUFLAGE_OPACITY,
   SAMPLE_GAP_MS,
@@ -39,6 +40,7 @@ export class NinjaGame {
     this.mappingEnd = 0;
     this.lastSampleTime = 0;
     this.target = null;
+    this.surfaceMarkers = [];
     this.scans = 0;
     this.misses = 0;
     this.controls = {
@@ -68,6 +70,7 @@ export class NinjaGame {
   endSession() {
     this.phase = 'idle';
     this.clearTarget();
+    this.clearSurfaceMarkers();
     this.setControls({
       scan: false,
       newRound: false,
@@ -81,7 +84,10 @@ export class NinjaGame {
 
   startMapping(seconds = MAP_SECONDS, reset = false) {
     if (!this.getSession()) return false;
-    if (reset) this.mapper.resetCandidates();
+    if (reset) {
+      this.mapper.resetCandidates();
+      this.clearSurfaceMarkers();
+    }
     this.phase = 'mapping';
     this.mappingEnd = this.now() + seconds * 1000;
     this.clearTarget();
@@ -98,7 +104,7 @@ export class NinjaGame {
       && time - this.lastSampleTime > SAMPLE_GAP_MS
     ) {
       this.lastSampleTime = time;
-      this.mapper.recordSurface(surface);
+      if (this.mapper.recordSurface(surface)) this.addSurfaceMarker(surface);
     }
 
     if (this.phase === 'mapping') {
@@ -233,6 +239,21 @@ export class NinjaGame {
     if (!this.target?.anchor || !localSpace) return;
     const pose = frame.getPose(this.target.anchor.anchorSpace, localSpace);
     if (pose) this.target.object.matrix.fromArray(pose.transform.matrix);
+  }
+
+  addSurfaceMarker(surface) {
+    const horizontal = surface.upY > HORIZONTAL_SURFACE_THRESHOLD;
+    const marker = this.model.createSurfaceMarker(surface.position, horizontal);
+    this.scene.add(marker);
+    this.surfaceMarkers.push(marker);
+  }
+
+  clearSurfaceMarkers() {
+    for (const marker of this.surfaceMarkers) {
+      this.scene.remove(marker);
+      this.model.disposeObject(marker);
+    }
+    this.surfaceMarkers = [];
   }
 
   clearTarget() {

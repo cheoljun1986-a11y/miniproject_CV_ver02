@@ -39,6 +39,9 @@ function createHarness() {
     },
     revealNinja(object) { object.revealed = true; },
     disposeObject(object) { object.disposed = true; },
+    createSurfaceMarker(position, horizontal) {
+      return { marker: true, position, horizontal };
+    },
   };
   const mapper = new SpatialMapper({ minCandidateSpacing: 0.22 });
   const pose = {
@@ -88,4 +91,22 @@ test('mapping candidates produce a hidden target that can be detected', () => {
   assert.equal(game.triggerScan(), true);
   assert.equal(game.getState().phase, 'found');
   assert.equal(sceneObjects[0].revealed, true);
+});
+
+test('mapping drops a visible marker for each stored scan point and clears them on a new scan', () => {
+  const { game, sceneObjects } = createHarness();
+  game.startSession();
+
+  // Two points far enough apart to both be stored (spacing rule is 0.22m).
+  game.update(1000, {}, { position: [0, 0, -2], upY: 1, matrix: [0] });
+  game.update(2000, {}, { position: [1, 0, -2], upY: 0, matrix: [1] });
+
+  const markers = sceneObjects.filter((object) => object.marker);
+  assert.equal(markers.length, 2);
+  assert.equal(markers[0].horizontal, true); // upY 1 > threshold
+  assert.equal(markers[1].horizontal, false); // upY 0 < threshold
+
+  // A fresh scan (reset) removes the previous markers from the scene.
+  game.startMapping(20, true);
+  assert.equal(sceneObjects.filter((object) => object.marker).length, 0);
 });
