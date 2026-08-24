@@ -6,12 +6,20 @@ import {
   MAP_SECONDS,
   MAX_TRACKING_STEP,
   MIN_CANDIDATE_SPACING,
+  TRAIL_MAX_POINTS,
+  TRAIL_MIN_STEP_M,
+  VOXEL_MAX_SOLID,
+  VOXEL_SIZE_M,
+  VOXEL_SOLID_MIN_HITS,
 } from './config.js';
 import { DepthCloud } from './depth-cloud.js';
 import { NinjaGame } from './ninja-game.js';
 import * as ninjaModel from './ninja-model.js';
+import { OperatorView } from './operator-view.js';
+import { PlayerTrail } from './player-trail.js';
 import { SpatialMapper } from './spatial-mapper.js';
 import { createUI, formatMetrics } from './ui.js';
+import { VoxelMap } from './voxel-map.js';
 import { XRSessionController } from './xr-session.js';
 
 // ?depth=cloud reconstructs a live point cloud from cpu-optimized depth instead
@@ -29,6 +37,10 @@ let xrSession;
 let game;
 let depthCloud = null; // point-cloud reconstruction (CLOUD_MODE)
 let occluder = null; // depth-sensing occlusion mesh (real world hides the ninja)
+let voxelMap = null;
+let playerTrail = null;
+let operatorView = null;
+let operatorVisible = false;
 
 init();
 
@@ -97,7 +109,26 @@ async function init() {
   ui.setStatus(CLOUD_MODE
     ? 'WebXR AR 지원됨 (공간 복원 모드) — START AR을 누르세요'
     : 'WebXR AR 지원됨 — START AR을 누르세요');
-  if (CLOUD_MODE) depthCloud = new DepthCloud({ scene });
+  if (CLOUD_MODE) {
+    voxelMap = new VoxelMap({
+      voxelSize: VOXEL_SIZE_M,
+      solidMinHits: VOXEL_SOLID_MIN_HITS,
+      maxSolid: VOXEL_MAX_SOLID,
+    });
+    playerTrail = new PlayerTrail({
+      minStep: TRAIL_MIN_STEP_M,
+      maxPoints: TRAIL_MAX_POINTS,
+    });
+    depthCloud = new DepthCloud({ scene, voxelMap });
+    operatorView = new OperatorView({ canvas: ui.getOperatorCanvas() });
+    ui.setOperatorButtonVisible(true);
+    ui.bindOperator({
+      onToggle(visible) {
+        operatorVisible = visible;
+        ui.setOperatorVisible(visible);
+      },
+    });
+  }
 
   const arButton = ARButton.createButton(renderer, {
     requiredFeatures: ['hit-test'],
@@ -115,12 +146,18 @@ async function init() {
   renderer.xr.addEventListener('sessionstart', async () => {
     detachOccluder();
     depthCloud?.reset();
+    voxelMap?.reset();
+    playerTrail?.reset();
     await xrSession.start();
     game.startSession();
   });
   renderer.xr.addEventListener('sessionend', () => {
     detachOccluder();
     depthCloud?.reset();
+    voxelMap?.reset();
+    playerTrail?.reset();
+    operatorVisible = false;
+    ui.setOperatorVisible(false);
     game.endSession();
     xrSession.end();
   });
@@ -156,6 +193,16 @@ function render(time, frame) {
 
   if (CLOUD_MODE) {
     depthCloud?.update(frame, xrSession.getLocalSpace(), time);
+    const pose = xrSession.getViewerPose();
+    if (pose) playerTrail?.record(pose.position);
+    if (operatorVisible && operatorView) {
+      operatorView.render({
+        solidVoxels: voxelMap.getSolidVoxels(),
+        ninjaPos: game.getTargetPosition(),
+        playerPos: pose ? pose.position : null,
+        playerPath: playerTrail.getPoints(),
+      });
+    }
   } else {
     maybeAttachOccluder();
   }
@@ -186,7 +233,9 @@ function updateMetrics(viewerPose) {
     misses: gameState.misses,
     lastReturnError: spatial.lastReturnError,
     occlusionOn: !CLOUD_MODE && Boolean(renderer.xr.hasDepthSensing?.()),
-    pointCount: CLOUD_MODE ? (depthCloud?.getCount() ?? 0) : null,
+    pointCount: CLOUD_MODE
+      ? (voxelMap?.getSolidCount() ? voxelMap.getSolidCount() : (depthCloud?.getCount() ?? 0))
+      : null,
   }));
 }
 
