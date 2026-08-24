@@ -120,14 +120,19 @@ async function init() {
       maxPoints: TRAIL_MAX_POINTS,
     });
     depthCloud = new DepthCloud({ scene, voxelMap });
-    operatorView = new OperatorView({ canvas: ui.getOperatorCanvas() });
-    ui.setOperatorButtonVisible(true);
-    ui.bindOperator({
-      onToggle(visible) {
-        operatorVisible = visible;
-        ui.setOperatorVisible(visible);
-      },
-    });
+    try {
+      operatorView = new OperatorView({ canvas: ui.getOperatorCanvas() });
+      ui.setOperatorButtonVisible(true);
+      ui.bindOperator({
+        onToggle(visible) {
+          operatorVisible = visible;
+          ui.setOperatorVisible(visible);
+        },
+      });
+    } catch (error) {
+      console.error('Operator view unavailable:', error);
+      operatorView = null;
+    }
   }
 
   const arButton = ARButton.createButton(renderer, {

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import { VOXEL_MAX_SOLID } from './config.js';
+import { TRAIL_MAX_POINTS, VOXEL_MAX_SOLID, VOXEL_SIZE_M } from './config.js';
 
 // A second, non-XR 3D scene rendered onto an overlay canvas: a god's-eye view
 // of the reconstructed voxel space, the hidden Ninja, and the player's path.
@@ -25,7 +25,7 @@ export class OperatorView {
     this.controls.enableDamping = true;
 
     this.voxels = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.05, 0.05, 0.05),
+      new THREE.BoxGeometry(VOXEL_SIZE_M, VOXEL_SIZE_M, VOXEL_SIZE_M),
       new THREE.MeshLambertMaterial({ vertexColors: true }),
       VOXEL_MAX_SOLID,
     );
@@ -53,7 +53,7 @@ export class OperatorView {
     this.pathGeometry = new THREE.BufferGeometry();
     this.pathGeometry.setAttribute(
       'position',
-      new THREE.BufferAttribute(new Float32Array(300 * 3), 3),
+      new THREE.BufferAttribute(new Float32Array(TRAIL_MAX_POINTS * 3), 3),
     );
     this.pathGeometry.setDrawRange(0, 0);
     this.scene.add(new THREE.Line(
@@ -98,10 +98,12 @@ export class OperatorView {
     if (playerPos) {
       this.player.visible = true;
       this.player.position.set(playerPos[0], playerPos[1], playerPos[2]);
+    } else {
+      this.player.visible = false;
     }
 
     const positions = this.pathGeometry.attributes.position.array;
-    const pathCount = Math.min(playerPath.length, 300);
+    const pathCount = Math.min(playerPath.length, TRAIL_MAX_POINTS);
     for (let i = 0; i < pathCount; i += 1) {
       positions[i * 3] = playerPath[i][0];
       positions[i * 3 + 1] = playerPath[i][1];

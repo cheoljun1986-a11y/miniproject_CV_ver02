@@ -41,7 +41,7 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 - **three.js 0.180** (렌더링, WebXR 매니저, 내장 depth-sensing 오클루전)
 - WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, (옵션) `anchors`, `local-floor`
 - **정적 호스팅**: GitHub Pages (백엔드 없음). CDN(three.js)만 외부 의존.
-- 테스트: Node.js `node:test` (순수 로직 단위 테스트 22개)
+- 테스트: Node.js `node:test` (순수 로직 단위 테스트 30개)
 
 ## 4. 진행 내역 (구현 완료)
 
@@ -115,7 +115,7 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
 ```bash
 python -m http.server 8000
 # http://localhost:8000  (단, WebXR는 HTTPS 또는 실기기 필요)
-node --test tests/*.test.mjs   # 단위 테스트 22개
+node --test tests/*.test.mjs   # 단위 테스트 30개
 ```
 
 ## 7. 현재 상태 / 검증
@@ -126,7 +126,7 @@ node --test tests/*.test.mjs   # 단위 테스트 22개
 | 스캔 점 시각화 | ✅ 동작 |
 | 오클루전(gpu) 배선 | ✅ 구현, 실기기 동적가림 검증 중 |
 | 포인트클라우드 복원(cpu) | ✅ 동작, 역투영 정상 / 미터 정확도 실기기 확인 필요 |
-| 단위 테스트 | ✅ 22개 통과 |
+| 단위 테스트 | ✅ 30개 통과 |
 
 ## 8. 다음 단계 (설계됨, 미구현)
 
@@ -151,7 +151,10 @@ src/
   ui.js               HUD/버튼/메시지 (DOM)
   depth-math.js       깊이 역투영·복셀 순수 수식 (three 비의존, 테스트됨)
   depth-cloud.js      cpu 깊이 → 포인트클라우드 누적
-tests/                단위 테스트 (node:test) 22개
+  voxel-map.js        복셀 점유·노이즈제거 (three 비의존, 테스트됨)
+  player-trail.js     플레이어 경로 버퍼 (three 비의존, 테스트됨)
+  operator-view.js    운영자 오빗 3D 뷰 오버레이
+tests/                단위 테스트 (node:test) 30개
 ```
 
 순수 로직(수식·게임규칙)은 three.js 없이 분리해 단위 테스트하고, 렌더링 의존부만 three 모듈로 둔다.

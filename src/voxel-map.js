@@ -20,6 +20,7 @@ export class VoxelMap {
     if (this.solid.size >= this.maxSolid) return false;
 
     const size = this.voxelSize;
+    // round to kill float error so cell centers are exact (e.g. 0.35, not 0.35000000000000003)
     const center = [
       Math.round((Math.floor(x / size) + 0.5) * size * 1e10) / 1e10,
       Math.round((Math.floor(y / size) + 0.5) * size * 1e10) / 1e10,
