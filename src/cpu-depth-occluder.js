@@ -3,13 +3,14 @@ import * as THREE from 'three';
 import {
   CPU_OCCLUSION_GRID_COLS,
   CPU_OCCLUSION_GRID_ROWS,
+  CPU_OCCLUSION_DEPTH_BIAS_M,
   CPU_OCCLUSION_MAX_DEPTH_JUMP_M,
   CPU_OCCLUSION_MAX_RANGE_M,
   CPU_OCCLUSION_SAMPLE_GAP_MS,
   CPU_OCCLUSION_STALE_MS,
 } from './config.js';
 import { depthSampleToWorld } from './depth-math.js';
-import { isUsableDepth, writeGridTriangleIndices } from './cpu-occlusion-math.js';
+import { depthWithOcclusionBias, writeGridTriangleIndices } from './cpu-occlusion-math.js';
 
 const VERTEX_COUNT = CPU_OCCLUSION_GRID_COLS * CPU_OCCLUSION_GRID_ROWS;
 const MAX_INDEX_COUNT = (CPU_OCCLUSION_GRID_COLS - 1)
@@ -107,8 +108,13 @@ export class CpuDepthOccluder {
         this.depths[vertexIndex] = depth;
 
         const positionOffset = vertexIndex * 3;
-        const point = isUsableDepth(depth, CPU_OCCLUSION_MAX_RANGE_M)
-          ? depthSampleToWorld(u, v, depth, inverseProjection, viewMatrix)
+        const occlusionDepth = depthWithOcclusionBias(
+          depth,
+          CPU_OCCLUSION_DEPTH_BIAS_M,
+          CPU_OCCLUSION_MAX_RANGE_M,
+        );
+        const point = occlusionDepth !== null
+          ? depthSampleToWorld(u, v, occlusionDepth, inverseProjection, viewMatrix)
           : null;
         this.positions[positionOffset] = point?.[0] ?? 0;
         this.positions[positionOffset + 1] = point?.[1] ?? 0;

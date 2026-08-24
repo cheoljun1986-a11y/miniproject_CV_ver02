@@ -2,6 +2,10 @@ export function isUsableDepth(depth, maxRange) {
   return Number.isFinite(depth) && depth > 0 && depth <= maxRange;
 }
 
+export function depthWithOcclusionBias(depth, bias, maxRange) {
+  return isUsableDepth(depth, maxRange) ? depth + bias : null;
+}
+
 export function triangleFits(depths, maxJump, maxRange) {
   return depths.length === 3
     && triangleFitsThree(depths[0], depths[1], depths[2], maxJump, maxRange);

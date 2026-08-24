@@ -2,10 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  depthWithOcclusionBias,
   isUsableDepth,
   triangleFits,
   writeGridTriangleIndices,
 } from '../src/cpu-occlusion-math.js';
+
+test('occlusion bias moves a valid real surface slightly behind its measured depth', () => {
+  assert.equal(depthWithOcclusionBias(2, 0.05, 6), 2.05);
+  assert.equal(depthWithOcclusionBias(0, 0.05, 6), null);
+  assert.equal(depthWithOcclusionBias(Number.NaN, 0.05, 6), null);
+});
 
 test('a valid 2 by 2 grid produces two triangles with consistent winding', () => {
   const indices = new Uint16Array(6);

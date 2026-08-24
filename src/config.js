@@ -20,6 +20,7 @@ export const CPU_OCCLUSION_GRID_COLS = 80;
 export const CPU_OCCLUSION_GRID_ROWS = 60;
 export const CPU_OCCLUSION_SAMPLE_GAP_MS = 66;
 export const CPU_OCCLUSION_MAX_RANGE_M = 6;
+export const CPU_OCCLUSION_DEPTH_BIAS_M = 0.05;
 export const CPU_OCCLUSION_MAX_DEPTH_JUMP_M = 0.20;
 export const CPU_OCCLUSION_STALE_MS = 250;
 
