@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>2D Detection Test — Hidden Ninja</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui,-apple-system,"Segoe UI",sans-serif; }
+  html,body { margin:0; background:#111; color:#eee; }
+  #wrap { max-width:960px; margin:0 auto; padding:12px; }
+  #stage { position:relative; width:100%; }
+  video { display:none; }
+  canvas { width:100%; border-radius:12px; background:#000; }
+  #stats { white-space:pre-line; font-size:13px; line-height:1.5; padding:10px 0;
+           font-variant-numeric:tabular-nums; color:#bbb; }
+  button { border:0; border-radius:999px; padding:11px 18px; font-weight:800; font-size:14px;
+           background:#fff; color:#111; cursor:pointer; }
+  button:disabled { opacity:.4; }
+  h1 { font-size:17px; }
+  code { background:#222; padding:2px 6px; border-radius:6px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>2D Detection Test (AR 없이 detection만 검증)</h1>
+  <p style="font-size:13px;color:#999">
+    모델: <code id="modelName"></code> —
+    <code>?model=경로.onnx</code> 로 교체, <code>?remote=엔드포인트</code> 로 서버 추론 테스트 가능
+  </p>
+  <button id="startBtn">카메라 시작</button>
+  <div id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="canvas"></canvas>
+  </div>
+  <div id="stats">모델 로딩 중…</div>
+</div>
+
+<script type="module">
+import { OnnxYoloDetector, RemoteDetector, labelKo } from './js/detector.js';
+
+const video = document.querySelector('#video');
+const canvas = document.querySelector('#canvas');
+const ctx = canvas.getContext('2d');
+const statsEl = document.querySelector('#stats');
+const startBtn = document.querySelector('#startBtn');
+
+const params = new URLSearchParams(location.search);
+const remote = params.get('remote');
+const modelUrl = params.get('model') || 'models/yolo26n.onnx';
+document.querySelector('#modelName').textContent = remote ? `remote: ${remote}` : modelUrl;
+
+let detector = null;
+let running = false;
+let frames = 0, fpsWindowStart = performance.now(), fps = 0;
+
+init();
+
+async function init() {
+  try {
+    detector = remote
+      ? new RemoteDetector({ endpoint: remote })
+      : new OnnxYoloDetector({ modelUrl });
+    await detector.init();
+    statsEl.textContent = `모델 준비됨 — backend: ${detector.backend}\n카메라 시작을 누르세요.`;
+  } catch (err) {
+    console.error(err);
+    statsEl.textContent = `모델 로드 실패: ${err.message}\n모델 파일(${modelUrl})이 있는지, HTTPS/localhost로 서빙 중인지 확인하세요.`;
+    startBtn.disabled = true;
+  }
+}
+
+startBtn.addEventListener('click', async () => {
+  startBtn.disabled = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    running = true;
+    loop();
+  } catch (err) {
+    statsEl.textContent = `카메라 접근 실패: ${err.message}`;
+    startBtn.disabled = false;
+  }
+});
+
+async function loop() {
+  if (!running) return;
+  let dets = [];
+  let error = null;
+  try {
+    dets = await detector.detect(video);
+  } catch (err) {
+    error = err;
+    console.error(err);
+  }
+
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.lineWidth = 3;
+  ctx.font = 'bold 18px sans-serif';
+  for (const d of dets) {
+    ctx.strokeStyle = '#00ff88';
+    ctx.fillStyle = '#00ff88';
+    ctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+    const tag = `${labelKo(d.label)} ${(d.score * 100) | 0}%`;
+    ctx.fillText(tag, d.x1 + 4, Math.max(20, d.y1 - 6));
+  }
+
+  frames++;
+  const now = performance.now();
+  if (now - fpsWindowStart >= 1000) {
+    fps = frames * 1000 / (now - fpsWindowStart);
+    frames = 0; fpsWindowStart = now;
+  }
+  statsEl.textContent = error
+    ? `detect 오류: ${error.message}`
+    : `backend ${detector.backend}${detector.inputDtype ? ` / input ${detector.inputDtype}` : ''}` +
+      `${detector.lastOutputDims ? ` / output [${detector.lastOutputDims}]` : ''}\n` +
+      `추론 ${detector.lastInferMs?.toFixed(0) ?? '-'}ms   루프 ${fps.toFixed(1)} FPS   감지 ${dets.length}개`;
+
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>

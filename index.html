@@ -52,6 +52,12 @@
   }
   #crosshair:before { left:16px; top:0; width:2px; height:34px; }
   #crosshair:after { left:0; top:16px; width:34px; height:2px; }
+  #metrics { pointer-events:auto; }
+  #capPreview {
+    position:absolute; right:10px; top:86px; width:160px;
+    border-radius:10px; border:1px solid rgba(255,255,255,.35);
+    display:none;
+  }
   #fallback {
     position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center;
     padding:24px; background:#111; color:white;
@@ -80,9 +86,11 @@
     <button class="ctrl primary" id="scanBtn" disabled>SCAN</button>
     <button class="ctrl" id="newRoundBtn" disabled>다시 숨기기</button>
     <button class="ctrl" id="extendBtn" disabled>+20초 스캔</button>
+    <button class="ctrl" id="occBtn" disabled>가림 ON</button>
     <button class="ctrl warn" id="markBtn" disabled>기준점 저장</button>
     <button class="ctrl warn" id="checkBtn" disabled>복귀 오차 확인</button>
   </div>
+  <canvas id="capPreview" width="320" height="240"></canvas>
 </div>
 
 <div id="fallback">
@@ -96,10 +104,13 @@
 <script type="module">
 import * as THREE from 'three';
 import { ARButton } from 'three/addons/webxr/ARButton.js';
+import { OnnxYoloDetector, labelKo } from './js/detector.js';
 
 const statusEl = document.querySelector('#status');
 const metricsEl = document.querySelector('#metrics');
 const messageEl = document.querySelector('#message');
+const occBtn = document.querySelector('#occBtn');
+const capPreview = document.querySelector('#capPreview');
 const scanBtn = document.querySelector('#scanBtn');
 const newRoundBtn = document.querySelector('#newRoundBtn');
 const extendBtn = document.querySelector('#extendBtn');
@@ -135,6 +146,43 @@ const MIN_CANDIDATE_SPACING = 0.22;
 const DETECT_MAX_DISTANCE_M = 5.0;
 const DETECT_MAX_ANGLE_DEG = 12.0;
 
+// --- depth-sensing occlusion ---
+const OCCLUSION_BIAS_M = 0.07;
+let glBinding = null;
+let depthUsage = 'none', depthFormat = null;
+let occlusionEnabled = true;
+let hasDepthFrame = false;
+// Shared across all camouflage materials so one per-frame update reaches every mesh.
+const depthTexWrapper = new THREE.Texture();
+const depthUniforms = {
+  uDepthTexture:    { value: null },
+  uDepthUvTransform:{ value: new THREE.Matrix4() },
+  uRawValueToMeters:{ value: 1.0 },
+  uDepthIsFloat:    { value: 0.0 },
+  uDepthPackRG:     { value: 0.0 }, // 0: luminance-alpha packing (.ra), 1: RG packing — console-tunable via __xrDepth
+  uDepthFlipY:      { value: 0.0 },
+  uOcclusionOn:     { value: 0.0 },
+  uDepthResolution: { value: new THREE.Vector2(1, 1) },
+};
+window.__xrDepth = depthUniforms; // field-debug escape hatch
+
+// --- object detection (YOLO26n via onnxruntime-web) ---
+const DETECT_MAPPING_INTERVAL_MS = 1000;
+const DETECT_HUNT_INTERVAL_MS = 2500;
+const OBJ_MIN_SCORE = 0.5;
+const OBJ_MERGE_DIST_M = 0.75;
+const OBJ_RAY_MAX_ANGLE_DEG = 12;
+const OBJ_NEAR_HIDE_DIST_M = 0.7;
+const OBJ_IGNORE = new Set(['person']);
+let detector = null;
+let detectorState = '로딩중';
+let cameraAccessOk = false;
+let detectBusy = false, lastDetectTime = 0, lastInferMs = 0;
+let detectedObjects = []; // {label, pos:Vector3, score}
+let captureGL = null;     // {readFbo, drawFbo, rbo, w, h, buf}
+let lastCapture = null;   // {imageData, dets} for the debug preview
+let showPreview = false;
+
 init();
 
 async function init() {
@@ -168,7 +216,19 @@ async function init() {
   extendBtn.addEventListener('click', ev => { ev.stopPropagation(); startMapping(20, false); });
   markBtn.addEventListener('click', ev => { ev.stopPropagation(); saveCheckpoint(); });
   checkBtn.addEventListener('click', ev => { ev.stopPropagation(); checkReturnError(); });
+  occBtn.addEventListener('click', ev => {
+    ev.stopPropagation();
+    occlusionEnabled = !occlusionEnabled;
+    occBtn.textContent = occlusionEnabled ? '가림 ON' : '가림 OFF';
+  });
+  metricsEl.addEventListener('click', () => {
+    showPreview = !showPreview;
+    capPreview.style.display = showPreview && lastCapture ? 'block' : 'none';
+    if (showPreview) drawCapturePreview();
+  });
   addEventListener('resize', onResize);
+
+  initDetector();
 
   const supported = !!navigator.xr &&
     await navigator.xr.isSessionSupported('immersive-ar').catch(()=>false);
@@ -183,8 +243,12 @@ async function init() {
 
   const arButton = ARButton.createButton(renderer, {
     requiredFeatures:['hit-test'],
-    optionalFeatures:['anchors','dom-overlay','local-floor'],
-    domOverlay:{root:document.body}
+    optionalFeatures:['anchors','dom-overlay','local-floor','depth-sensing','camera-access'],
+    domOverlay:{root:document.body},
+    depthSensing:{
+      usagePreference:['gpu-optimized','cpu-optimized'],
+      dataFormatPreference:['luminance-alpha','float32']
+    }
   });
   document.body.appendChild(arButton);
 
@@ -209,16 +273,38 @@ async function onSessionStart() {
   lastReturnError = null;
   scans = 0;
   misses = 0;
+  detectedObjects = [];
+  detectBusy = false;
+  lastDetectTime = 0;
+  cameraAccessOk = session.enabledFeatures?.includes('camera-access') ?? false;
   clearTarget();
 
   try { localSpace = await session.requestReferenceSpace('local'); }
   catch { localSpace = renderer.xr.getReferenceSpace(); }
+
+  // three r180 auto-renders its own depth-sensing occluder mesh (Quest-oriented shader that
+  // misreads Android's luminance-alpha packing). Disable it — occlusion is done by our
+  // shader injection on the ninja materials, which also gives us a runtime toggle.
+  renderer.xr.getDepthSensingMesh = () => null;
+
+  depthUsage = 'none'; depthFormat = null; hasDepthFrame = false;
+  try {
+    depthUsage = session.depthUsage;
+    depthFormat = session.depthDataFormat;
+    depthUniforms.uDepthIsFloat.value = depthFormat === 'float32' ? 1 : 0;
+  } catch { /* depth-sensing not granted */ }
+
+  try { glBinding = renderer.xr.getBinding?.() || new XRWebGLBinding(session, renderer.getContext()); }
+  catch { glBinding = null; }
 
   scanBtn.disabled = true;
   newRoundBtn.disabled = true;
   extendBtn.disabled = false;
   markBtn.disabled = false;
   checkBtn.disabled = false;
+  occBtn.disabled = depthUsage !== 'gpu-optimized';
+  if (occBtn.disabled) { occlusionEnabled = false; occBtn.textContent = '가림 불가'; }
+  else { occlusionEnabled = true; occBtn.textContent = '가림 ON'; }
 
   startMapping(MAP_SECONDS, true);
 }
@@ -229,8 +315,12 @@ function onSessionEnd() {
   hitTestSource = null; hitTestSourceRequested = false;
   currentHitResult = null;
   reticle.visible = false;
+  glBinding = null;
+  captureGL = null; // GL objects die with the XR context; recreate next session
+  depthUsage = 'none'; hasDepthFrame = false;
+  depthUniforms.uOcclusionOn.value = 0;
   clearTarget();
-  [scanBtn,newRoundBtn,extendBtn,markBtn,checkBtn].forEach(b=>b.disabled=true);
+  [scanBtn,newRoundBtn,extendBtn,markBtn,checkBtn,occBtn].forEach(b=>b.disabled=true);
   statusEl.textContent = 'AR 세션 종료';
   messageEl.textContent = 'START AR을 눌러 다시 시작하세요.';
 }
@@ -269,7 +359,10 @@ function render(time, frame) {
 
   if (session && !hitTestSourceRequested) requestHitTestSource();
 
-  updateViewerPose(frame);
+  const viewerPose = localSpace ? frame.getViewerPose(localSpace) : null;
+  updateViewerPose(viewerPose);
+  updateDepthOcclusion(viewerPose);
+  maybeCaptureAndDetect(time, viewerPose);
   updateHitTest(frame, time);
   updateTargetAnchor(frame);
 
@@ -283,9 +376,7 @@ function render(time, frame) {
   renderer.render(scene,camera);
 }
 
-function updateViewerPose(frame) {
-  if (!localSpace) return;
-  const pose = frame.getViewerPose(localSpace);
+function updateViewerPose(pose) {
   if (!pose) return;
 
   const p = pose.transform.position;
@@ -379,10 +470,20 @@ function hideNewTarget() {
     let score = Math.random();
     if (dist >= 1.0 && dist <= 8.0) score += 2;
     if (angle >= 25) score += 1.5;
-    return {c, score, dist, angle};
+
+    // Detected real objects make good hiding spots: bonus for candidates next to one,
+    // extra if the candidate sits on the far side of the object from the viewer ("behind").
+    let nearObj = nearestDetectedObject(p, OBJ_NEAR_HIDE_DIST_M);
+    if (nearObj) {
+      score += 2.5;
+      const behind = p.clone().sub(nearObj.pos).dot(nearObj.pos.clone().sub(viewerPos)) > 0;
+      if (behind) score += 1.0;
+    }
+    return {c, score, dist, angle, nearObj};
   }).sort((a,b)=>b.score-a.score);
 
   const chosen = ranked[0].c;
+  const chosenNearObj = ranked[0].nearObj;
   const obj = createNinja(0.13); // camouflage opacity
 
   // Keep position from hit test but force upright orientation for game readability.
@@ -397,7 +498,8 @@ function hideNewTarget() {
     anchor: null,
     position: p.clone(),
     found: false,
-    mode: 'local-space'
+    mode: 'local-space',
+    nearLabel: chosenNearObj ? labelKo(chosenNearObj.label) : null
   };
 
   phase = 'hunt';
@@ -431,7 +533,13 @@ function triggerScan() {
   } else {
     misses++;
     statusEl.textContent = 'NO SIGNAL';
-    messageEl.textContent = '여기는 아닙니다. 다른 위치로 이동하거나 방향을 바꿔 다시 시도하세요.';
+    let hint = '';
+    if (misses >= 2) {
+      const nearNow = nearestDetectedObject(target.position, 1.2);
+      if (nearNow) hint = ` 힌트: ${labelKo(nearNow.label)} 근처에서 미세한 신호가 잡힙니다.`;
+      else if (target.nearLabel) hint = ` 힌트: ${target.nearLabel} 근처에서 미세한 신호가 잡힙니다.`;
+    }
+    messageEl.textContent = '여기는 아닙니다. 다른 위치로 이동하거나 방향을 바꿔 다시 시도하세요.' + hint;
     setTimeout(() => {
       if (phase === 'hunt') statusEl.textContent = 'Ninja 탐색 중';
     }, 900);
@@ -454,7 +562,8 @@ function revealTarget() {
 
   scanBtn.disabled = true;
   statusEl.textContent = 'DETECTED!';
-  messageEl.textContent = '발견 성공. 다시 숨기기를 누르면 같은 스캔 데이터에서 새 위치로 시작합니다.';
+  messageEl.textContent = (target.nearLabel ? `${target.nearLabel} 근처에 숨어 있었습니다! ` : '발견 성공. ')
+    + '다시 숨기기를 누르면 같은 스캔 데이터에서 새 위치로 시작합니다.';
 }
 
 function saveCheckpoint() {
@@ -490,6 +599,232 @@ function updateTargetAnchor(frame) {
   target.object.matrix.fromArray(pose.transform.matrix);
 }
 
+// ---------- depth-sensing occlusion ----------
+
+function updateDepthOcclusion(viewerPose) {
+  hasDepthFrame = false;
+  if (depthUsage !== 'gpu-optimized' || !viewerPose || !glBinding || !session) {
+    depthUniforms.uOcclusionOn.value = 0;
+    return;
+  }
+  let info = null;
+  try { info = glBinding.getDepthInformation(viewerPose.views[0]); } catch {}
+  if (!info || !info.texture) { depthUniforms.uOcclusionOn.value = 0; return; }
+
+  hasDepthFrame = true;
+  depthUniforms.uRawValueToMeters.value = info.rawValueToMeters;
+  depthUniforms.uDepthUvTransform.value.fromArray(info.normDepthBufferFromNormView.matrix);
+  const baseLayer = session.renderState.baseLayer;
+  if (baseLayer) depthUniforms.uDepthResolution.value.set(baseLayer.framebufferWidth, baseLayer.framebufferHeight);
+  // The depth texture is a raw WebGLTexture owned by the browser; splice it into a three
+  // Texture wrapper so material uniforms can bind it without three trying to upload it.
+  renderer.properties.get(depthTexWrapper).__webglTexture = info.texture;
+  depthUniforms.uDepthTexture.value = depthTexWrapper;
+  depthUniforms.uOcclusionOn.value = occlusionEnabled ? 1 : 0;
+}
+
+function applyOcclusionShader(material) {
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, depthUniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D uDepthTexture;
+        uniform mat4 uDepthUvTransform;
+        uniform float uRawValueToMeters;
+        uniform float uDepthIsFloat;
+        uniform float uDepthPackRG;
+        uniform float uDepthFlipY;
+        uniform float uOcclusionOn;
+        uniform vec2 uDepthResolution;`)
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+        if (uOcclusionOn > 0.5) {
+          vec2 screenUv = gl_FragCoord.xy / uDepthResolution;
+          if (uDepthFlipY > 0.5) screenUv.y = 1.0 - screenUv.y;
+          vec2 depthUv = (uDepthUvTransform * vec4(screenUv, 0.0, 1.0)).xy;
+          if (depthUv.x >= 0.0 && depthUv.x <= 1.0 && depthUv.y >= 0.0 && depthUv.y <= 1.0) {
+            vec4 t = texture2D(uDepthTexture, depthUv);
+            // luminance-alpha: 16-bit value packed as low byte in L(.r), high byte in A(.a)
+            float raw = (uDepthIsFloat > 0.5)
+              ? t.r
+              : dot(mix(t.ra, t.rg, uDepthPackRG), vec2(255.0, 65280.0));
+            float realDepthM = raw * uRawValueToMeters;
+            float fragDepthM = vViewPosition.z;
+            if (realDepthM > 0.01 && realDepthM + ${OCCLUSION_BIAS_M.toFixed(3)} < fragDepthM) discard;
+          }
+        }`);
+  };
+  return material;
+}
+
+// ---------- object detection ----------
+
+async function initDetector() {
+  try {
+    detector = new OnnxYoloDetector({ modelUrl: 'models/yolo26n.onnx' });
+    await detector.init();
+    detectorState = `준비됨(${detector.backend})`;
+  } catch (err) {
+    console.warn('detector init failed:', err);
+    detector = null;
+    detectorState = '실패(감지 비활성)';
+  }
+}
+
+function maybeCaptureAndDetect(time, viewerPose) {
+  if (!detector || detectBusy || !viewerPose || !cameraAccessOk || !glBinding) return;
+  if (phase !== 'mapping' && phase !== 'hunt') return;
+  const interval = phase === 'mapping' ? DETECT_MAPPING_INTERVAL_MS : DETECT_HUNT_INTERVAL_MS;
+  if (time - lastDetectTime < interval) return;
+
+  const view = viewerPose.views[0];
+  if (!view.camera) return;
+  const imageData = grabCameraImage(view);
+  if (!imageData) return;
+
+  lastDetectTime = time;
+  detectBusy = true;
+  // Capture the pose alongside the frame: detections are projected with the matrices from
+  // the moment the image was taken, so inference (or a future server round-trip) latency
+  // does not skew the 3D placement.
+  const projInv = new THREE.Matrix4().fromArray(view.projectionMatrix).invert();
+  const camWorld = new THREE.Matrix4().fromArray(view.transform.matrix);
+
+  detector.detect(imageData)
+    .then(dets => {
+      lastInferMs = detector.lastInferMs || 0;
+      lastCapture = { imageData, dets };
+      if (showPreview) drawCapturePreview();
+      handleDetections(dets, projInv, camWorld, imageData.width, imageData.height);
+    })
+    .catch(err => console.warn('detect failed:', err))
+    .finally(() => { detectBusy = false; });
+}
+
+function grabCameraImage(view) {
+  const gl = renderer.getContext();
+  let camTex = null;
+  try { camTex = glBinding.getCameraImage(view.camera); } catch {}
+  if (!camTex) return null;
+
+  const cw = view.camera.width, ch = view.camera.height;
+  const scale = Math.min(1, 640 / Math.max(cw, ch));
+  const w = Math.max(2, Math.round(cw * scale));
+  const h = Math.max(2, Math.round(ch * scale));
+
+  if (!captureGL || captureGL.w !== w || captureGL.h !== h) {
+    const readFbo = gl.createFramebuffer();
+    const drawFbo = gl.createFramebuffer();
+    const rbo = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, rbo);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, w, h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, drawFbo);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rbo);
+    captureGL = { readFbo, drawFbo, rbo, w, h, buf: new Uint8Array(w * h * 4) };
+  }
+  const cap = captureGL;
+
+  // Save/restore the exact bindings we touch instead of renderer.resetState(): resetState
+  // clears three's tracked state without rebinding the XR framebuffer, which can blank the frame.
+  const prevDrawFb = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING);
+  const prevReadFb = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+  let ok = false;
+  try {
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, cap.readFbo);
+    gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, camTex, 0);
+    if (gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE) {
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, cap.drawFbo);
+      gl.blitFramebuffer(0, 0, cw, ch, 0, 0, cap.w, cap.h, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, cap.drawFbo);
+      gl.readPixels(0, 0, cap.w, cap.h, gl.RGBA, gl.UNSIGNED_BYTE, cap.buf);
+      ok = true;
+    }
+    // Detach so the browser-owned camera texture is not left referenced by our FBO.
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, cap.readFbo);
+    gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+  } finally {
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, prevDrawFb);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, prevReadFb);
+  }
+  if (!ok) return null;
+
+  // readPixels rows are bottom-up; flip to a top-down ImageData.
+  const { w: W, h: H, buf } = cap;
+  const flipped = new Uint8ClampedArray(W * H * 4);
+  const rowBytes = W * 4;
+  for (let y = 0; y < H; y++) {
+    flipped.set(buf.subarray((H - 1 - y) * rowBytes, (H - y) * rowBytes), y * rowBytes);
+  }
+  return new ImageData(flipped, W, H);
+}
+
+function handleDetections(dets, projInv, camWorld, imgW, imgH) {
+  const origin = new THREE.Vector3().setFromMatrixPosition(camWorld);
+  const maxAngleRad = THREE.MathUtils.degToRad(OBJ_RAY_MAX_ANGLE_DEG);
+
+  for (const det of dets) {
+    if (det.score < OBJ_MIN_SCORE || OBJ_IGNORE.has(det.label)) continue;
+
+    // NOTE: assumes the camera image is aligned with the XRView projection. Strictly the
+    // camera FOV can differ slightly from the view FOV; the candidate-snapping tolerance
+    // below absorbs that error for this feasibility test.
+    const u = (det.x1 + det.x2) / 2 / imgW;
+    const v = (det.y1 + det.y2) / 2 / imgH;
+    const p = new THREE.Vector3(u * 2 - 1, 1 - v * 2, 0.5).applyMatrix4(projInv).applyMatrix4(camWorld);
+    const dir = p.sub(origin).normalize();
+
+    // Snap the ray to the nearest known surface candidate to get a 3D position.
+    let best = null, bestAngle = maxAngleRad;
+    for (const c of allCandidates) {
+      const cp = new THREE.Vector3(...c.pos);
+      const toC = cp.clone().sub(origin);
+      const dist = toC.length();
+      if (dist < 0.4 || dist > 10) continue;
+      const angle = dir.angleTo(toC.normalize());
+      if (angle < bestAngle) { bestAngle = angle; best = cp; }
+    }
+    if (best) mergeDetectedObject(det.label, best, det.score);
+  }
+}
+
+function mergeDetectedObject(label, pos, score) {
+  for (const o of detectedObjects) {
+    if (o.label === label && o.pos.distanceTo(pos) < OBJ_MERGE_DIST_M) {
+      o.pos.lerp(pos, 0.3);
+      o.score = Math.max(o.score, score);
+      return;
+    }
+  }
+  detectedObjects.push({ label, pos: pos.clone(), score });
+  if (detectedObjects.length > 30) detectedObjects.shift();
+}
+
+function nearestDetectedObject(pos, maxDist) {
+  let best = null, bestDist = maxDist;
+  for (const o of detectedObjects) {
+    const d = o.pos.distanceTo(pos);
+    if (d < bestDist) { bestDist = d; best = o; }
+  }
+  return best;
+}
+
+function drawCapturePreview() {
+  if (!lastCapture) return;
+  const { imageData, dets } = lastCapture;
+  capPreview.width = imageData.width;
+  capPreview.height = imageData.height;
+  const ctx = capPreview.getContext('2d');
+  ctx.putImageData(imageData, 0, 0);
+  ctx.lineWidth = 2;
+  ctx.font = '14px sans-serif';
+  for (const d of dets) {
+    ctx.strokeStyle = '#00ff88';
+    ctx.fillStyle = '#00ff88';
+    ctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+    ctx.fillText(`${d.label} ${(d.score * 100) | 0}%`, d.x1 + 2, Math.max(12, d.y1 - 4));
+  }
+  capPreview.style.display = showPreview ? 'block' : 'none';
+}
+
 function updateMetrics() {
   if (!viewerPoseCache) {
     metricsEl.textContent = 'pose: tracking 대기 중';
@@ -499,13 +834,22 @@ function updateMetrics() {
   const mappingLeft = phase === 'mapping' ? Math.max(0,(mappingEnd-performance.now())/1000) : 0;
   const poolCount = candidates.length >= 5 ? candidates.length : allCandidates.length;
 
+  const objSummary = detectedObjects.length
+    ? ` (${[...detectedObjects.reduce((m,o)=>m.set(o.label,(m.get(o.label)||0)+1), new Map())]
+        .slice(0,3).map(([l,n])=>`${labelKo(l)}${n>1?'×'+n:''}`).join(', ')})`
+    : '';
+
   metricsEl.textContent =
 `viewer (m)  x ${p.x.toFixed(2)}  y ${p.y.toFixed(2)}  z ${p.z.toFixed(2)}
 이동경로 ${pathDistance.toFixed(1)}m   최대변위 ${maxDisplacement.toFixed(1)}m
 표면후보 ${poolCount}   hit-test ${reticle.visible ? 'FOUND' : 'searching'}
+depth ${depthUsage}${depthUsage==='gpu-optimized' ? (hasDepthFrame ? ' ●' : ' ○') : ''}   가림 ${occlusionEnabled ? 'ON' : 'OFF'}
+카메라 ${cameraAccessOk ? 'OK' : '미지원'}   모델 ${detectorState}${lastInferMs ? ` ${lastInferMs.toFixed(0)}ms` : ''}
+감지물체 ${detectedObjects.length}${objSummary}
 phase ${phase}${phase==='mapping' ? ` (${mappingLeft.toFixed(1)}s)` : ''}
 scan ${scans}회 / miss ${misses}회
-복귀오차 ${lastReturnError ? `${lastReturnError.posErr.toFixed(2)}m, ${lastReturnError.angleErr.toFixed(1)}°` : '-'}`;
+복귀오차 ${lastReturnError ? `${lastReturnError.posErr.toFixed(2)}m, ${lastReturnError.angleErr.toFixed(1)}°` : '-'}
+(이 카드를 탭하면 캡처 미리보기 토글)`;
 }
 
 function clearTarget() {
@@ -539,9 +883,9 @@ function makeReticle() {
 
 function createNinja(opacity=.13) {
   const g = new THREE.Group();
-  const mat = (color) => new THREE.MeshStandardMaterial({
+  const mat = (color) => applyOcclusionShader(new THREE.MeshStandardMaterial({
     color, roughness:.8, transparent:true, opacity, depthWrite:opacity>.5
-  });
+  }));
   const orange=mat(0xff7a00), black=mat(0x171717), skin=mat(0xffc48a),
         white=mat(0xffffff), eye=mat(0x111111), hair=mat(0xf0c832);
 

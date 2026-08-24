@@ -1,8 +1,49 @@
-# WebXR Hidden Ninja v2
+# WebXR Hidden Ninja v3
 
 이 버전은 **밖에서 짧은 시간에 WebXR/ARCore feasibility를 최대한 많이 확인**하기 위한 테스트용입니다.
 
-## 이번 버전에 추가된 기능
+## v3에 추가된 기능 (Object Detection + Occlusion)
+
+- **Depth-sensing occlusion**: WebXR `depth-sensing`(ARCore Depth API)으로 닌자가 실제 물체 뒤에 있으면 **실시간으로 가려짐**. `가림 ON/OFF` 버튼으로 효과 비교 가능. HUD의 `depth` 줄에서 지원 여부 확인 (`gpu-optimized ●` = 정상 작동)
+- **YOLO26n object detection (브라우저 내)**: `camera-access`(WebXR Raw Camera Access)로 AR 카메라 프레임을 받아 onnxruntime-web(WebGPU→WASM 폴백)으로 스캔 중 1초에 1회, 탐색 중 2.5초에 1회 물체 감지
+- **물체 기반 숨기**: 감지된 물체(의자·백팩 등, 사람 제외)의 3D 위치를 표면 후보에 스냅해서 저장하고, 닌자가 **물체 근처·물체 뒤쪽**에 우선적으로 숨음. 발견 시 "◯◯ 근처에 숨어 있었습니다!" 표시, 2회 이상 miss 시 "◯◯ 근처에서 신호" 힌트
+- **캡처 디버그 미리보기**: HUD의 metrics 카드를 탭하면 감지에 사용된 카메라 캡처 + bbox를 우측 상단에 표시 (프레임 방향/감지 품질 확인용)
+- **2D 테스트 모드**: `test2d.html` — AR 없이 데스크톱/폰 웹캠으로 detection만 검증 (FPS·추론시간·백엔드 표시)
+
+### 모델 준비
+
+`models/yolo26n.onnx`가 필요합니다 (약 5MB, FP16 내부 연산 / float32 입출력, end2end NMS-free, 출력 `[1,300,6]`).
+
+- 간단: [flotek/yolo26n-onnx](https://huggingface.co/flotek/yolo26n-onnx)에서 `model.onnx`를 받아 `models/yolo26n.onnx`로 저장
+- 직접 변환: `pip install ultralytics` 후
+  ```
+  yolo export model=yolo26n.pt format=onnx half=True imgsz=640 simplify=True
+  ```
+- detector는 YOLOv8 계열 raw 출력(`[1,84,8400]`)도 자동 인식하므로 `test2d.html?model=경로.onnx`로 다른 모델 비교 가능 (RF-DETR 등 비 YOLO 계열은 별도 파서 필요)
+
+### 검증 순서
+
+1. **데스크톱**: `python -m http.server 8000` → `http://localhost:8000/test2d.html` → 카메라 시작 → bbox 확인, output `[1,300,6]`·backend(webgpu/wasm)·추론 ms 확인
+2. **폰 브라우저**(AR 없이): 같은 페이지를 HTTPS로 열어 모바일 추론 FPS 측정
+3. **폰 AR**: `index.html` → START AR → HUD에서 `depth`, `카메라`, `모델` 상태 확인 → 발견한 닌자를 책상/기둥 뒤에서 바라보며 가려짐 확인(`가림` 토글로 비교) → 스캔 중 의자·가방을 비춰 `감지물체` 증가 확인
+
+### v3에서 추가로 기록할 것
+
+- depth 상태 (`gpu-optimized ●` 인가) / 가림 ON일 때 닌자가 실제 물체 뒤에서 사라지는가 (가장자리 품질 포함)
+- 모델 백엔드(webgpu/wasm)와 추론 시간(ms)
+- 감지물체 개수와 라벨이 실제 물체와 맞는가 / 미리보기에서 캡처 방향이 올바른가 (뒤집힘 여부)
+- 물체 근처 숨기·힌트가 실제 위치와 맞는가
+
+### 서버 추론으로 옮기기 (SAM2.1 / YOLOE / Track 등)
+
+게임 코드는 `js/detector.js`의 계약(`detect(이미지) → [{x1,y1,x2,y2,score,label}]`)만 사용하므로,
+`OnnxYoloDetector`를 `RemoteDetector`(JPEG POST → JSON 응답)로 바꾸면 무거운 모델을 Python 서버에서 돌릴 수 있습니다.
+
+- 서버는 HTTPS(WSS)여야 함 — 로컬 서버라면 ngrok/cloudflared 터널 권장
+- 감지 결과의 3D 투영에는 **캡처 시점의 pose**를 사용하도록 이미 설계되어 있어 왕복 지연(100~300ms)이 정합성에 영향 없음
+- `test2d.html?remote=https://서버주소/detect` 로 서버 연동을 AR 없이 먼저 검증 가능
+
+## v2 기능
 
 - Android WebXR `immersive-ar`
 - ARCore 기반 6DoF viewer pose 확인
@@ -76,7 +117,8 @@
 현재 SCAN 버튼이 나중의 `주먹 → 가위 → 주먹` 트리거를 대신합니다.
 
 즉 지금 검증하는 것은:
-`ARCore/WebXR 공간추적 + 숨기기 + 이동 탐색 + 발견판정`
+`ARCore/WebXR 공간추적 + depth occlusion + object detection 기반 숨기 + 이동 탐색 + 발견판정`
 입니다.
 
-이게 안정적이면 다음 단계에서 gesture trigger를 붙이면 됩니다.
+v3에서 camera-access로 카메라 프레임 파이프라인이 이미 뚫려 있으므로,
+다음 단계의 gesture trigger는 같은 프레임을 MediaPipe hand landmarker에 넣으면 됩니다.
