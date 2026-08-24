@@ -27,3 +27,22 @@ test('formatMetrics preserves the existing HUD measurements', () => {
       + '복귀오차 0.12m, 4.6°',
   );
 });
+
+test('formatMetrics flags depth occlusion only when it is active', () => {
+  const base = {
+    viewerPosition: [0, 0, 0],
+    pathDistance: 0,
+    maxDisplacement: 0,
+    poolCount: 7,
+    hitTestFound: true,
+    phase: 'hunt',
+    mappingLeft: 0,
+    scans: 0,
+    misses: 0,
+    lastReturnError: null,
+  };
+
+  assert.match(formatMetrics({ ...base, occlusionOn: true }), /표면후보 7   hit-test FOUND   가림 ON/);
+  assert.doesNotMatch(formatMetrics({ ...base, occlusionOn: false }), /가림/);
+  assert.doesNotMatch(formatMetrics(base), /가림/);
+});

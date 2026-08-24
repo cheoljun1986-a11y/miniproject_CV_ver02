@@ -9,11 +9,13 @@ export function formatMetrics({
   scans,
   misses,
   lastReturnError,
+  occlusionOn = false,
 }) {
   const [x, y, z] = viewerPosition;
+  const hitTestLine = `표면후보 ${poolCount}   hit-test ${hitTestFound ? 'FOUND' : 'searching'}${occlusionOn ? '   가림 ON' : ''}`;
   return `viewer (m)  x ${x.toFixed(2)}  y ${y.toFixed(2)}  z ${z.toFixed(2)}
 이동경로 ${pathDistance.toFixed(1)}m   최대변위 ${maxDisplacement.toFixed(1)}m
-표면후보 ${poolCount}   hit-test ${hitTestFound ? 'FOUND' : 'searching'}
+${hitTestLine}
 phase ${phase}${phase === 'mapping' ? ` (${mappingLeft.toFixed(1)}s)` : ''}
 scan ${scans}회 / miss ${misses}회
 복귀오차 ${lastReturnError ? `${lastReturnError.posErr.toFixed(2)}m, ${lastReturnError.angleErr.toFixed(1)}°` : '-'}`;
