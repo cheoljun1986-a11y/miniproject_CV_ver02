@@ -165,6 +165,15 @@ export class OnnxYoloDetector {
         return out;
       } catch (err) { lastErr = err; }
     }
+    // webgpu can create a session yet still fail at run time (e.g. fp16 Resize has no JSEP
+    // kernel). Rebuild on wasm once and retry before giving up.
+    if (this.backend === 'webgpu') {
+      console.warn('webgpu run failed, rebuilding session on wasm:', lastErr?.message || lastErr);
+      this.session = await this.ort.InferenceSession.create(this.modelUrl, { executionProviders: ['wasm'] });
+      this.backend = 'wasm';
+      this.inputDtype = null;
+      return this.run(chw);
+    }
     throw lastErr;
   }
 

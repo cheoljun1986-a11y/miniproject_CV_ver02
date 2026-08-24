@@ -12,13 +12,14 @@
 
 ### 모델 준비
 
-`models/yolo26n.onnx`가 필요합니다 (약 5MB, FP16 내부 연산 / float32 입출력, end2end NMS-free, 출력 `[1,300,6]`).
+`models/yolo26n.onnx`가 필요합니다 (**FP32**, 약 10MB, end2end NMS-free, 입력 `images` [1,3,640,640], 출력 `[1,300,6]`).
 
-- 간단: [flotek/yolo26n-onnx](https://huggingface.co/flotek/yolo26n-onnx)에서 `model.onnx`를 받아 `models/yolo26n.onnx`로 저장
+- 간단: [zwh20081/yolo26-onnx](https://huggingface.co/zwh20081/yolo26-onnx)에서 `yolo26n.onnx`를 받아 `models/yolo26n.onnx`로 저장
 - 직접 변환: `pip install ultralytics` 후
   ```
-  yolo export model=yolo26n.pt format=onnx half=True imgsz=640 simplify=True
+  yolo export model=yolo26n.pt format=onnx imgsz=640 simplify=True
   ```
+- **주의: FP16 export는 쓰지 마세요** — onnxruntime-web WebGPU(JSEP)에서 fp16 `Resize` 커널이 없어 추론이 실패합니다(세션 생성은 성공해서 뒤늦게 터짐). detector가 이 경우 WASM으로 자동 폴백하지만 훨씬 느립니다. 비교용 FP16 사본은 `models/yolo26n_fp16.onnx`로 남겨둠 (`test2d.html?model=models/yolo26n_fp16.onnx`)
 - detector는 YOLOv8 계열 raw 출력(`[1,84,8400]`)도 자동 인식하므로 `test2d.html?model=경로.onnx`로 다른 모델 비교 가능 (RF-DETR 등 비 YOLO 계열은 별도 파서 필요)
 
 ### 검증 순서
