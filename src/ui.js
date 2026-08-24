@@ -10,12 +10,18 @@ export function formatMetrics({
   misses,
   lastReturnError,
   occlusionOn = false,
+  occlusionMode = null,
+  occlusionTriangles = 0,
   pointCount = null,
   depthUsage = null,
   depthDataFormat = null,
 }) {
   const [x, y, z] = viewerPosition;
-  const occlusionTag = occlusionOn ? '   가림 ON' : '';
+  const occlusionTag = occlusionMode === 'cpu'
+    ? `   가림 CPU · 삼각형 ${occlusionTriangles}`
+    : occlusionMode === 'gpu'
+      ? '   가림 GPU'
+      : occlusionOn ? '   가림 ON' : '';
   const pointTag = pointCount === null ? '' : `   점 ${pointCount}`;
   const hitTestLine = `표면후보 ${poolCount}   hit-test ${hitTestFound ? 'FOUND' : 'searching'}${occlusionTag}${pointTag}`;
   return `viewer (m)  x ${x.toFixed(2)}  y ${y.toFixed(2)}  z ${z.toFixed(2)}

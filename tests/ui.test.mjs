@@ -104,3 +104,22 @@ test('formatMetrics reports unavailable when the XR session has no depth configu
   assert.match(output, /depth usage unavailable\n/);
   assert.match(output, /depth format -/);
 });
+
+test('formatMetrics identifies CPU occlusion and reports its live triangle count', () => {
+  const output = formatMetrics({
+    viewerPosition: [0, 0, 0],
+    pathDistance: 0,
+    maxDisplacement: 0,
+    poolCount: 7,
+    hitTestFound: true,
+    phase: 'hunt',
+    mappingLeft: 0,
+    scans: 0,
+    misses: 0,
+    lastReturnError: null,
+    occlusionMode: 'cpu',
+    occlusionTriangles: 321,
+  });
+
+  assert.match(output, /가림 CPU · 삼각형 321/);
+});

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ARButton } from 'three/addons/webxr/ARButton.js';
 
+import { APP_MODES, depthUsageForMode, resolveAppMode } from './app-mode.js';
 import {
   HORIZONTAL_SURFACE_THRESHOLD,
   MAP_SECONDS,
@@ -12,6 +13,7 @@ import {
   VOXEL_SIZE_M,
   VOXEL_SOLID_MIN_HITS,
 } from './config.js';
+import { CpuDepthOccluder } from './cpu-depth-occluder.js';
 import { DepthCloud } from './depth-cloud.js';
 import { NinjaGame } from './ninja-game.js';
 import * as ninjaModel from './ninja-model.js';
@@ -22,9 +24,12 @@ import { createUI, formatMetrics } from './ui.js';
 import { VoxelMap } from './voxel-map.js';
 import { XRSessionController } from './xr-session.js';
 
-// ?depth=cloud reconstructs a live point cloud from cpu-optimized depth instead
-// of running the gpu-optimized occluder (a session can only use one depth mode).
-const CLOUD_MODE = new URLSearchParams(location.search).get('depth') === 'cloud';
+// A WebXR session can use only one depth mode. Keep each experiment isolated
+// so point-cloud reconstruction and dynamic occlusion never compete for CPU.
+const APP_MODE = resolveAppMode(location.search);
+const CLOUD_MODE = APP_MODE === APP_MODES.CLOUD;
+const CPU_OCCLUSION_MODE = APP_MODE === APP_MODES.CPU_OCCLUSION;
+const GPU_OCCLUSION_MODE = APP_MODE === APP_MODES.GPU_OCCLUSION;
 
 const ui = createUI();
 let scene;
@@ -37,6 +42,7 @@ let xrSession;
 let game;
 let depthCloud = null; // point-cloud reconstruction (CLOUD_MODE)
 let occluder = null; // depth-sensing occlusion mesh (real world hides the ninja)
+let cpuDepthOccluder = null;
 let voxelMap = null;
 let playerTrail = null;
 let operatorView = null;
@@ -108,7 +114,9 @@ async function init() {
 
   ui.setStatus(CLOUD_MODE
     ? 'WebXR AR 지원됨 (공간 복원 모드) — START AR을 누르세요'
-    : 'WebXR AR 지원됨 — START AR을 누르세요');
+    : CPU_OCCLUSION_MODE
+      ? 'WebXR AR 지원됨 (CPU 깊이 가림 모드) — START AR을 누르세요'
+      : 'WebXR AR 지원됨 — START AR을 누르세요');
   if (CLOUD_MODE) {
     voxelMap = new VoxelMap({
       voxelSize: VOXEL_SIZE_M,
@@ -133,15 +141,17 @@ async function init() {
       console.error('Operator view unavailable:', error);
       operatorView = null;
     }
+  } else if (CPU_OCCLUSION_MODE) {
+    cpuDepthOccluder = new CpuDepthOccluder({ scene });
   }
 
   const arButton = ARButton.createButton(renderer, {
     requiredFeatures: ['hit-test'],
     optionalFeatures: ['anchors', 'dom-overlay', 'local-floor', 'depth-sensing'],
-    // gpu-optimized feeds three's built-in occluder mesh; cpu-optimized lets us
-    // read depth per-pixel to build a point cloud. A session gets only one.
+    // gpu-optimized feeds three's built-in mesh. CPU modes let this app read
+    // samples for either point-cloud reconstruction or our dynamic occluder.
     depthSensing: {
-      usagePreference: CLOUD_MODE ? ['cpu-optimized'] : ['gpu-optimized'],
+      usagePreference: [depthUsageForMode(APP_MODE)],
       dataFormatPreference: ['luminance-alpha', 'float32'],
     },
     domOverlay: { root: document.body },
@@ -150,6 +160,7 @@ async function init() {
 
   renderer.xr.addEventListener('sessionstart', async () => {
     detachOccluder();
+    cpuDepthOccluder?.reset();
     depthCloud?.reset();
     voxelMap?.reset();
     playerTrail?.reset();
@@ -158,6 +169,7 @@ async function init() {
   });
   renderer.xr.addEventListener('sessionend', () => {
     detachOccluder();
+    cpuDepthOccluder?.reset();
     depthCloud?.reset();
     voxelMap?.reset();
     playerTrail?.reset();
@@ -208,7 +220,9 @@ function render(time, frame) {
         playerPath: playerTrail.getPoints(),
       });
     }
-  } else {
+  } else if (CPU_OCCLUSION_MODE) {
+    cpuDepthOccluder?.update(frame, xrSession.getLocalSpace(), time);
+  } else if (GPU_OCCLUSION_MODE) {
     maybeAttachOccluder();
   }
   const { viewerPose, surface } = xrSession.update(frame);
@@ -248,7 +262,10 @@ function updateMetrics(viewerPose) {
     scans: gameState.scans,
     misses: gameState.misses,
     lastReturnError: spatial.lastReturnError,
-    occlusionOn: !CLOUD_MODE && Boolean(renderer.xr.hasDepthSensing?.()),
+    occlusionMode: CPU_OCCLUSION_MODE
+      ? 'cpu'
+      : GPU_OCCLUSION_MODE && renderer.xr.hasDepthSensing?.() ? 'gpu' : null,
+    occlusionTriangles: cpuDepthOccluder?.getTriangleCount() ?? 0,
     pointCount: CLOUD_MODE
       ? (voxelMap?.getSolidCount() ? voxelMap.getSolidCount() : (depthCloud?.getCount() ?? 0))
       : null,
