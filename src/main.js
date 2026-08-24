@@ -226,6 +226,17 @@ function updateMetrics(viewerPose) {
 
   const spatial = mapper.getMetrics();
   const gameState = game.getState();
+  let depthUsage = null;
+  let depthDataFormat = null;
+  const session = xrSession.getSession();
+  if (session) {
+    try {
+      depthUsage = session.depthUsage;
+      depthDataFormat = session.depthDataFormat;
+    } catch {
+      // Access throws when depth-sensing was not enabled for this session.
+    }
+  }
   ui.setMetrics(formatMetrics({
     viewerPosition: viewerPose.position,
     pathDistance: spatial.pathDistance,
@@ -241,6 +252,8 @@ function updateMetrics(viewerPose) {
     pointCount: CLOUD_MODE
       ? (voxelMap?.getSolidCount() ? voxelMap.getSolidCount() : (depthCloud?.getCount() ?? 0))
       : null,
+    depthUsage,
+    depthDataFormat,
   }));
 }
 

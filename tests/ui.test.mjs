@@ -22,6 +22,8 @@ test('formatMetrics preserves the existing HUD measurements', () => {
     'viewer (m)  x 1.23  y 2.35  z -3.46\n'
       + '이동경로 4.6m   최대변위 3.2m\n'
       + '표면후보 7   hit-test FOUND\n'
+      + 'depth usage unavailable\n'
+      + 'depth format -\n'
       + 'phase mapping (8.8s)\n'
       + 'scan 3회 / miss 2회\n'
       + '복귀오차 0.12m, 4.6°',
@@ -63,4 +65,42 @@ test('formatMetrics shows the point-cloud count only in cloud mode', () => {
 
   assert.match(formatMetrics({ ...base, pointCount: 1234 }), /hit-test FOUND   점 1234/);
   assert.doesNotMatch(formatMetrics(base), /점 /);
+});
+
+test('formatMetrics shows the depth usage and format selected by the XR session', () => {
+  const output = formatMetrics({
+    viewerPosition: [0, 0, 0],
+    pathDistance: 0,
+    maxDisplacement: 0,
+    poolCount: 0,
+    hitTestFound: false,
+    phase: 'idle',
+    mappingLeft: 0,
+    scans: 0,
+    misses: 0,
+    lastReturnError: null,
+    depthUsage: 'gpu-optimized',
+    depthDataFormat: 'luminance-alpha',
+  });
+
+  assert.match(output, /depth usage gpu-optimized\n/);
+  assert.match(output, /depth format luminance-alpha/);
+});
+
+test('formatMetrics reports unavailable when the XR session has no depth configuration', () => {
+  const output = formatMetrics({
+    viewerPosition: [0, 0, 0],
+    pathDistance: 0,
+    maxDisplacement: 0,
+    poolCount: 0,
+    hitTestFound: false,
+    phase: 'idle',
+    mappingLeft: 0,
+    scans: 0,
+    misses: 0,
+    lastReturnError: null,
+  });
+
+  assert.match(output, /depth usage unavailable\n/);
+  assert.match(output, /depth format -/);
 });

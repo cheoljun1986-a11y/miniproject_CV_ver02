@@ -11,6 +11,8 @@ export function formatMetrics({
   lastReturnError,
   occlusionOn = false,
   pointCount = null,
+  depthUsage = null,
+  depthDataFormat = null,
 }) {
   const [x, y, z] = viewerPosition;
   const occlusionTag = occlusionOn ? '   가림 ON' : '';
@@ -19,6 +21,8 @@ export function formatMetrics({
   return `viewer (m)  x ${x.toFixed(2)}  y ${y.toFixed(2)}  z ${z.toFixed(2)}
 이동경로 ${pathDistance.toFixed(1)}m   최대변위 ${maxDisplacement.toFixed(1)}m
 ${hitTestLine}
+depth usage ${depthUsage ?? 'unavailable'}
+depth format ${depthDataFormat ?? '-'}
 phase ${phase}${phase === 'mapping' ? ` (${mappingLeft.toFixed(1)}s)` : ''}
 scan ${scans}회 / miss ${misses}회
 복귀오차 ${lastReturnError ? `${lastReturnError.posErr.toFixed(2)}m, ${lastReturnError.angleErr.toFixed(1)}°` : '-'}`;
