@@ -37,6 +37,10 @@ export function createUI(documentRoot = document) {
     scanFlash: documentRoot.querySelector('#scanFlash'),
     fallback: documentRoot.querySelector('#fallback'),
     fallbackDetail: documentRoot.querySelector('#fallbackDetail'),
+    operatorBtn: documentRoot.querySelector('#operatorBtn'),
+    operatorOverlay: documentRoot.querySelector('#operatorOverlay'),
+    operatorCanvas: documentRoot.querySelector('#operatorCanvas'),
+    operatorCloseBtn: documentRoot.querySelector('#operatorCloseBtn'),
   };
 
   function bindCommands({ onScan, onNewRound, onExtend, onMark, onCheck }) {
@@ -61,6 +65,17 @@ export function createUI(documentRoot = document) {
     elements.extend.disabled = !extend;
     elements.mark.disabled = !mark;
     elements.check.disabled = !check;
+  }
+
+  function bindOperator({ onToggle }) {
+    elements.operatorBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      onToggle(true);
+    });
+    elements.operatorCloseBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      onToggle(false);
+    });
   }
 
   function flash() {
@@ -89,5 +104,15 @@ export function createUI(documentRoot = document) {
       elements.fallback.style.display = 'flex';
     },
     flash,
+    bindOperator,
+    setOperatorButtonVisible(visible) {
+      elements.operatorBtn.style.display = visible ? '' : 'none';
+    },
+    setOperatorVisible(visible) {
+      elements.operatorOverlay.style.display = visible ? 'block' : 'none';
+    },
+    getOperatorCanvas() {
+      return elements.operatorCanvas;
+    },
   };
 }
