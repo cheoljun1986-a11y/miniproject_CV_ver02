@@ -17,8 +17,9 @@ import { depthSampleToWorld, voxelKey } from './depth-math.js';
 // coloured by height for readability. Requires the session to have been created
 // with depth-sensing in cpu-optimized usage; otherwise update() is a no-op.
 export class DepthCloud {
-  constructor({ scene }) {
+  constructor({ scene, voxelMap = null }) {
     this.scene = scene;
+    this.voxelMap = voxelMap;
     this.lastSampleTime = -Infinity;
     this.occupied = new Set();
     this.count = 0;
@@ -80,6 +81,7 @@ export class DepthCloud {
 
         const point = depthSampleToWorld(u, v, depth, invProjection, viewMatrix);
         if (!point) continue;
+        this.voxelMap?.observe(point);
         this.addPoint(point);
       }
     }
