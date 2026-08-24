@@ -17,9 +17,10 @@ import { depthSampleToWorld, voxelKey } from './depth-math.js';
 // coloured by height for readability. Requires the session to have been created
 // with depth-sensing in cpu-optimized usage; otherwise update() is a no-op.
 export class DepthCloud {
-  constructor({ scene, voxelMap = null }) {
+  constructor({ scene, voxelMap = null, renderPoints = true }) {
     this.scene = scene;
     this.voxelMap = voxelMap;
+    this.renderPoints = renderPoints;
     this.lastSampleTime = -Infinity;
     this.occupied = new Set();
     this.count = 0;
@@ -35,7 +36,9 @@ export class DepthCloud {
       new THREE.PointsMaterial({ size: 0.012, vertexColors: true, sizeAttenuation: true }),
     );
     this.points.frustumCulled = false;
-    this.scene.add(this.points);
+    // In cloud mode the operator view shows the reconstruction; the raw points
+    // are only added to the AR game scene when explicitly requested.
+    if (renderPoints) this.scene.add(this.points);
   }
 
   update(frame, localSpace, time) {

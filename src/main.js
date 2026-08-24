@@ -119,7 +119,7 @@ async function init() {
       minStep: TRAIL_MIN_STEP_M,
       maxPoints: TRAIL_MAX_POINTS,
     });
-    depthCloud = new DepthCloud({ scene, voxelMap });
+    depthCloud = new DepthCloud({ scene, voxelMap, renderPoints: false });
     try {
       operatorView = new OperatorView({ canvas: ui.getOperatorCanvas() });
       ui.setOperatorButtonVisible(true);
