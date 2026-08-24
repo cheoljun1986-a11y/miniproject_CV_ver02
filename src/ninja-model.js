@@ -81,7 +81,6 @@ export function setNinjaOpacity(root, opacity) {
     }
   });
 }
-
 export function revealNinja(root) {
   setNinjaOpacity(root, 1);
   const halo = new THREE.Mesh(
@@ -102,4 +101,3 @@ export function disposeObject(root) {
     }
   });
 }
-

@@ -27,4 +27,3 @@ test('formatMetrics preserves the existing HUD measurements', () => {
       + '복귀오차 0.12m, 4.6°',
   );
 });
-

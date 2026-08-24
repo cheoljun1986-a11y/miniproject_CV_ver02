@@ -96,4 +96,3 @@
 - [ ] Run `node --check` against each `src/*.js` module.
 - [ ] Confirm every local browser import uses a relative path and Three.js remains pinned to `0.180.0`.
 - [ ] Review `git diff --check`, `git diff --stat`, and `git status --short`.
-

@@ -89,4 +89,3 @@ test('mapping candidates produce a hidden target that can be detected', () => {
   assert.equal(game.getState().phase, 'found');
   assert.equal(sceneObjects[0].revealed, true);
 });
-

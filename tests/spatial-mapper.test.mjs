@@ -47,4 +47,3 @@ test('checkpoint error reports position and quaternion angle differences', () =>
   assert.equal(result.posErr, 0.5);
   assert.ok(Math.abs(result.angleErr - 90) < 1e-9);
 });
-

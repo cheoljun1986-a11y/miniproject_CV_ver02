@@ -146,4 +146,3 @@ function onResize() {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 }
-

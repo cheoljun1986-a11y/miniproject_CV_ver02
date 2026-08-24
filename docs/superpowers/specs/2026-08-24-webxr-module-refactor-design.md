@@ -48,4 +48,3 @@ Browser-only dependencies flow inward through `main.js`; pure rule and metric mo
 - A static integration test confirms `index.html` loads `./src/main.js` and no longer contains the inline application module.
 - Every JavaScript module passes Node syntax checking.
 - Git status is reviewed to ensure only intended files changed.
-

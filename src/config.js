@@ -6,4 +6,3 @@ export const HORIZONTAL_SURFACE_THRESHOLD = 0.62;
 export const DETECT_MAX_DISTANCE_M = 5;
 export const DETECT_MAX_ANGLE_DEG = 12;
 export const NINJA_CAMOUFLAGE_OPACITY = 0.13;
-
