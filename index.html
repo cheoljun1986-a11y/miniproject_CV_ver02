@@ -149,6 +149,7 @@ const DETECT_MAX_ANGLE_DEG = 12.0;
 // --- depth-sensing occlusion ---
 const OCCLUSION_BIAS_M = 0.07;
 let glBinding = null;
+let cpuDepthTex = null;
 let depthUsage = 'none', depthFormat = null;
 let occlusionEnabled = true;
 let hasDepthFrame = false;
@@ -174,10 +175,23 @@ const OBJ_MERGE_DIST_M = 0.75;
 const OBJ_RAY_MAX_ANGLE_DEG = 12;
 const OBJ_NEAR_HIDE_DIST_M = 0.7;
 const OBJ_IGNORE = new Set(['person']);
+// Hiding geometry: stand the ninja just past the object, nudged sideways so a sliver peeks out.
+const HIDE_BEHIND_MARGIN_M = 0.18;
+const HIDE_LATERAL_FRAC = 0.45;
+const HIDE_MIN_DIST_M = 1.0;
+const HIDE_MAX_DIST_M = 8.0;
+// With real depth occlusion the ninja can be near-opaque — it is hidden by geometry, not by
+// being faint. Without depth we fall back to the old transparency camouflage.
+const NINJA_OPACITY_OCCLUDED = 0.92;
+const NINJA_OPACITY_CAMO = 0.13;
+const NINJA_HEIGHT_M = 0.47;   // model spans roughly y 0 .. 0.47
 let detector = null;
 let detectorState = '로딩중';
 let cameraAccessOk = false;
 let detectBusy = false, lastDetectTime = 0, lastInferMs = 0;
+let lastDetRaw = 0, lastDetPlaced = 0, lastDetTotal = 0, lastDetIgnored = 0;
+let captureState = '-';        // why the last capture attempt did or did not produce a frame
+let camErrLogged = false;
 let detectedObjects = []; // {label, pos:Vector3, score}
 let captureGL = null;     // {readFbo, drawFbo, rbo, w, h, buf}
 let lastCapture = null;   // {imageData, dets} for the debug preview
@@ -302,7 +316,7 @@ async function onSessionStart() {
   extendBtn.disabled = false;
   markBtn.disabled = false;
   checkBtn.disabled = false;
-  occBtn.disabled = depthUsage !== 'gpu-optimized';
+  occBtn.disabled = !occlusionSupported();
   if (occBtn.disabled) { occlusionEnabled = false; occBtn.textContent = '가림 불가'; }
   else { occlusionEnabled = true; occBtn.textContent = '가림 ON'; }
 
@@ -361,7 +375,7 @@ function render(time, frame) {
 
   const viewerPose = localSpace ? frame.getViewerPose(localSpace) : null;
   updateViewerPose(viewerPose);
-  updateDepthOcclusion(viewerPose);
+  updateDepthOcclusion(frame, viewerPose);
   maybeCaptureAndDetect(time, viewerPose);
   updateHitTest(frame, time);
   updateTargetAnchor(frame);
@@ -449,6 +463,38 @@ function finishMapping() {
   hideNewTarget();
 }
 
+// Put the ninja on the far side of a detected object, in its shadow from where the seeker
+// stands, nudged sideways so a sliver stays visible. Walking around the object reveals it.
+function pickObjectHidingSpot() {
+  if (!viewerPoseCache) return null;
+  const viewerPos = viewerPoseCache.pos;
+  let best = null, bestScore = -Infinity;
+
+  for (const o of detectedObjects) {
+    const flat = o.pos.clone().sub(viewerPos); flat.y = 0;
+    const dist = flat.length();
+    if (dist < HIDE_MIN_DIST_M || dist > HIDE_MAX_DIST_M) continue;
+
+    const dir = flat.clone().normalize();
+    const side = new THREE.Vector3(-dir.z, 0, dir.x);
+    const lateral = o.radius * HIDE_LATERAL_FRAC * (Math.random() < .5 ? -1 : 1);
+    const spot = o.pos.clone()
+      .add(dir.clone().multiplyScalar(o.radius + HIDE_BEHIND_MARGIN_M))
+      .add(side.multiplyScalar(lateral));
+    // Float at the object's centre height. Standing on the floor behind a chair only puts the
+    // ninja among its legs, which is mostly empty space and hides nothing.
+    spot.y = o.pos.y - NINJA_HEIGHT_M / 2;
+    const fy = estimateFloorY();
+    if (fy !== null) spot.y = Math.max(spot.y, fy);
+
+    // Bigger, more confident, more repeatedly seen objects give better cover.
+    const score = o.score + Math.min(o.radius, .8) * 3 + Math.min(o.seen, 4) * .4
+                + (dist > 1.5 && dist < 5 ? 1 : 0);
+    if (score > bestScore) { bestScore = score; best = { spot, obj: o }; }
+  }
+  return best;
+}
+
 function hideNewTarget() {
   if (!session || !viewerPoseCache) return;
   const pool = candidates.length >= 5 ? candidates : allCandidates;
@@ -456,58 +502,69 @@ function hideNewTarget() {
 
   clearTarget();
 
-  // Prefer a point 1~8m away from the current viewer and not directly in front.
   const viewerPos = viewerPoseCache.pos;
   const forward = new THREE.Vector3(0,0,-1).applyQuaternion(viewerPoseCache.quat).normalize();
 
-  let ranked = pool.map(c => {
-    const p = new THREE.Vector3(...c.pos);
-    const v = p.clone().sub(viewerPos);
-    const dist = v.length();
-    const angle = dist > 1e-6
-      ? THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(forward.dot(v.clone().normalize()),-1,1)))
-      : 0;
-    let score = Math.random();
-    if (dist >= 1.0 && dist <= 8.0) score += 2;
-    if (angle >= 25) score += 1.5;
+  let spot = null, nearObj = null, usedObject = false;
 
-    // Detected real objects make good hiding spots: bonus for candidates next to one,
-    // extra if the candidate sits on the far side of the object from the viewer ("behind").
-    let nearObj = nearestDetectedObject(p, OBJ_NEAR_HIDE_DIST_M);
-    if (nearObj) {
-      score += 2.5;
-      const behind = p.clone().sub(nearObj.pos).dot(nearObj.pos.clone().sub(viewerPos)) > 0;
-      if (behind) score += 1.0;
-    }
-    return {c, score, dist, angle, nearObj};
-  }).sort((a,b)=>b.score-a.score);
+  const pick = pickObjectHidingSpot();
+  if (pick) {
+    spot = pick.spot;
+    nearObj = pick.obj;
+    usedObject = true;
+  } else {
+    // No usable detection — fall back to a random mapped surface. This is the old behaviour and
+    // it cannot hide the ninja behind anything, so say so instead of failing silently.
+    const ranked = pool.map(c => {
+      const p = new THREE.Vector3(...c.pos);
+      const v = p.clone().sub(viewerPos);
+      const dist = v.length();
+      const angle = dist > 1e-6
+        ? THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(forward.dot(v.clone().normalize()),-1,1)))
+        : 0;
+      let score = Math.random();
+      if (dist >= HIDE_MIN_DIST_M && dist <= HIDE_MAX_DIST_M) score += 2;
+      if (angle >= 25) score += 1.5;
+      return {p, score};
+    }).sort((a,b)=>b.score-a.score);
+    spot = ranked[0].p;
+    nearObj = nearestDetectedObject(spot, OBJ_NEAR_HIDE_DIST_M);
+  }
 
-  const chosen = ranked[0].c;
-  const chosenNearObj = ranked[0].nearObj;
-  const obj = createNinja(0.13); // camouflage opacity
+  const occlusionLive = occlusionSupported();
+  const obj = createNinja(occlusionLive ? NINJA_OPACITY_OCCLUDED : NINJA_OPACITY_CAMO);
 
-  // Keep position from hit test but force upright orientation for game readability.
-  const p = new THREE.Vector3(...chosen.pos);
-  obj.position.copy(p);
-  obj.position.y += 0.02;
+  obj.position.copy(spot);
+  if (!usedObject) obj.position.y += 0.02;   // fallback spot is a real surface; lift off it
+  // Face the seeker so the silhouette is as narrow as possible behind the cover.
+  const face = viewerPos.clone().sub(spot); face.y = 0;
   obj.quaternion.identity();
+  if (face.lengthSq() > 1e-6) obj.rotation.y = Math.atan2(face.x, face.z);
   scene.add(obj);
 
   target = {
     object: obj,
     anchor: null,
-    position: p.clone(),
+    position: spot.clone(),
     found: false,
     mode: 'local-space',
-    nearLabel: chosenNearObj ? labelKo(chosenNearObj.label) : null
+    nearLabel: nearObj ? labelKo(nearObj.label) : null,
+    behindObject: usedObject
   };
 
   phase = 'hunt';
   scanBtn.disabled = false;
   newRoundBtn.disabled = false;
 
-  statusEl.textContent = 'Ninja가 숨었습니다';
-  messageEl.textContent = '걸어다니며 찾으세요. 의심되는 방향을 화면 중앙에 두고 SCAN을 누르세요.';
+  if (usedObject) {
+    statusEl.textContent = `Ninja가 ${labelKo(nearObj.label)} 뒤에 숨었습니다`;
+    messageEl.textContent = occlusionLive
+      ? '물체 뒤에 가려져 있습니다. 옆이나 뒤로 돌아가면 보입니다.'
+      : '가림(depth)이 없어 반투명으로 숨었습니다. 걸어다니며 찾으세요.';
+  } else {
+    statusEl.textContent = 'Ninja가 숨었습니다 (물체 없음)';
+    messageEl.textContent = '숨을 만한 물체를 못 찾아 임의의 표면에 숨었습니다. 의자·가방 등을 비춘 뒤 다시 숨기기를 눌러보세요.';
+  }
 }
 
 function triggerScan() {
@@ -601,25 +658,68 @@ function updateTargetAnchor(frame) {
 
 // ---------- depth-sensing occlusion ----------
 
-function updateDepthOcclusion(viewerPose) {
-  hasDepthFrame = false;
-  if (depthUsage !== 'gpu-optimized' || !viewerPose || !glBinding || !session) {
-    depthUniforms.uOcclusionOn.value = 0;
-    return;
+function occlusionSupported() {
+  return depthUsage === 'gpu-optimized' || depthUsage === 'cpu-optimized';
+}
+
+// cpu-optimized hands us a CPU buffer instead of a GL texture, so we upload it ourselves.
+// ARCore's depth buffer is tiny (~160x90), so a per-frame upload is cheap.
+function cpuDepthTexture(info) {
+  const isFloat = depthFormat === 'float32';
+  const w = info.width, h = info.height;
+  if (!w || !h) return null;
+  if (!cpuDepthTex || cpuDepthTex.image.width !== w || cpuDepthTex.image.height !== h) {
+    cpuDepthTex?.dispose?.();
+    cpuDepthTex = new THREE.DataTexture(
+      isFloat ? new Float32Array(w * h) : new Uint8Array(w * h * 2), w, h,
+      isFloat ? THREE.RedFormat : THREE.RGFormat,
+      isFloat ? THREE.FloatType : THREE.UnsignedByteType);
+    cpuDepthTex.minFilter = THREE.NearestFilter;
+    cpuDepthTex.magFilter = THREE.NearestFilter;
+    cpuDepthTex.generateMipmaps = false;
+    cpuDepthTex.flipY = false;
+    cpuDepthTex.unpackAlignment = isFloat ? 4 : 1;
   }
-  let info = null;
-  try { info = glBinding.getDepthInformation(viewerPose.views[0]); } catch {}
-  if (!info || !info.texture) { depthUniforms.uOcclusionOn.value = 0; return; }
+  const src = isFloat ? new Float32Array(info.data) : new Uint8Array(info.data);
+  if (src.length < cpuDepthTex.image.data.length) return null;
+  cpuDepthTex.image.data.set(src.subarray(0, cpuDepthTex.image.data.length));
+  cpuDepthTex.needsUpdate = true;
+  return cpuDepthTex;
+}
+
+function updateDepthOcclusion(frame, viewerPose) {
+  hasDepthFrame = false;
+  const off = () => { depthUniforms.uOcclusionOn.value = 0; };
+  if (!occlusionSupported() || !viewerPose || !session) return off();
+
+  const view = viewerPose.views[0];
+  let info = null, tex = null;
+
+  if (depthUsage === 'gpu-optimized') {
+    if (!glBinding) return off();
+    try { info = glBinding.getDepthInformation(view); } catch {}
+    if (!info || !info.texture) return off();
+    // The depth texture is a raw WebGLTexture owned by the browser; splice it into a three
+    // Texture wrapper so material uniforms can bind it without three trying to upload it.
+    renderer.properties.get(depthTexWrapper).__webglTexture = info.texture;
+    tex = depthTexWrapper;
+    depthUniforms.uDepthPackRG.value = 0;                       // luminance-alpha -> .ra
+    depthUniforms.uDepthIsFloat.value = depthFormat === 'float32' ? 1 : 0;
+  } else {
+    try { info = frame?.getDepthInformation?.(view); } catch {}
+    if (!info || !info.data) return off();
+    tex = cpuDepthTexture(info);
+    if (!tex) return off();
+    depthUniforms.uDepthPackRG.value = 1;                       // uploaded as RG8 -> .rg
+    depthUniforms.uDepthIsFloat.value = depthFormat === 'float32' ? 1 : 0;
+  }
 
   hasDepthFrame = true;
   depthUniforms.uRawValueToMeters.value = info.rawValueToMeters;
   depthUniforms.uDepthUvTransform.value.fromArray(info.normDepthBufferFromNormView.matrix);
   const baseLayer = session.renderState.baseLayer;
   if (baseLayer) depthUniforms.uDepthResolution.value.set(baseLayer.framebufferWidth, baseLayer.framebufferHeight);
-  // The depth texture is a raw WebGLTexture owned by the browser; splice it into a three
-  // Texture wrapper so material uniforms can bind it without three trying to upload it.
-  renderer.properties.get(depthTexWrapper).__webglTexture = info.texture;
-  depthUniforms.uDepthTexture.value = depthTexWrapper;
+  depthUniforms.uDepthTexture.value = tex;
   depthUniforms.uOcclusionOn.value = occlusionEnabled ? 1 : 0;
 }
 
@@ -671,15 +771,21 @@ async function initDetector() {
 }
 
 function maybeCaptureAndDetect(time, viewerPose) {
-  if (!detector || detectBusy || !viewerPose || !cameraAccessOk || !glBinding) return;
+  // Every failure below used to be a silent `return`, which made "the model saw nothing" and
+  // "we never got a camera frame at all" look identical from the HUD.
+  if (!detector) { captureState = '모델 없음'; return; }
+  if (!cameraAccessOk) { captureState = 'camera-access 미허용'; return; }
+  if (!glBinding) { captureState = 'GL binding 없음'; return; }
+  if (!viewerPose || detectBusy) return;
   if (phase !== 'mapping' && phase !== 'hunt') return;
   const interval = phase === 'mapping' ? DETECT_MAPPING_INTERVAL_MS : DETECT_HUNT_INTERVAL_MS;
   if (time - lastDetectTime < interval) return;
 
   const view = viewerPose.views[0];
-  if (!view.camera) return;
+  if (!view.camera) { captureState = 'view.camera 없음'; return; }
   const imageData = grabCameraImage(view);
-  if (!imageData) return;
+  if (!imageData) return;  // grabCameraImage recorded why
+  captureState = `OK ${imageData.width}x${imageData.height}`;
 
   lastDetectTime = time;
   detectBusy = true;
@@ -703,8 +809,13 @@ function maybeCaptureAndDetect(time, viewerPose) {
 function grabCameraImage(view) {
   const gl = renderer.getContext();
   let camTex = null;
-  try { camTex = glBinding.getCameraImage(view.camera); } catch {}
-  if (!camTex) return null;
+  try { camTex = glBinding.getCameraImage(view.camera); }
+  catch (err) {
+    captureState = `getCameraImage 예외: ${err?.name || err}`;
+    if (!camErrLogged) { camErrLogged = true; console.error('getCameraImage failed:', err); }
+    return null;
+  }
+  if (!camTex) { captureState = 'getCameraImage null'; return null; }
 
   const cw = view.camera.width, ch = view.camera.height;
   const scale = Math.min(1, 640 / Math.max(cw, ch));
@@ -745,7 +856,7 @@ function grabCameraImage(view) {
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, prevDrawFb);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, prevReadFb);
   }
-  if (!ok) return null;
+  if (!ok) { captureState = 'FBO 불완전 (blit 실패)'; return null; }
 
   // readPixels rows are bottom-up; flip to a top-down ImageData.
   const { w: W, h: H, buf } = cap;
@@ -761,16 +872,24 @@ function handleDetections(dets, projInv, camWorld, imgW, imgH) {
   const origin = new THREE.Vector3().setFromMatrixPosition(camWorld);
   const maxAngleRad = THREE.MathUtils.degToRad(OBJ_RAY_MAX_ANGLE_DEG);
 
+  const floorY = estimateFloorY();
+  lastDetRaw = 0; lastDetPlaced = 0; lastDetIgnored = 0;
+  lastDetTotal = dets.length;
+
   for (const det of dets) {
-    if (det.score < OBJ_MIN_SCORE || OBJ_IGNORE.has(det.label)) continue;
+    if (OBJ_IGNORE.has(det.label)) { lastDetIgnored++; continue; }
+    if (det.score < OBJ_MIN_SCORE) continue;
+    lastDetRaw++;
 
     // NOTE: assumes the camera image is aligned with the XRView projection. Strictly the
     // camera FOV can differ slightly from the view FOV; the candidate-snapping tolerance
     // below absorbs that error for this feasibility test.
-    const u = (det.x1 + det.x2) / 2 / imgW;
-    const v = (det.y1 + det.y2) / 2 / imgH;
-    const p = new THREE.Vector3(u * 2 - 1, 1 - v * 2, 0.5).applyMatrix4(projInv).applyMatrix4(camWorld);
-    const dir = p.sub(origin).normalize();
+    const rayDir = (u, v) => new THREE.Vector3(u * 2 - 1, 1 - v * 2, 0.5)
+      .applyMatrix4(projInv).applyMatrix4(camWorld).sub(origin).normalize();
+
+    const cu = (det.x1 + det.x2) / 2 / imgW;
+    const cv = (det.y1 + det.y2) / 2 / imgH;
+    const dir = rayDir(cu, cv);
 
     // Snap the ray to the nearest known surface candidate to get a 3D position.
     let best = null, bestAngle = maxAngleRad;
@@ -782,19 +901,60 @@ function handleDetections(dets, projInv, camWorld, imgW, imgH) {
       const angle = dir.angleTo(toC.normalize());
       if (angle < bestAngle) { bestAngle = angle; best = cp; }
     }
-    if (best) mergeDetectedObject(det.label, best, det.score);
+    // Monocular distance comes from where the object meets the floor (bbox bottom edge ray ∩
+    // ground plane) — no hit-test candidate near the object required, which matters because
+    // ARCore rarely returns planes for chairs or bags; candidate-snapping alone left most
+    // detections with nowhere to land, which is why 감지물체 stayed at 0.
+    // Then walk the *centre* ray out to that same horizontal distance: the object's middle is
+    // where its mass is, and that is what the ninja hides behind.
+    let anchor = null;
+    if (floorY !== null) {
+      const bottom = rayDir(cu, det.y2 / imgH);
+      if (bottom.y < -1e-4) {
+        const t = (floorY - origin.y) / bottom.y;
+        if (t > 0.4 && t < 10) {
+          const g = origin.clone().add(bottom.clone().multiplyScalar(t));
+          const horizDist = Math.hypot(g.x - origin.x, g.z - origin.z);
+          const horizDir = Math.hypot(dir.x, dir.z);
+          if (horizDir > 1e-3) anchor = origin.clone().add(dir.clone().multiplyScalar(horizDist / horizDir));
+        }
+      }
+    }
+    if (!anchor) anchor = best;
+    if (!anchor) continue;
+    lastDetPlaced++;
+
+    // Angular bbox size at that distance gives a rough physical extent. Without this there is
+    // no notion of "how much cover" an object provides, so hiding degenerates to "stand
+    // somewhere near it" — which is what made the ninja look like it floated in the open.
+    const dist = anchor.distanceTo(origin);
+    const halfW = rayDir(det.x1 / imgW, cv).angleTo(rayDir(det.x2 / imgW, cv)) / 2;
+    const halfH = rayDir(cu, det.y1 / imgH).angleTo(rayDir(cu, det.y2 / imgH)) / 2;
+    const radius = THREE.MathUtils.clamp(dist * Math.tan(halfW), 0.10, 1.50);
+    const height = THREE.MathUtils.clamp(2 * dist * Math.tan(halfH), 0.10, 2.20);
+    mergeDetectedObject(det.label, anchor, det.score, radius, height);
   }
 }
 
-function mergeDetectedObject(label, pos, score) {
+// 10th percentile of mapped surface heights — robust against a stray low outlier.
+function estimateFloorY() {
+  if (!allCandidates.length) return null;
+  const ys = allCandidates.map(c => c.pos[1]).sort((a, b) => a - b);
+  return ys[Math.floor(ys.length * 0.1)];
+}
+
+function mergeDetectedObject(label, pos, score, radius = 0.25, height = 0.5) {
   for (const o of detectedObjects) {
     if (o.label === label && o.pos.distanceTo(pos) < OBJ_MERGE_DIST_M) {
       o.pos.lerp(pos, 0.3);
       o.score = Math.max(o.score, score);
+      o.radius = o.radius * 0.7 + radius * 0.3;
+      o.height = o.height * 0.7 + height * 0.3;
+      o.seen++;
       return;
     }
   }
-  detectedObjects.push({ label, pos: pos.clone(), score });
+  detectedObjects.push({ label, pos: pos.clone(), score, radius, height, seen: 1 });
   if (detectedObjects.length > 30) detectedObjects.shift();
 }
 
@@ -843,9 +1003,11 @@ function updateMetrics() {
 `viewer (m)  x ${p.x.toFixed(2)}  y ${p.y.toFixed(2)}  z ${p.z.toFixed(2)}
 이동경로 ${pathDistance.toFixed(1)}m   최대변위 ${maxDisplacement.toFixed(1)}m
 표면후보 ${poolCount}   hit-test ${reticle.visible ? 'FOUND' : 'searching'}
-depth ${depthUsage}${depthUsage==='gpu-optimized' ? (hasDepthFrame ? ' ●' : ' ○') : ''}   가림 ${occlusionEnabled ? 'ON' : 'OFF'}
+depth ${depthUsage}${depthFormat ? '/'+depthFormat : ''}${occlusionSupported() ? (hasDepthFrame ? ' ●' : ' ○') : ''}   가림 ${occlusionEnabled ? 'ON' : 'OFF'}
 카메라 ${cameraAccessOk ? 'OK' : '미지원'}   모델 ${detectorState}${lastInferMs ? ` ${lastInferMs.toFixed(0)}ms` : ''}
+캡처 ${captureState}
 감지물체 ${detectedObjects.length}${objSummary}
+  └ 박스 ${lastDetTotal} → 제외 ${lastDetIgnored} → 유효 ${lastDetRaw} → 배치 ${lastDetPlaced}   바닥 ${estimateFloorY()?.toFixed(2) ?? '-'}
 phase ${phase}${phase==='mapping' ? ` (${mappingLeft.toFixed(1)}s)` : ''}
 scan ${scans}회 / miss ${misses}회
 복귀오차 ${lastReturnError ? `${lastReturnError.posErr.toFixed(2)}m, ${lastReturnError.angleErr.toFixed(1)}°` : '-'}

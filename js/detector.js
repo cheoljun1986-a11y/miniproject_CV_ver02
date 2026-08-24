@@ -93,7 +93,9 @@ function toCanvasSource(source) {
 }
 
 export class OnnxYoloDetector {
-  constructor({ modelUrl, inputSize = 640, confThreshold = 0.35, iouThreshold = 0.45 } = {}) {
+  constructor({ modelUrl, inputSize = 640, confThreshold = 0.35, iouThreshold = 0.45,
+                executionProviders = ['webgpu', 'wasm'] } = {}) {
+    this.executionProviders = executionProviders;
     this.modelUrl = modelUrl;
     this.inputSize = inputSize;
     this.confThreshold = confThreshold;
@@ -106,14 +108,15 @@ export class OnnxYoloDetector {
 
   async init() {
     this.ort = await loadOrt();
-    for (const ep of ['webgpu', 'wasm']) {
+    const eps = this.executionProviders;
+    for (let i = 0; i < eps.length; i++) {
       try {
-        this.session = await this.ort.InferenceSession.create(this.modelUrl, { executionProviders: [ep] });
-        this.backend = ep;
+        this.session = await this.ort.InferenceSession.create(this.modelUrl, { executionProviders: [eps[i]] });
+        this.backend = eps[i];
         break;
       } catch (err) {
-        if (ep === 'wasm') throw err;
-        console.warn('webgpu EP unavailable, falling back to wasm:', err?.message || err);
+        if (i === eps.length - 1) throw err;
+        console.warn(`${eps[i]} EP unavailable, falling back:`, err?.message || err);
       }
     }
     this.inputName = this.session.inputNames[0];

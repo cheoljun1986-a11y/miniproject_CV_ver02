@@ -47,6 +47,9 @@ const startBtn = document.querySelector('#startBtn');
 const params = new URLSearchParams(location.search);
 const remote = params.get('remote');
 const modelUrl = params.get('model') || 'models/yolo26n.onnx';
+// ?backend=wasm pins the execution provider. WebGPU (JSEP) can build a session fine and then
+// return garbage on some Android GPUs — that shows up as a screenful of bogus boxes, not an error.
+const forcedBackend = params.get('backend');
 document.querySelector('#modelName').textContent = remote ? `remote: ${remote}` : modelUrl;
 
 let detector = null;
@@ -59,7 +62,7 @@ async function init() {
   try {
     detector = remote
       ? new RemoteDetector({ endpoint: remote })
-      : new OnnxYoloDetector({ modelUrl });
+      : new OnnxYoloDetector({ modelUrl, ...(forcedBackend ? { executionProviders: [forcedBackend] } : {}) });
     await detector.init();
     statsEl.textContent = `모델 준비됨 — backend: ${detector.backend}\n카메라 시작을 누르세요.`;
   } catch (err) {
@@ -99,14 +102,32 @@ async function loop() {
   }
 
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  ctx.lineWidth = 3;
-  ctx.font = 'bold 18px sans-serif';
-  for (const d of dets) {
-    ctx.strokeStyle = '#00ff88';
-    ctx.fillStyle = '#00ff88';
-    ctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+
+  // Scale the overlay to the frame, cap how many boxes are drawn, and put each label on an
+  // opaque strip anchored to its own box — a bad inference used to bury the frame in
+  // overlapping green text at the top-left corner.
+  const k = canvas.width / 640;
+  const fs = Math.max(12, Math.round(15 * k));
+  ctx.lineWidth = Math.max(2, Math.round(3 * k));
+  ctx.font = `bold ${fs}px sans-serif`;
+  ctx.textBaseline = 'alphabetic';
+  const shown = [...dets].sort((a, b) => b.score - a.score).slice(0, 20);
+  for (const d of shown) {
     const tag = `${labelKo(d.label)} ${(d.score * 100) | 0}%`;
-    ctx.fillText(tag, d.x1 + 4, Math.max(20, d.y1 - 6));
+    ctx.strokeStyle = '#00ff88';
+    ctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+    const tw = ctx.measureText(tag).width;
+    const ty = d.y1 > fs + 8 ? d.y1 - 5 : d.y1 + fs + 5;
+    ctx.fillStyle = 'rgba(0,0,0,.7)';
+    ctx.fillRect(d.x1, ty - fs, tw + 10, fs + 7);
+    ctx.fillStyle = '#00ff88';
+    ctx.fillText(tag, d.x1 + 5, ty);
+  }
+  if (dets.length > shown.length) {
+    ctx.fillStyle = 'rgba(0,0,0,.7)';
+    ctx.fillRect(0, 0, 320 * k, fs + 12);
+    ctx.fillStyle = '#ffd66b';
+    ctx.fillText(`+${dets.length - shown.length}개 더 (상위 ${shown.length}개만 표시)`, 6, fs + 4);
   }
 
   frames++;
@@ -117,7 +138,7 @@ async function loop() {
   }
   statsEl.textContent = error
     ? `detect 오류: ${error.message}`
-    : `backend ${detector.backend}${detector.inputDtype ? ` / input ${detector.inputDtype}` : ''}` +
+    : `backend ${detector.backend}${forcedBackend ? ' (고정)' : ''}${detector.inputDtype ? ` / input ${detector.inputDtype}` : ''}` +
       `${detector.lastOutputDims ? ` / output [${detector.lastOutputDims}]` : ''}\n` +
       `추론 ${detector.lastInferMs?.toFixed(0) ?? '-'}ms   루프 ${fps.toFixed(1)} FPS   감지 ${dets.length}개`;
 

@@ -1,0 +1,21 @@
+# conda create -n cv_env python=3.11 -y && conda activate cv_env && pip install -r requirements.txt
+#
+# 웹 데모 자체(index.html / test2d.html)는 파이썬 패키지가 필요 없습니다 —
+# `python -m http.server 8000` 만으로 동작합니다.
+# 아래는 (1) models/*.onnx 를 파이썬에서 검사/검증, (2) RemoteDetector용 서버 추론 을 위한 것입니다.
+
+# --- ONNX 검사 / 추론 ---
+onnx>=1.16              # 모델 입출력 shape·dtype 확인 (FP32인지 검증)
+onnxruntime>=1.22       # 파이썬 쪽 추론 — 브라우저 결과와 대조용, 서버 추론용
+numpy>=1.26
+pillow>=10.0
+
+# --- RemoteDetector 서버 (js/detector.js의 RemoteDetector 계약) ---
+fastapi>=0.115
+uvicorn[standard]>=0.34
+
+# 참고: yolo26n.onnx 를 직접 export할 일이 생기면 그때만
+#   pip install ultralytics
+# 를 추가하세요 (torch/torchvision 포함 ~3GB). 지금은 models/yolo26n.onnx(FP32)가
+# 이미 있어서 필요 없습니다. SAM2.1 / YOLOE 같은 PyTorch 전용 모델을 서버에
+# 올릴 때도 마찬가지로 그 시점에 설치하면 됩니다.
