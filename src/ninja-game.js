@@ -268,6 +268,10 @@ export class NinjaGame {
     this.target = null;
   }
 
+  getTargetPosition() {
+    return this.target ? this.target.position.slice() : null;
+  }
+
   getState() {
     return {
       phase: this.phase,

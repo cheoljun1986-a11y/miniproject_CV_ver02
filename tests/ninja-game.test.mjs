@@ -110,3 +110,17 @@ test('mapping drops a visible marker for each stored scan point and clears them 
   game.startMapping(20, true);
   assert.equal(sceneObjects.filter((object) => object.marker).length, 0);
 });
+
+test('getTargetPosition returns the hidden position while hunting and null otherwise', () => {
+  const { game, mapper } = createHarness();
+  assert.equal(game.getTargetPosition(), null);
+  game.startSession();
+  for (const [index, position] of [[0, 0, -2], [0.3, 0, -2], [0.6, 0, -2]].entries()) {
+    mapper.recordSurface({ position, matrix: [index], upY: 1 });
+  }
+  game.finishMapping();
+  const target = game.getTargetPosition();
+  assert.ok(Array.isArray(target) && target.length === 3);
+  game.endSession();
+  assert.equal(game.getTargetPosition(), null);
+});
