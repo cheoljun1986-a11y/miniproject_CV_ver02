@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#111111"/>
+<title>WebXR Hidden Ninja v2</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#111; }
+  canvas { display:block; }
+  #hud {
+    position:fixed; inset:0; z-index:10; pointer-events:none;
+  }
+  .card {
+    position:absolute; left:12px; top:12px;
+    max-width:calc(100vw - 24px);
+    padding:9px 11px; border-radius:12px;
+    background:rgba(0,0,0,.58); backdrop-filter:blur(7px);
+    color:white; font-size:13px; line-height:1.45;
+  }
+  #metrics { top:86px; white-space:pre-line; font-variant-numeric:tabular-nums; }
+  #message {
+    position:absolute; left:50%; bottom:98px; transform:translateX(-50%);
+    width:min(88vw,560px); padding:10px 14px; border-radius:999px;
+    background:rgba(0,0,0,.62); color:white; text-align:center; font-size:14px;
+  }
+  #controls {
+    position:absolute; left:10px; right:10px; bottom:18px;
+    display:flex; gap:8px; justify-content:center; flex-wrap:wrap;
+    pointer-events:auto;
+  }
+  button.ctrl {
+    border:0; border-radius:999px; padding:11px 14px;
+    font-weight:800; font-size:14px;
+    background:rgba(255,255,255,.92); color:#111;
+    box-shadow:0 4px 14px rgba(0,0,0,.25);
+  }
+  button.ctrl.primary { background:#fff; }
+  button.ctrl.warn { background:#ffd66b; }
+  button.ctrl:disabled { opacity:.42; }
+  #scanFlash {
+    position:absolute; inset:0; border:0 solid rgba(255,255,255,0);
+    transition:border-width .08s,border-color .08s;
+  }
+  #crosshair {
+    position:absolute; left:50%; top:50%; width:34px; height:34px;
+    transform:translate(-50%,-50%);
+  }
+  #crosshair:before,#crosshair:after {
+    content:""; position:absolute; background:rgba(255,255,255,.8);
+  }
+  #crosshair:before { left:16px; top:0; width:2px; height:34px; }
+  #crosshair:after { left:0; top:16px; width:34px; height:2px; }
+  #fallback {
+    position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center;
+    padding:24px; background:#111; color:white;
+  }
+  #fallback .box { max-width:620px; line-height:1.6; }
+  code { background:#222; padding:2px 6px; border-radius:6px; }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="hud">
+  <div class="card" id="status">WebXR 확인 중…</div>
+  <div class="card" id="metrics">pose: -</div>
+  <div id="crosshair"></div>
+  <div id="message">START AR을 누른 뒤 천천히 주변 바닥/책상을 비춰주세요.</div>
+  <div id="scanFlash"></div>
+  <div id="controls">
+    <button class="ctrl primary" id="scanBtn" disabled>SCAN</button>
+    <button class="ctrl" id="newRoundBtn" disabled>다시 숨기기</button>
+    <button class="ctrl" id="extendBtn" disabled>+20초 스캔</button>
+    <button class="ctrl warn" id="markBtn" disabled>기준점 저장</button>
+    <button class="ctrl warn" id="checkBtn" disabled>복귀 오차 확인</button>
+  </div>
+</div>
+
+<div id="fallback">
+  <div class="box">
+    <h2>WebXR AR을 시작할 수 없습니다.</h2>
+    <p>ARCore 지원 Android + 최신 Chrome + HTTPS 주소인지 확인해 주세요.</p>
+    <p id="fallbackDetail"></p>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { ARButton } from 'three/addons/webxr/ARButton.js';
+
+const statusEl = document.querySelector('#status');
+const metricsEl = document.querySelector('#metrics');
+const messageEl = document.querySelector('#message');
+const scanBtn = document.querySelector('#scanBtn');
+const newRoundBtn = document.querySelector('#newRoundBtn');
+const extendBtn = document.querySelector('#extendBtn');
+const markBtn = document.querySelector('#markBtn');
+const checkBtn = document.querySelector('#checkBtn');
+const scanFlash = document.querySelector('#scanFlash');
+const fallback = document.querySelector('#fallback');
+const fallbackDetail = document.querySelector('#fallbackDetail');
+
+let scene, camera, renderer, controller, reticle;
+let session = null, localSpace = null, hitTestSource = null, hitTestSourceRequested = false;
+let currentHitResult = null;
+let phase = 'idle'; // idle, mapping, hunt, found
+let mappingEnd = 0;
+let candidates = [];
+let allCandidates = [];
+let lastCandidate = null;
+let lastSampleTime = 0;
+let target = null;
+let viewerPoseCache = null;
+let pathDistance = 0;
+let lastViewerPosition = null;
+let maxDisplacement = 0;
+let sessionStartPosition = null;
+let checkpoint = null;
+let lastReturnError = null;
+let scans = 0;
+let misses = 0;
+
+const MAP_SECONDS = 20;
+const SAMPLE_GAP_MS = 250;
+const MIN_CANDIDATE_SPACING = 0.22;
+const DETECT_MAX_DISTANCE_M = 5.0;
+const DETECT_MAX_ANGLE_DEG = 12.0;
+
+init();
+
+async function init() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, .01, 50);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 2.4));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+  dir.position.set(1,2,1);
+  scene.add(dir);
+
+  renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setSize(innerWidth,innerHeight);
+  renderer.xr.enabled = true;
+  renderer.xr.setReferenceSpaceType('local');
+  document.body.appendChild(renderer.domElement);
+
+  reticle = makeReticle();
+  scene.add(reticle);
+
+  controller = renderer.xr.getController(0);
+  controller.addEventListener('select', () => {
+    // Fallback for devices where DOM overlay buttons are awkward:
+    if (phase === 'hunt') triggerScan();
+  });
+  scene.add(controller);
+
+  scanBtn.addEventListener('click', ev => { ev.stopPropagation(); triggerScan(); });
+  newRoundBtn.addEventListener('click', ev => { ev.stopPropagation(); hideNewTarget(); });
+  extendBtn.addEventListener('click', ev => { ev.stopPropagation(); startMapping(20, false); });
+  markBtn.addEventListener('click', ev => { ev.stopPropagation(); saveCheckpoint(); });
+  checkBtn.addEventListener('click', ev => { ev.stopPropagation(); checkReturnError(); });
+  addEventListener('resize', onResize);
+
+  const supported = !!navigator.xr &&
+    await navigator.xr.isSessionSupported('immersive-ar').catch(()=>false);
+
+  if (!supported) {
+    statusEl.textContent = 'WebXR immersive-ar 미지원';
+    showFallback('navigator.xr 또는 immersive-ar 지원을 찾지 못했습니다.');
+    return;
+  }
+
+  statusEl.textContent = 'WebXR AR 지원됨 — START AR을 누르세요';
+
+  const arButton = ARButton.createButton(renderer, {
+    requiredFeatures:['hit-test'],
+    optionalFeatures:['anchors','dom-overlay','local-floor'],
+    domOverlay:{root:document.body}
+  });
+  document.body.appendChild(arButton);
+
+  renderer.xr.addEventListener('sessionstart', onSessionStart);
+  renderer.xr.addEventListener('sessionend', onSessionEnd);
+  renderer.setAnimationLoop(render);
+}
+
+async function onSessionStart() {
+  session = renderer.xr.getSession();
+  hitTestSource = null;
+  hitTestSourceRequested = false;
+  currentHitResult = null;
+  candidates = [];
+  allCandidates = [];
+  lastCandidate = null;
+  pathDistance = 0;
+  maxDisplacement = 0;
+  lastViewerPosition = null;
+  sessionStartPosition = null;
+  checkpoint = null;
+  lastReturnError = null;
+  scans = 0;
+  misses = 0;
+  clearTarget();
+
+  try { localSpace = await session.requestReferenceSpace('local'); }
+  catch { localSpace = renderer.xr.getReferenceSpace(); }
+
+  scanBtn.disabled = true;
+  newRoundBtn.disabled = true;
+  extendBtn.disabled = false;
+  markBtn.disabled = false;
+  checkBtn.disabled = false;
+
+  startMapping(MAP_SECONDS, true);
+}
+
+function onSessionEnd() {
+  phase = 'idle';
+  session = null; localSpace = null;
+  hitTestSource = null; hitTestSourceRequested = false;
+  currentHitResult = null;
+  reticle.visible = false;
+  clearTarget();
+  [scanBtn,newRoundBtn,extendBtn,markBtn,checkBtn].forEach(b=>b.disabled=true);
+  statusEl.textContent = 'AR 세션 종료';
+  messageEl.textContent = 'START AR을 눌러 다시 시작하세요.';
+}
+
+function startMapping(seconds=20, reset=false) {
+  if (!session) return;
+  if (reset) {
+    candidates = []; allCandidates = []; lastCandidate = null;
+  }
+  phase = 'mapping';
+  mappingEnd = performance.now() + seconds*1000;
+  clearTarget();
+  scanBtn.disabled = true;
+  newRoundBtn.disabled = true;
+  statusEl.textContent = `공간 스캔 중 (${seconds}초)`;
+  messageEl.textContent = '천천히 이동하며 바닥·책상 같은 표면을 여러 방향으로 비춰주세요.';
+}
+
+async function requestHitTestSource() {
+  if (!session || hitTestSourceRequested) return;
+  hitTestSourceRequested = true;
+  try {
+    const viewerSpace = await session.requestReferenceSpace('viewer');
+    hitTestSource = await session.requestHitTestSource({space:viewerSpace});
+    session.addEventListener('end', () => {
+      hitTestSource = null; hitTestSourceRequested = false;
+    });
+  } catch(err) {
+    console.error(err);
+    statusEl.textContent = 'Hit-test 생성 실패';
+  }
+}
+
+function render(time, frame) {
+  if (!frame) { renderer.render(scene,camera); return; }
+
+  if (session && !hitTestSourceRequested) requestHitTestSource();
+
+  updateViewerPose(frame);
+  updateHitTest(frame, time);
+  updateTargetAnchor(frame);
+
+  if (phase === 'mapping') {
+    const left = Math.max(0, mappingEnd - performance.now());
+    statusEl.textContent = `공간 스캔 중 — ${(left/1000).toFixed(1)}초 남음`;
+    if (left <= 0) finishMapping();
+  }
+
+  updateMetrics();
+  renderer.render(scene,camera);
+}
+
+function updateViewerPose(frame) {
+  if (!localSpace) return;
+  const pose = frame.getViewerPose(localSpace);
+  if (!pose) return;
+
+  const p = pose.transform.position;
+  const o = pose.transform.orientation;
+  const pos = new THREE.Vector3(p.x,p.y,p.z);
+  const quat = new THREE.Quaternion(o.x,o.y,o.z,o.w);
+
+  viewerPoseCache = {pos, quat};
+
+  if (!sessionStartPosition) sessionStartPosition = pos.clone();
+
+  if (lastViewerPosition) {
+    const d = pos.distanceTo(lastViewerPosition);
+    if (d < .35) pathDistance += d; // ignore obvious tracking jumps
+  }
+  lastViewerPosition = pos.clone();
+
+  if (sessionStartPosition) {
+    maxDisplacement = Math.max(maxDisplacement, pos.distanceTo(sessionStartPosition));
+  }
+}
+
+function updateHitTest(frame, time) {
+  currentHitResult = null;
+  reticle.visible = false;
+  if (!hitTestSource || !localSpace) return;
+
+  const results = frame.getHitTestResults(hitTestSource);
+  if (!results.length) return;
+
+  const result = results[0];
+  const pose = result.getPose(localSpace);
+  if (!pose) return;
+
+  currentHitResult = result;
+  reticle.visible = true;
+  reticle.matrix.fromArray(pose.transform.matrix);
+
+  if (phase === 'mapping' && time - lastSampleTime > SAMPLE_GAP_MS) {
+    lastSampleTime = time;
+    const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
+    const pos = new THREE.Vector3().setFromMatrixPosition(m);
+
+    if (!lastCandidate || pos.distanceTo(lastCandidate) >= MIN_CANDIDATE_SPACING) {
+      allCandidates.push({matrix:Array.from(pose.transform.matrix), pos:[pos.x,pos.y,pos.z]});
+
+      // Prefer mostly horizontal surfaces. Hit-test transform's Y axis is the surface up axis.
+      const up = new THREE.Vector3(0,1,0).transformDirection(m);
+      if (up.y > .62) {
+        candidates.push({matrix:Array.from(pose.transform.matrix), pos:[pos.x,pos.y,pos.z]});
+      }
+      lastCandidate = pos.clone();
+    }
+  }
+}
+
+function finishMapping() {
+  if (phase !== 'mapping') return;
+
+  const pool = candidates.length >= 5 ? candidates : allCandidates;
+  if (pool.length < 3) {
+    statusEl.textContent = '표면 좌표가 너무 적습니다';
+    messageEl.textContent = '바닥/책상을 더 천천히 비춘 뒤 +20초 스캔을 눌러주세요.';
+    phase = 'idle';
+    return;
+  }
+
+  statusEl.textContent = `스캔 완료 — 후보 ${pool.length}개`;
+  messageEl.textContent = '후보 중 한 곳에 Ninja를 숨기는 중…';
+  hideNewTarget();
+}
+
+function hideNewTarget() {
+  if (!session || !viewerPoseCache) return;
+  const pool = candidates.length >= 5 ? candidates : allCandidates;
+  if (!pool.length) return;
+
+  clearTarget();
+
+  // Prefer a point 1~8m away from the current viewer and not directly in front.
+  const viewerPos = viewerPoseCache.pos;
+  const forward = new THREE.Vector3(0,0,-1).applyQuaternion(viewerPoseCache.quat).normalize();
+
+  let ranked = pool.map(c => {
+    const p = new THREE.Vector3(...c.pos);
+    const v = p.clone().sub(viewerPos);
+    const dist = v.length();
+    const angle = dist > 1e-6
+      ? THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(forward.dot(v.clone().normalize()),-1,1)))
+      : 0;
+    let score = Math.random();
+    if (dist >= 1.0 && dist <= 8.0) score += 2;
+    if (angle >= 25) score += 1.5;
+    return {c, score, dist, angle};
+  }).sort((a,b)=>b.score-a.score);
+
+  const chosen = ranked[0].c;
+  const obj = createNinja(0.13); // camouflage opacity
+
+  // Keep position from hit test but force upright orientation for game readability.
+  const p = new THREE.Vector3(...chosen.pos);
+  obj.position.copy(p);
+  obj.position.y += 0.02;
+  obj.quaternion.identity();
+  scene.add(obj);
+
+  target = {
+    object: obj,
+    anchor: null,
+    position: p.clone(),
+    found: false,
+    mode: 'local-space'
+  };
+
+  phase = 'hunt';
+  scanBtn.disabled = false;
+  newRoundBtn.disabled = false;
+
+  statusEl.textContent = 'Ninja가 숨었습니다';
+  messageEl.textContent = '걸어다니며 찾으세요. 의심되는 방향을 화면 중앙에 두고 SCAN을 누르세요.';
+}
+
+function triggerScan() {
+  if (phase !== 'hunt' || !target || !viewerPoseCache) return;
+
+  scans++;
+  flash();
+
+  const camPos = viewerPoseCache.pos;
+  const forward = new THREE.Vector3(0,0,-1).applyQuaternion(viewerPoseCache.quat).normalize();
+  const toTarget = target.position.clone().sub(camPos);
+  const dist = toTarget.length();
+
+  if (dist < 1e-5) return;
+  const angle = THREE.MathUtils.radToDeg(
+    Math.acos(THREE.MathUtils.clamp(forward.dot(toTarget.clone().normalize()),-1,1))
+  );
+
+  const detected = dist <= DETECT_MAX_DISTANCE_M && angle <= DETECT_MAX_ANGLE_DEG;
+
+  if (detected) {
+    revealTarget();
+  } else {
+    misses++;
+    statusEl.textContent = 'NO SIGNAL';
+    messageEl.textContent = '여기는 아닙니다. 다른 위치로 이동하거나 방향을 바꿔 다시 시도하세요.';
+    setTimeout(() => {
+      if (phase === 'hunt') statusEl.textContent = 'Ninja 탐색 중';
+    }, 900);
+  }
+}
+
+function revealTarget() {
+  if (!target) return;
+  target.found = true;
+  phase = 'found';
+  setNinjaOpacity(target.object, 1.0);
+
+  const halo = new THREE.Mesh(
+    new THREE.TorusGeometry(.22,.014,10,48).rotateX(Math.PI/2),
+    new THREE.MeshBasicMaterial({color:0xffffff})
+  );
+  halo.position.y = .20;
+  halo.name = 'foundHalo';
+  target.object.add(halo);
+
+  scanBtn.disabled = true;
+  statusEl.textContent = 'DETECTED!';
+  messageEl.textContent = '발견 성공. 다시 숨기기를 누르면 같은 스캔 데이터에서 새 위치로 시작합니다.';
+}
+
+function saveCheckpoint() {
+  if (!viewerPoseCache) return;
+  checkpoint = {
+    pos: viewerPoseCache.pos.clone(),
+    quat: viewerPoseCache.quat.clone()
+  };
+  lastReturnError = null;
+  statusEl.textContent = '기준점 저장됨';
+  messageEl.textContent = '조금 이동하거나 360° 회전한 뒤, 가능한 한 같은 자리·방향으로 돌아와 복귀 오차 확인을 누르세요.';
+}
+
+function checkReturnError() {
+  if (!checkpoint || !viewerPoseCache) {
+    statusEl.textContent = '먼저 기준점 저장을 누르세요';
+    return;
+  }
+
+  const posErr = viewerPoseCache.pos.distanceTo(checkpoint.pos);
+  const qDelta = checkpoint.quat.clone().invert().multiply(viewerPoseCache.quat);
+  const angleErr = THREE.MathUtils.radToDeg(2*Math.acos(Math.min(1,Math.abs(qDelta.w))));
+  lastReturnError = {posErr, angleErr};
+
+  statusEl.textContent = `복귀 오차: ${posErr.toFixed(2)}m / ${angleErr.toFixed(1)}°`;
+  messageEl.textContent = '정확한 측정기는 아니지만, 같은 위치·방향으로 돌아왔을 때 값이 작을수록 추적 안정성이 좋습니다.';
+}
+
+function updateTargetAnchor(frame) {
+  if (!target?.anchor || !localSpace) return;
+  const pose = frame.getPose(target.anchor.anchorSpace, localSpace);
+  if (!pose) return;
+  target.object.matrix.fromArray(pose.transform.matrix);
+}
+
+function updateMetrics() {
+  if (!viewerPoseCache) {
+    metricsEl.textContent = 'pose: tracking 대기 중';
+    return;
+  }
+  const p = viewerPoseCache.pos;
+  const mappingLeft = phase === 'mapping' ? Math.max(0,(mappingEnd-performance.now())/1000) : 0;
+  const poolCount = candidates.length >= 5 ? candidates.length : allCandidates.length;
+
+  metricsEl.textContent =
+`viewer (m)  x ${p.x.toFixed(2)}  y ${p.y.toFixed(2)}  z ${p.z.toFixed(2)}
+이동경로 ${pathDistance.toFixed(1)}m   최대변위 ${maxDisplacement.toFixed(1)}m
+표면후보 ${poolCount}   hit-test ${reticle.visible ? 'FOUND' : 'searching'}
+phase ${phase}${phase==='mapping' ? ` (${mappingLeft.toFixed(1)}s)` : ''}
+scan ${scans}회 / miss ${misses}회
+복귀오차 ${lastReturnError ? `${lastReturnError.posErr.toFixed(2)}m, ${lastReturnError.angleErr.toFixed(1)}°` : '-'}`;
+}
+
+function clearTarget() {
+  if (!target) return;
+  try { target.anchor?.delete?.(); } catch {}
+  scene.remove(target.object);
+  disposeObject(target.object);
+  target = null;
+}
+
+function flash() {
+  scanFlash.style.borderWidth = '10px';
+  scanFlash.style.borderColor = 'rgba(255,255,255,.85)';
+  setTimeout(() => {
+    scanFlash.style.borderWidth = '0px';
+    scanFlash.style.borderColor = 'rgba(255,255,255,0)';
+  }, 130);
+}
+
+function makeReticle() {
+  const g = new THREE.Group();
+  g.matrixAutoUpdate = false;
+  g.visible = false;
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(.07,.085,48).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:.9})
+  );
+  g.add(ring);
+  return g;
+}
+
+function createNinja(opacity=.13) {
+  const g = new THREE.Group();
+  const mat = (color) => new THREE.MeshStandardMaterial({
+    color, roughness:.8, transparent:true, opacity, depthWrite:opacity>.5
+  });
+  const orange=mat(0xff7a00), black=mat(0x171717), skin=mat(0xffc48a),
+        white=mat(0xffffff), eye=mat(0x111111), hair=mat(0xf0c832);
+
+  for (const x of [-.045,.045]) {
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(.05,.025,.085), black);
+    foot.position.set(x,.015,.015); g.add(foot);
+  }
+
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(.075,.12,5,10), orange);
+  body.position.y=.15; g.add(body);
+
+  const belt = new THREE.Mesh(new THREE.CylinderGeometry(.082,.082,.025,20), black);
+  belt.position.y=.12; g.add(belt);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.095,24,18), skin);
+  head.position.y=.33; g.add(head);
+
+  const band = new THREE.Mesh(new THREE.BoxGeometry(.19,.04,.025), black);
+  band.position.set(0,.365,.084); g.add(band);
+
+  for (const x of [-.032,.032]) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(.017,12,8), white);
+    s.scale.set(1.4,.65,.35); s.position.set(x,.333,.088); g.add(s);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(.006,10,8), eye);
+    pupil.position.set(x,.333,.098); g.add(pupil);
+  }
+
+  const spikeGeo = new THREE.ConeGeometry(.026,.09,8);
+  [-1,-.55,0,.55,1].forEach(a=>{
+    const spike=new THREE.Mesh(spikeGeo,hair);
+    spike.position.set(Math.sin(a)*.075,.43+Math.cos(a)*.018,-.005);
+    spike.rotation.z=-a*.5; g.add(spike);
+  });
+
+  g.userData.camouflageOpacity = opacity;
+  return g;
+}
+
+function setNinjaOpacity(root, opacity) {
+  root.traverse(child=>{
+    if (child.material && child.material.transparent) {
+      child.material.opacity = opacity;
+      child.material.depthWrite = opacity > .5;
+      child.material.needsUpdate = true;
+    }
+  });
+}
+
+function disposeObject(root) {
+  root.traverse(child=>{
+    child.geometry?.dispose?.();
+    if (child.material) {
+      const ms = Array.isArray(child.material) ? child.material : [child.material];
+      ms.forEach(m=>m.dispose?.());
+    }
+  });
+}
+
+function showFallback(detail) {
+  fallbackDetail.textContent = detail;
+  fallback.style.display='flex';
+}
+
+function onResize() {
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+}
+</script>
+</body>
+</html>
