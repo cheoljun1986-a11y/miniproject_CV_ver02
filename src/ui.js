@@ -10,9 +10,12 @@ export function formatMetrics({
   misses,
   lastReturnError,
   occlusionOn = false,
+  pointCount = null,
 }) {
   const [x, y, z] = viewerPosition;
-  const hitTestLine = `표면후보 ${poolCount}   hit-test ${hitTestFound ? 'FOUND' : 'searching'}${occlusionOn ? '   가림 ON' : ''}`;
+  const occlusionTag = occlusionOn ? '   가림 ON' : '';
+  const pointTag = pointCount === null ? '' : `   점 ${pointCount}`;
+  const hitTestLine = `표면후보 ${poolCount}   hit-test ${hitTestFound ? 'FOUND' : 'searching'}${occlusionTag}${pointTag}`;
   return `viewer (m)  x ${x.toFixed(2)}  y ${y.toFixed(2)}  z ${z.toFixed(2)}
 이동경로 ${pathDistance.toFixed(1)}m   최대변위 ${maxDisplacement.toFixed(1)}m
 ${hitTestLine}

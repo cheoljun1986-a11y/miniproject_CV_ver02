@@ -7,11 +7,16 @@ import {
   MAX_TRACKING_STEP,
   MIN_CANDIDATE_SPACING,
 } from './config.js';
+import { DepthCloud } from './depth-cloud.js';
 import { NinjaGame } from './ninja-game.js';
 import * as ninjaModel from './ninja-model.js';
 import { SpatialMapper } from './spatial-mapper.js';
 import { createUI, formatMetrics } from './ui.js';
 import { XRSessionController } from './xr-session.js';
+
+// ?depth=cloud reconstructs a live point cloud from cpu-optimized depth instead
+// of running the gpu-optimized occluder (a session can only use one depth mode).
+const CLOUD_MODE = new URLSearchParams(location.search).get('depth') === 'cloud';
 
 const ui = createUI();
 let scene;
@@ -22,6 +27,7 @@ let reticle;
 let mapper;
 let xrSession;
 let game;
+let depthCloud = null; // point-cloud reconstruction (CLOUD_MODE)
 let occluder = null; // depth-sensing occlusion mesh (real world hides the ninja)
 
 init();
@@ -88,14 +94,18 @@ async function init() {
     return;
   }
 
-  ui.setStatus('WebXR AR 지원됨 — START AR을 누르세요');
+  ui.setStatus(CLOUD_MODE
+    ? 'WebXR AR 지원됨 (공간 복원 모드) — START AR을 누르세요'
+    : 'WebXR AR 지원됨 — START AR을 누르세요');
+  if (CLOUD_MODE) depthCloud = new DepthCloud({ scene });
+
   const arButton = ARButton.createButton(renderer, {
     requiredFeatures: ['hit-test'],
     optionalFeatures: ['anchors', 'dom-overlay', 'local-floor', 'depth-sensing'],
-    // Real-world depth so people/hands/pillars can occlude the ninja. three's
-    // built-in occluder mesh only works with the gpu-optimized depth path.
+    // gpu-optimized feeds three's built-in occluder mesh; cpu-optimized lets us
+    // read depth per-pixel to build a point cloud. A session gets only one.
     depthSensing: {
-      usagePreference: ['gpu-optimized'],
+      usagePreference: CLOUD_MODE ? ['cpu-optimized'] : ['gpu-optimized'],
       dataFormatPreference: ['luminance-alpha', 'float32'],
     },
     domOverlay: { root: document.body },
@@ -104,11 +114,13 @@ async function init() {
 
   renderer.xr.addEventListener('sessionstart', async () => {
     detachOccluder();
+    depthCloud?.reset();
     await xrSession.start();
     game.startSession();
   });
   renderer.xr.addEventListener('sessionend', () => {
     detachOccluder();
+    depthCloud?.reset();
     game.endSession();
     xrSession.end();
   });
@@ -142,7 +154,11 @@ function render(time, frame) {
     return;
   }
 
-  maybeAttachOccluder();
+  if (CLOUD_MODE) {
+    depthCloud?.update(frame, xrSession.getLocalSpace(), time);
+  } else {
+    maybeAttachOccluder();
+  }
   const { viewerPose, surface } = xrSession.update(frame);
   if (viewerPose) mapper.recordViewer(viewerPose.position);
   game.update(time, frame, surface);
@@ -169,7 +185,8 @@ function updateMetrics(viewerPose) {
     scans: gameState.scans,
     misses: gameState.misses,
     lastReturnError: spatial.lastReturnError,
-    occlusionOn: Boolean(renderer.xr.hasDepthSensing?.()),
+    occlusionOn: !CLOUD_MODE && Boolean(renderer.xr.hasDepthSensing?.()),
+    pointCount: CLOUD_MODE ? (depthCloud?.getCount() ?? 0) : null,
   }));
 }
 

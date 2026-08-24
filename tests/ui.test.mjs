@@ -46,3 +46,21 @@ test('formatMetrics flags depth occlusion only when it is active', () => {
   assert.doesNotMatch(formatMetrics({ ...base, occlusionOn: false }), /가림/);
   assert.doesNotMatch(formatMetrics(base), /가림/);
 });
+
+test('formatMetrics shows the point-cloud count only in cloud mode', () => {
+  const base = {
+    viewerPosition: [0, 0, 0],
+    pathDistance: 0,
+    maxDisplacement: 0,
+    poolCount: 7,
+    hitTestFound: true,
+    phase: 'mapping',
+    mappingLeft: 0,
+    scans: 0,
+    misses: 0,
+    lastReturnError: null,
+  };
+
+  assert.match(formatMetrics({ ...base, pointCount: 1234 }), /hit-test FOUND   점 1234/);
+  assert.doesNotMatch(formatMetrics(base), /점 /);
+});
