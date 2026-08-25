@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <meta name="theme-color" content="#111111"/>
-<title>WebXR Hidden Ninja v2</title>
+<title>WebXR Hachuping Chase v4</title>
 <style>
   :root { color-scheme: dark; font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
   html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#111; }
@@ -58,6 +58,29 @@
   }
   #fallback .box { max-width:620px; line-height:1.6; }
   code { background:#222; padding:2px 6px; border-radius:6px; }
+
+  /* ── 도망 모드 ─────────────────────────────────────────── */
+  #chasePanel {
+    position:absolute; left:50%; bottom:150px; transform:translateX(-50%);
+    width:min(84vw,460px); display:none; flex-direction:column; gap:6px;
+    align-items:center; pointer-events:none;
+  }
+  #chaseGauge {
+    width:100%; height:14px; border-radius:999px; overflow:hidden;
+    background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.25);
+  }
+  #chaseGaugeFill { height:100%; width:0%; background:#556; transition:width .08s linear; }
+  #chaseHint {
+    font-size:13px; font-weight:700; color:#fff; text-shadow:0 1px 4px #000;
+  }
+  #chaseArrow {
+    position:absolute; left:50%; top:50%; width:0; height:0; display:none;
+    border-left:16px solid transparent; border-right:16px solid transparent;
+    border-bottom:30px solid #ff5fd2;
+    filter:drop-shadow(0 0 4px rgba(0,0,0,.7));
+    margin-top:-96px; pointer-events:none; z-index:15;
+  }
+  button.ctrl.chase { background:#ff5fd2; color:#fff; }
 </style>
 
 <script type="importmap">
@@ -70,18 +93,35 @@
 </script>
 </head>
 <body>
+<script>
+  // 도망 모드는 누적 공간지도가 있어야 동작한다. 파라미터가 없으면
+  // CPU 깊이 가림 모드로 한 번 다시 연다.
+  (function () {
+    var p = new URLSearchParams(location.search);
+    if (!p.get('occlusion') && !p.get('depth')) {
+      p.set('occlusion', 'cpu');
+      location.replace(location.pathname + '?' + p.toString());
+    }
+  })();
+</script>
 <div id="hud">
   <div class="card" id="status">WebXR 확인 중…</div>
   <div class="card" id="metrics">pose: -</div>
   <div id="crosshair"></div>
-  <div id="message">START AR을 누른 뒤 천천히 주변 바닥/책상을 비춰주세요.</div>
+  <div id="message">START AR → 스캔 → 하츄핑이 숨으면 「도망 모드」를 누르세요.</div>
   <div id="scanFlash"></div>
+  <div id="chaseArrow"></div>
+  <div id="chasePanel">
+    <div id="chaseGauge"><div id="chaseGaugeFill"></div></div>
+    <div id="chaseHint">—</div>
+  </div>
   <div id="controls">
     <button class="ctrl primary" id="scanBtn" disabled>SCAN</button>
     <button class="ctrl" id="newRoundBtn" disabled>다시 숨기기</button>
     <button class="ctrl" id="extendBtn" disabled>+20초 스캔</button>
     <button class="ctrl warn" id="markBtn" disabled>기준점 저장</button>
     <button class="ctrl warn" id="checkBtn" disabled>복귀 오차 확인</button>
+    <button class="ctrl chase" id="chaseBtn">도망 모드</button>
     <button class="ctrl" id="operatorBtn" style="display:none">운영자 뷰</button>
   </div>
   <div id="operatorOverlay" style="position:absolute; inset:0; z-index:20; display:none; background:#0b0b0b; pointer-events:auto;">
