@@ -170,41 +170,9 @@ test('formatOperatorStatus reports map, anchor, ninja, and player state', () => 
 
   assert.equal(
     output,
-    '운영자 공간지도 · 복셀 123 · 미확정 0\n'
-      + 'depth unavailable\n'
+    '운영자 공간지도 · 복셀 123\n'
       + '고정 anchor (추적 일시 손실)\n'
       + 'Ninja  x 1.00  y 2.00  z -3.00\n'
       + '플레이어  x 0.10  y 1.60  z -0.20 · 경로 9점',
   );
-});
-
-test('formatOperatorStatus surfaces pending voxels so a stalled map is visible', () => {
-  const output = formatOperatorStatus({ voxelCount: 12, pendingCount: 40000 });
-
-  assert.match(output, /복셀 12/);
-  assert.match(output, /미확정 40000/);
-});
-
-test('formatOperatorStatus reports the depth usage that produced the map', () => {
-  const output = formatOperatorStatus({ depthUsage: 'cpu-optimized' });
-
-  assert.match(output, /depth cpu-optimized/);
-});
-
-test('formatOperatorStatus flags depth that never arrived', () => {
-  const output = formatOperatorStatus({ depthUsage: null });
-
-  assert.match(output, /depth unavailable/);
-});
-
-test('formatOperatorStatus shows the occlusion triangle count when occlusion runs', () => {
-  const output = formatOperatorStatus({ occlusionTriangles: 8123 });
-
-  assert.match(output, /삼각형 8123/);
-});
-
-test('formatOperatorStatus omits the triangle count outside occlusion mode', () => {
-  const output = formatOperatorStatus({ occlusionTriangles: null });
-
-  assert.doesNotMatch(output, /삼각형/);
 });

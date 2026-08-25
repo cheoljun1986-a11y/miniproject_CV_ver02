@@ -58,19 +58,11 @@ function formatPosition(label, position) {
 export function formatOperatorStatus({
   anchorState = null,
   voxelCount = 0,
-  pendingCount = 0,
-  occlusionTriangles = null,
-  depthUsage = null,
   ninjaPosition = null,
   playerPosition = null,
   pathPointCount = 0,
 }) {
-  // Pending voxels and the depth usage separate the two ways an empty map
-  // looks the same on screen: depth never arrived, or samples arrive but are
-  // evicted before reaching the solid threshold.
-  const triangleTag = occlusionTriangles === null ? '' : ` · 삼각형 ${occlusionTriangles}`;
-  return `운영자 공간지도 · 복셀 ${voxelCount} · 미확정 ${pendingCount}${triangleTag}
-depth ${depthUsage ?? 'unavailable'}
+  return `운영자 공간지도 · 복셀 ${voxelCount}
 ${formatAnchorStatus(anchorState)}
 ${formatPosition('Ninja', ninjaPosition)}
 ${formatPosition('플레이어', playerPosition)} · 경로 ${pathPointCount}점`;

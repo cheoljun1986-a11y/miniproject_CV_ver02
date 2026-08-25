@@ -3,13 +3,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { TRAIL_MAX_POINTS, VOXEL_MAX_SOLID, VOXEL_SIZE_M } from './config.js';
-import { framePoints } from './operator-framing.js';
-
-const CAMERA_FOV_DEG = 60;
-
-// Direction the auto-framed camera sits in relative to the map's center: above
-// and to one side, so floors and walls both read.
-const CAMERA_DIRECTION = [0.45, 0.7, 0.55];
 
 // A second, non-XR 3D scene rendered onto an overlay canvas: a god's-eye view
 // of the reconstructed voxel space, the hidden Ninja, and the player's path.
@@ -26,23 +19,14 @@ export class OperatorView {
     this.scene.add(new THREE.GridHelper(10, 20, 0x334455, 0x223344));
     this.scene.add(new THREE.AxesHelper(0.5));
 
-    this.camera = new THREE.PerspectiveCamera(CAMERA_FOV_DEG, 1, 0.05, 100);
+    this.camera = new THREE.PerspectiveCamera(60, 1, 0.05, 100);
     this.camera.position.set(2, 3, 4);
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
-    // Auto-framing follows the map until the operator takes over the camera.
-    this.autoFrame = true;
-    this.framedRevision = -1;
-    this.controls.addEventListener('start', () => { this.autoFrame = false; });
 
     this.voxels = new THREE.InstancedMesh(
       new THREE.BoxGeometry(VOXEL_SIZE_M, VOXEL_SIZE_M, VOXEL_SIZE_M),
-      // No vertexColors here. It defines USE_COLOR, whose shader chunk runs
-      // `vColor *= color` against the geometry's color attribute — and a
-      // BoxGeometry has none, so the undefined attribute reads as (0,0,0) and
-      // zeroes the color before instanceColor is ever multiplied in. Leaving it
-      // off keeps USE_INSTANCING_COLOR alone, which is what setColorAt feeds.
-      new THREE.MeshLambertMaterial(),
+      new THREE.MeshLambertMaterial({ vertexColors: true }),
       VOXEL_MAX_SOLID,
     );
     this.voxels.instanceColor = new THREE.InstancedBufferAttribute(
@@ -92,30 +76,6 @@ export class OperatorView {
     this.camera.updateProjectionMatrix();
   }
 
-  // Keep the reconstruction in view as it grows. The map is anchored to wherever
-  // the session started, so it can end up far from the camera's initial spot.
-  // Reframes only when the map actually changed, and stops for good once the
-  // operator drags the camera themselves.
-  applyAutoFrame(solidVoxels, voxelRevision) {
-    if (!this.autoFrame || voxelRevision === this.framedRevision) return;
-
-    const framing = framePoints(
-      solidVoxels.map(({ position }) => position),
-      CAMERA_FOV_DEG,
-    );
-    if (!framing) return;
-    this.framedRevision = voxelRevision;
-
-    const [tx, ty, tz] = framing.target;
-    const length = Math.hypot(...CAMERA_DIRECTION);
-    this.controls.target.set(tx, ty, tz);
-    this.camera.position.set(
-      tx + (CAMERA_DIRECTION[0] / length) * framing.distance,
-      ty + (CAMERA_DIRECTION[1] / length) * framing.distance,
-      tz + (CAMERA_DIRECTION[2] / length) * framing.distance,
-    );
-  }
-
   render({ solidVoxels, voxelRevision, ninjaPos, playerPos, playerPath }) {
     this.resize();
 
@@ -158,7 +118,6 @@ export class OperatorView {
     this.pathGeometry.setDrawRange(0, pathCount);
     this.pathGeometry.attributes.position.needsUpdate = true;
 
-    this.applyAutoFrame(solidVoxels, voxelRevision);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
