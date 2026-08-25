@@ -9,6 +9,11 @@ export const NINJA_CAMOUFLAGE_OPACITY = 0.13;
 export const NINJA_HORIZONTAL_OFFSET_M = 0.02;
 export const NINJA_VERTICAL_OFFSET_M = 0.12;
 
+// Scanned glTF model the game hides. Relative so GitHub Pages subpaths resolve.
+// The built-in ninja is drawn instead when the file is missing or fails to load.
+export const HIDDEN_MODEL_URL = './hcp.glb';
+export const HIDDEN_MODEL_HEIGHT_M = 0.5;
+
 // Depth point-cloud reconstruction (?depth=cloud mode).
 export const DEPTH_CLOUD_SAMPLE_GAP_MS = 200; // read depth at most this often
 export const DEPTH_CLOUD_GRID_COLS = 40; // samples taken across the depth frame

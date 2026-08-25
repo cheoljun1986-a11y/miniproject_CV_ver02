@@ -1,5 +1,16 @@
 import * as THREE from 'three';
 
+import { createInstanceFrom } from './hidden-model.js';
+
+// Normalized model loaded from HIDDEN_MODEL_URL, or null while it is still
+// loading or when loading failed. createNinja falls back to the built-in ninja
+// so the game stays playable either way.
+let hiddenTemplate = null;
+
+export function setHiddenTemplate(template) {
+  hiddenTemplate = template;
+}
+
 export function makeReticle() {
   const group = new THREE.Group();
   group.matrixAutoUpdate = false;
@@ -13,6 +24,8 @@ export function makeReticle() {
 }
 
 export function createNinja(opacity = 0.13) {
+  if (hiddenTemplate) return createInstanceFrom(hiddenTemplate, opacity);
+
   const group = new THREE.Group();
   const material = (color) => new THREE.MeshStandardMaterial({
     color,

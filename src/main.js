@@ -8,6 +8,8 @@ import {
   usesSpaceMapping,
 } from './app-mode.js';
 import {
+  HIDDEN_MODEL_HEIGHT_M,
+  HIDDEN_MODEL_URL,
   HORIZONTAL_SURFACE_THRESHOLD,
   MAP_SECONDS,
   MAX_TRACKING_STEP,
@@ -24,6 +26,7 @@ import {
 import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
 import { CpuDepthOccluder } from './cpu-depth-occluder.js';
 import { DepthCloud } from './depth-cloud.js';
+import { loadHiddenModel } from './hidden-model-loader.js';
 import { NinjaGame } from './ninja-game.js';
 import * as ninjaModel from './ninja-model.js';
 import { OperatorView } from './operator-view.js';
@@ -125,6 +128,17 @@ async function init() {
     ui.setStatus('WebXR immersive-ar 미지원');
     ui.showFallback('navigator.xr 또는 immersive-ar 지원을 찾지 못했습니다.');
     return;
+  }
+
+  // Fetch the hiding model before the session can start. A failure here is not
+  // fatal: createNinja keeps drawing the built-in ninja.
+  ui.setStatus('숨을 모델 불러오는 중…');
+  try {
+    ninjaModel.setHiddenTemplate(
+      await loadHiddenModel(HIDDEN_MODEL_URL, HIDDEN_MODEL_HEIGHT_M),
+    );
+  } catch (error) {
+    console.error('Hidden model unavailable, using the built-in ninja:', error);
   }
 
   ui.setStatus(CLOUD_MODE
