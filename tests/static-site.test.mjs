@@ -10,3 +10,9 @@ test('GitHub Pages entrypoint loads the application through a relative ES module
   assert.match(moduleScripts[0][1], /src="\.\/src\/main\.js"/);
   assert.equal(moduleScripts[0][2].trim(), '');
 });
+
+test('operator overlay includes a live status region', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+
+  assert.match(html, /id="operatorStatus"/);
+});

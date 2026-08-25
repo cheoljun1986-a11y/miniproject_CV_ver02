@@ -14,3 +14,7 @@ export function resolveAppMode(search = '') {
 export function depthUsageForMode(mode) {
   return mode === APP_MODES.GPU_OCCLUSION ? 'gpu-optimized' : 'cpu-optimized';
 }
+
+export function usesSpaceMapping(mode) {
+  return mode === APP_MODES.CPU_OCCLUSION || mode === APP_MODES.CLOUD;
+}

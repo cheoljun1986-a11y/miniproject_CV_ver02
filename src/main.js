@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { ARButton } from 'three/addons/webxr/ARButton.js';
 
-import { APP_MODES, depthUsageForMode, resolveAppMode } from './app-mode.js';
+import {
+  APP_MODES,
+  depthUsageForMode,
+  resolveAppMode,
+  usesSpaceMapping,
+} from './app-mode.js';
 import {
   HORIZONTAL_SURFACE_THRESHOLD,
   MAP_SECONDS,
@@ -13,6 +18,7 @@ import {
   VOXEL_SIZE_M,
   VOXEL_SOLID_MIN_HITS,
 } from './config.js';
+import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
 import { CpuDepthOccluder } from './cpu-depth-occluder.js';
 import { DepthCloud } from './depth-cloud.js';
 import { NinjaGame } from './ninja-game.js';
@@ -20,16 +26,17 @@ import * as ninjaModel from './ninja-model.js';
 import { OperatorView } from './operator-view.js';
 import { PlayerTrail } from './player-trail.js';
 import { SpatialMapper } from './spatial-mapper.js';
-import { createUI, formatMetrics } from './ui.js';
+import { createUI, formatMetrics, formatOperatorStatus } from './ui.js';
 import { VoxelMap } from './voxel-map.js';
 import { XRSessionController } from './xr-session.js';
 
-// A WebXR session can use only one depth mode. Keep each experiment isolated
-// so point-cloud reconstruction and dynamic occlusion never compete for CPU.
+// A WebXR session uses one depth mode. CPU mode shares that single feed between
+// the latest occlusion mesh and the slower cumulative operator map.
 const APP_MODE = resolveAppMode(location.search);
 const CLOUD_MODE = APP_MODE === APP_MODES.CLOUD;
 const CPU_OCCLUSION_MODE = APP_MODE === APP_MODES.CPU_OCCLUSION;
 const GPU_OCCLUSION_MODE = APP_MODE === APP_MODES.GPU_OCCLUSION;
+const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE);
 
 const ui = createUI();
 let scene;
@@ -40,7 +47,8 @@ let reticle;
 let mapper;
 let xrSession;
 let game;
-let depthCloud = null; // point-cloud reconstruction (CLOUD_MODE)
+let depthSource = null;
+let depthCloud = null;
 let occluder = null; // depth-sensing occlusion mesh (real world hides the ninja)
 let cpuDepthOccluder = null;
 let voxelMap = null;
@@ -117,7 +125,10 @@ async function init() {
     : CPU_OCCLUSION_MODE
       ? 'WebXR AR 지원됨 (CPU 깊이 가림 모드) — START AR을 누르세요'
       : 'WebXR AR 지원됨 — START AR을 누르세요');
-  if (CLOUD_MODE) {
+  if (SPACE_MAPPING_MODE) {
+    depthSource = new CpuDepthFrameSource({
+      getSession: () => xrSession.getSession(),
+    });
     voxelMap = new VoxelMap({
       voxelSize: VOXEL_SIZE_M,
       solidMinHits: VOXEL_SOLID_MIN_HITS,
@@ -127,7 +138,15 @@ async function init() {
       minStep: TRAIL_MIN_STEP_M,
       maxPoints: TRAIL_MAX_POINTS,
     });
-    depthCloud = new DepthCloud({ scene, voxelMap, renderPoints: false });
+    depthCloud = new DepthCloud({
+      scene,
+      voxelMap,
+      renderPoints: false,
+      depthSource,
+    });
+    if (CPU_OCCLUSION_MODE) {
+      cpuDepthOccluder = new CpuDepthOccluder({ scene, depthSource });
+    }
     try {
       operatorView = new OperatorView({ canvas: ui.getOperatorCanvas() });
       ui.setOperatorButtonVisible(true);
@@ -141,8 +160,6 @@ async function init() {
       console.error('Operator view unavailable:', error);
       operatorView = null;
     }
-  } else if (CPU_OCCLUSION_MODE) {
-    cpuDepthOccluder = new CpuDepthOccluder({ scene });
   }
 
   const arButton = ARButton.createButton(renderer, {
@@ -160,6 +177,7 @@ async function init() {
 
   renderer.xr.addEventListener('sessionstart', async () => {
     detachOccluder();
+    depthSource?.reset();
     cpuDepthOccluder?.reset();
     depthCloud?.reset();
     voxelMap?.reset();
@@ -169,6 +187,7 @@ async function init() {
   });
   renderer.xr.addEventListener('sessionend', () => {
     detachOccluder();
+    depthSource?.reset();
     cpuDepthOccluder?.reset();
     depthCloud?.reset();
     voxelMap?.reset();
@@ -208,26 +227,39 @@ function render(time, frame) {
     return;
   }
 
-  if (CLOUD_MODE) {
-    depthCloud?.update(frame, xrSession.getLocalSpace(), time);
-    const pose = xrSession.getViewerPose();
-    if (pose) playerTrail?.record(pose.position);
-    if (operatorVisible && operatorView) {
-      operatorView.render({
-        solidVoxels: voxelMap.getSolidVoxels(),
-        ninjaPos: game.getTargetPosition(),
-        playerPos: pose ? pose.position : null,
-        playerPath: playerTrail.getPoints(),
-      });
-    }
-  } else if (CPU_OCCLUSION_MODE) {
-    cpuDepthOccluder?.update(frame, xrSession.getLocalSpace(), time);
-  } else if (GPU_OCCLUSION_MODE) {
-    maybeAttachOccluder();
-  }
   const { viewerPose, surface } = xrSession.update(frame);
   if (viewerPose) mapper.recordViewer(viewerPose.position);
   game.update(time, frame, surface);
+
+  if (SPACE_MAPPING_MODE) {
+    const localSpace = xrSession.getLocalSpace();
+    if (CPU_OCCLUSION_MODE) {
+      cpuDepthOccluder?.update(frame, localSpace, time);
+    }
+    depthCloud?.update(frame, localSpace, time);
+    if (viewerPose) playerTrail?.record(viewerPose.position);
+
+    const ninjaPosition = game.getTargetPosition();
+    const playerPath = playerTrail?.getPoints() ?? [];
+    const voxelCount = voxelMap?.getSolidCount() ?? 0;
+    ui.setOperatorStatus(formatOperatorStatus({
+      anchorState: game.getAnchorState(),
+      voxelCount,
+      ninjaPosition,
+      playerPosition: viewerPose?.position ?? null,
+      pathPointCount: playerPath.length,
+    }));
+    if (operatorVisible && operatorView) {
+      operatorView.render({
+        solidVoxels: voxelMap.getSolidVoxels(),
+        ninjaPos: ninjaPosition,
+        playerPos: viewerPose?.position ?? null,
+        playerPath,
+      });
+    }
+  } else if (GPU_OCCLUSION_MODE) {
+    maybeAttachOccluder();
+  }
   updateMetrics(viewerPose);
   renderer.render(scene, camera);
 }
@@ -266,11 +298,10 @@ function updateMetrics(viewerPose) {
       ? 'cpu'
       : GPU_OCCLUSION_MODE && renderer.xr.hasDepthSensing?.() ? 'gpu' : null,
     occlusionTriangles: cpuDepthOccluder?.getTriangleCount() ?? 0,
-    pointCount: CLOUD_MODE
-      ? (voxelMap?.getSolidCount() ? voxelMap.getSolidCount() : (depthCloud?.getCount() ?? 0))
-      : null,
+    voxelCount: SPACE_MAPPING_MODE ? (voxelMap?.getSolidCount() ?? 0) : null,
     depthUsage,
     depthDataFormat,
+    anchorState: game.getAnchorState(),
   }));
 }
 

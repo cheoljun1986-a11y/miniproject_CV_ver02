@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { formatMetrics } from '../src/ui.js';
+import {
+  formatAnchorStatus,
+  formatMetrics,
+  formatOperatorStatus,
+} from '../src/ui.js';
 
 test('formatMetrics preserves the existing HUD measurements', () => {
   const output = formatMetrics({
@@ -24,6 +28,7 @@ test('formatMetrics preserves the existing HUD measurements', () => {
       + '표면후보 7   hit-test FOUND\n'
       + 'depth usage unavailable\n'
       + 'depth format -\n'
+      + '고정 -\n'
       + 'phase mapping (8.8s)\n'
       + 'scan 3회 / miss 2회\n'
       + '복귀오차 0.12m, 4.6°',
@@ -119,7 +124,55 @@ test('formatMetrics identifies CPU occlusion and reports its live triangle count
     lastReturnError: null,
     occlusionMode: 'cpu',
     occlusionTriangles: 321,
+    voxelCount: 456,
+    anchorState: 'anchor',
   });
 
-  assert.match(output, /가림 CPU · 삼각형 321/);
+  assert.match(output, /가림 CPU · 삼각형 321 · 복셀 456/);
+  assert.match(output, /고정 anchor/);
+});
+
+test('formatMetrics reports solid voxels in cloud diagnostics without CPU triangles', () => {
+  const output = formatMetrics({
+    viewerPosition: [0, 0, 0],
+    pathDistance: 0,
+    maxDisplacement: 0,
+    poolCount: 0,
+    hitTestFound: false,
+    phase: 'mapping',
+    mappingLeft: 1,
+    scans: 0,
+    misses: 0,
+    lastReturnError: null,
+    voxelCount: 77,
+  });
+
+  assert.match(output, /hit-test searching   복셀 77/);
+  assert.doesNotMatch(output, /삼각형/);
+});
+
+test('formatAnchorStatus distinguishes pending, lost, local, and empty states', () => {
+  assert.equal(formatAnchorStatus('anchor-pending'), '고정 anchor 준비');
+  assert.equal(formatAnchorStatus('anchor'), '고정 anchor');
+  assert.equal(formatAnchorStatus('anchor-lost'), '고정 anchor (추적 일시 손실)');
+  assert.equal(formatAnchorStatus('local'), '고정 local');
+  assert.equal(formatAnchorStatus(null), '고정 -');
+});
+
+test('formatOperatorStatus reports map, anchor, ninja, and player state', () => {
+  const output = formatOperatorStatus({
+    anchorState: 'anchor-lost',
+    voxelCount: 123,
+    ninjaPosition: [1, 2, -3],
+    playerPosition: [0.1, 1.6, -0.2],
+    pathPointCount: 9,
+  });
+
+  assert.equal(
+    output,
+    '운영자 공간지도 · 복셀 123\n'
+      + '고정 anchor (추적 일시 손실)\n'
+      + 'Ninja  x 1.00  y 2.00  z -3.00\n'
+      + '플레이어  x 0.10  y 1.60  z -0.20 · 경로 9점',
+  );
 });
