@@ -10,12 +10,20 @@ import {
 import {
   HIDDEN_MODEL_HEIGHT_M,
   HIDDEN_MODEL_URL,
+  HAND_INFERENCE_GAP_MS,
+  HAND_MIN_CONFIDENCE,
+  HAND_REQUIRED_MATCHES,
+  HAND_SAMPLE_MAX_AGE_MS,
+  HAND_SAMPLE_WINDOW,
   HORIZONTAL_SURFACE_THRESHOLD,
   MAP_SECONDS,
   MAX_TRACKING_STEP,
   MIN_CANDIDATE_SPACING,
   OPERATOR_RENDER_GAP_MS,
   OPERATOR_STATUS_GAP_MS,
+  RPS_COUNTDOWN_MS,
+  RPS_READ_TIMEOUT_MS,
+  RPS_RESULT_MS,
   TRAIL_MAX_POINTS,
   TRAIL_MIN_STEP_M,
   VOXEL_MAX_SOLID,
@@ -26,11 +34,17 @@ import {
 import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
 import { CpuDepthOccluder } from './cpu-depth-occluder.js';
 import { DepthCloud } from './depth-cloud.js';
+import { GestureConsensus } from './gesture-consensus.js';
+import { HandGestureRecognizer } from './hand-gesture-recognizer.js';
 import { loadHiddenModel } from './hidden-model-loader.js';
+import { resolveInputMode } from './input-mode.js';
 import { NinjaGame } from './ninja-game.js';
 import * as ninjaModel from './ninja-model.js';
 import { OperatorView } from './operator-view.js';
 import { PlayerTrail } from './player-trail.js';
+import { RawCameraFrameSource } from './raw-camera-frame-source.js';
+import { RpsRuntime } from './rps-runtime.js';
+import { clearNinjaMove, showNinjaMove } from './rps-sign.js';
 import { SpatialMapper } from './spatial-mapper.js';
 import { createUI, formatMetrics, formatOperatorStatus } from './ui.js';
 import { VoxelMap } from './voxel-map.js';
@@ -43,6 +57,7 @@ const CLOUD_MODE = APP_MODE === APP_MODES.CLOUD;
 const CPU_OCCLUSION_MODE = APP_MODE === APP_MODES.CPU_OCCLUSION;
 const GPU_OCCLUSION_MODE = APP_MODE === APP_MODES.GPU_OCCLUSION;
 const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE);
+const MANUAL_INPUT_MODE = resolveInputMode(location.search) === 'manual';
 
 const ui = createUI();
 let scene;
@@ -65,6 +80,9 @@ let lastOperatorStatusTime = -Infinity;
 let lastOperatorRenderTime = -Infinity;
 let operatorVoxelRevision = -1;
 let operatorSolidVoxels = [];
+let rpsRuntime = null;
+let handRecognizer = null;
+let rawCameraSource = null;
 
 init();
 
@@ -107,6 +125,31 @@ async function init() {
     getSession: () => xrSession.getSession(),
     getLocalSpace: () => xrSession.getLocalSpace(),
     getViewerPose: () => xrSession.getViewerPose(),
+    onDuelStart: () => rpsRuntime?.startDuel(performance.now()),
+  });
+  handRecognizer = new HandGestureRecognizer({
+    consensus: new GestureConsensus({
+      minConfidence: HAND_MIN_CONFIDENCE,
+      requiredMatches: HAND_REQUIRED_MATCHES,
+      windowSize: HAND_SAMPLE_WINDOW,
+      maxAgeMs: HAND_SAMPLE_MAX_AGE_MS,
+    }),
+  });
+  rawCameraSource = new RawCameraFrameSource({
+    minIntervalMs: HAND_INFERENCE_GAP_MS,
+  });
+  rpsRuntime = new RpsRuntime({
+    ui,
+    game,
+    recognizer: handRecognizer,
+    cameraSource: rawCameraSource,
+    manualMode: MANUAL_INPUT_MODE,
+    countdownMs: RPS_COUNTDOWN_MS,
+    readTimeoutMs: RPS_READ_TIMEOUT_MS,
+    resultMs: RPS_RESULT_MS,
+    showNinjaMove,
+    clearNinjaMove,
+    resetRendererState: () => renderer.resetState?.(),
   });
 
   controller = renderer.xr.getController(0);
@@ -139,6 +182,11 @@ async function init() {
     );
   } catch (error) {
     console.error('Hidden model unavailable, using the built-in ninja:', error);
+  }
+
+  if (!MANUAL_INPUT_MODE) {
+    ui.setStatus('손 인식 모델 불러오는 중…');
+    await rpsRuntime.initialize();
   }
 
   ui.setStatus(CLOUD_MODE
@@ -186,7 +234,13 @@ async function init() {
 
   const arButton = ARButton.createButton(renderer, {
     requiredFeatures: ['hit-test'],
-    optionalFeatures: ['anchors', 'dom-overlay', 'local-floor', 'depth-sensing'],
+    optionalFeatures: [
+      'anchors',
+      'dom-overlay',
+      'local-floor',
+      'depth-sensing',
+      'camera-access',
+    ],
     // gpu-optimized feeds three's built-in mesh. CPU modes let this app read
     // samples for either point-cloud reconstruction or our dynamic occluder.
     depthSensing: {
@@ -209,6 +263,7 @@ async function init() {
     operatorVoxelRevision = -1;
     operatorSolidVoxels = [];
     await xrSession.start();
+    rpsRuntime.startSession(xrSession.getSession(), renderer.getContext());
     game.startSession();
   });
   renderer.xr.addEventListener('sessionend', () => {
@@ -224,6 +279,7 @@ async function init() {
     operatorSolidVoxels = [];
     operatorVisible = false;
     ui.setOperatorVisible(false);
+    rpsRuntime.resetSession();
     game.endSession();
     xrSession.end();
   });
@@ -260,6 +316,7 @@ function render(time, frame) {
   const { viewerPose, surface } = xrSession.update(frame);
   if (viewerPose) mapper.recordViewer(viewerPose.position);
   game.update(time, frame, surface);
+  rpsRuntime.update(time, frame, xrSession.getLocalSpace());
 
   if (SPACE_MAPPING_MODE) {
     const localSpace = xrSession.getLocalSpace();

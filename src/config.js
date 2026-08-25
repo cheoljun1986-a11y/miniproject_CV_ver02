@@ -9,6 +9,16 @@ export const NINJA_CAMOUFLAGE_OPACITY = 0.13;
 export const NINJA_HORIZONTAL_OFFSET_M = 0.02;
 export const NINJA_VERTICAL_OFFSET_M = 0.12;
 
+// Camera-recognized rock-paper-scissors duel.
+export const RPS_COUNTDOWN_MS = 3000;
+export const RPS_READ_TIMEOUT_MS = 3500;
+export const RPS_RESULT_MS = 1400;
+export const HAND_INFERENCE_GAP_MS = 100;
+export const HAND_MIN_CONFIDENCE = 0.72;
+export const HAND_REQUIRED_MATCHES = 4;
+export const HAND_SAMPLE_WINDOW = 6;
+export const HAND_SAMPLE_MAX_AGE_MS = 700;
+
 // Scanned glTF model the game hides. Relative so GitHub Pages subpaths resolve.
 // The built-in ninja is drawn instead when the file is missing or fails to load.
 export const HIDDEN_MODEL_URL = './hcp.glb';

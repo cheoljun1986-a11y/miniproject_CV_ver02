@@ -52,6 +52,36 @@ export class Mesh {
 
 export class Points extends Mesh {}
 
+export class CanvasTexture {
+  constructor(image) {
+    this.image = image;
+    this.disposed = false;
+  }
+  dispose() { this.disposed = true; }
+}
+
+export class SpriteMaterial extends MeshBasicMaterial {
+  dispose() { this.disposed = true; }
+}
+
+function transformTarget() {
+  return {
+    values: null,
+    set(...values) { this.values = values; },
+  };
+}
+
+export class Sprite {
+  constructor(material) {
+    this.material = material;
+    this.position = transformTarget();
+    this.scale = transformTarget();
+    this.name = '';
+  }
+}
+
+export const SRGBColorSpace = 'srgb';
+
 export const MathUtils = {
   clamp(value, min, max) { return Math.min(max, Math.max(min, value)); },
 };
