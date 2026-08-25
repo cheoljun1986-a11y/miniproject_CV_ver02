@@ -61,6 +61,7 @@ export function formatOperatorStatus({
   pendingCount = 0,
   occlusionTriangles = null,
   depthUsage = null,
+  cameraAccess = null,
   ninjaPosition = null,
   playerPosition = null,
   pathPointCount = 0,
@@ -69,8 +70,12 @@ export function formatOperatorStatus({
   // looks the same on screen: depth never arrived, or samples arrive but are
   // evicted before reaching the solid threshold.
   const triangleTag = occlusionTriangles === null ? '' : ` · 삼각형 ${occlusionTriangles}`;
+  // Probe for raw camera access: whether the browser actually handed this
+  // session camera images, which decides if real-world voxel color is possible.
+  // '?' until the first frame answers it.
+  const cameraTag = cameraAccess === null ? '?' : (cameraAccess ? 'O' : 'X');
   return `운영자 공간지도 · 복셀 ${voxelCount} · 미확정 ${pendingCount}${triangleTag}
-depth ${depthUsage ?? 'unavailable'}
+depth ${depthUsage ?? 'unavailable'} · 카메라 ${cameraTag}
 ${formatAnchorStatus(anchorState)}
 ${formatPosition('Ninja', ninjaPosition)}
 ${formatPosition('플레이어', playerPosition)} · 경로 ${pathPointCount}점`;

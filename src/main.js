@@ -65,6 +65,9 @@ let lastOperatorStatusTime = -Infinity;
 let lastOperatorRenderTime = -Infinity;
 let operatorVoxelRevision = -1;
 let operatorSolidVoxels = [];
+// null until the first frame answers it: does XRView carry a camera, i.e. did
+// the browser actually grant camera-access for this session?
+let cameraAccess = null;
 
 init();
 
@@ -186,7 +189,10 @@ async function init() {
 
   const arButton = ARButton.createButton(renderer, {
     requiredFeatures: ['hit-test'],
-    optionalFeatures: ['anchors', 'dom-overlay', 'local-floor', 'depth-sensing'],
+    // camera-access is requested only to find out whether this browser grants
+    // it; nothing reads camera images yet. Optional, so a refusal cannot stop
+    // the session from starting.
+    optionalFeatures: ['anchors', 'dom-overlay', 'local-floor', 'depth-sensing', 'camera-access'],
     // gpu-optimized feeds three's built-in mesh. CPU modes let this app read
     // samples for either point-cloud reconstruction or our dynamic occluder.
     depthSensing: {
@@ -208,6 +214,7 @@ async function init() {
     lastOperatorRenderTime = -Infinity;
     operatorVoxelRevision = -1;
     operatorSolidVoxels = [];
+    cameraAccess = null;
     await xrSession.start();
     game.startSession();
   });
@@ -222,6 +229,7 @@ async function init() {
     lastOperatorRenderTime = -Infinity;
     operatorVoxelRevision = -1;
     operatorSolidVoxels = [];
+    cameraAccess = null;
     operatorVisible = false;
     ui.setOperatorVisible(false);
     game.endSession();
@@ -268,6 +276,7 @@ function render(time, frame) {
     }
     depthCloud?.update(frame, localSpace, time);
     if (viewerPose) playerTrail?.record(viewerPose.position);
+    if (cameraAccess === null) cameraAccess = probeCameraAccess(frame, localSpace);
 
     const ninjaPosition = game.getTargetPosition();
     const voxelCount = voxelMap?.getSolidCount() ?? 0;
@@ -281,6 +290,7 @@ function render(time, frame) {
           ? (cpuDepthOccluder?.getTriangleCount() ?? 0)
           : null,
         depthUsage: readDepthSensing().usage,
+        cameraAccess,
         ninjaPosition,
         playerPosition: viewerPose?.position ?? null,
         pathPointCount: playerTrail?.getCount() ?? 0,
@@ -310,6 +320,17 @@ function render(time, frame) {
   }
   updateMetrics(viewerPose);
   renderer.render(scene, camera);
+}
+
+// Answer whether the browser granted raw camera access, or null while no frame
+// has reported a view yet. XRView.camera exists only when camera-access was
+// granted, so it is the honest signal — enabledFeatures can list a feature the
+// runtime then declines to populate.
+function probeCameraAccess(frame, referenceSpace) {
+  const snapshot = depthSource?.read(frame, referenceSpace);
+  const views = snapshot?.viewerPose?.views;
+  if (!views?.length) return null;
+  return Boolean(views[0].camera);
 }
 
 // depthUsage/depthDataFormat throw when depth-sensing was not granted for this
