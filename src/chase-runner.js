@@ -15,11 +15,14 @@ import {
 } from './chase-path.js';
 import { nodeKey, MOVE } from './traversal-grid.js';
 
+// Measured on device: a player holding a phone at arm's length and watching
+// the screen walks nowhere near normal walking pace. The first tuning pass used
+// roughly double these numbers and Hachuping simply could not be caught.
 export const CHASE_SPEED_BANDS = Object.freeze([
-  { withinM: 1.2, speed: 0.95 },
-  { withinM: 2.0, speed: 0.85 },
-  { withinM: 4.0, speed: 0.60 },
-  { withinM: Infinity, speed: 0.25 },
+  { withinM: 1.2, speed: 0.50 },
+  { withinM: 2.0, speed: 0.42 },
+  { withinM: 4.0, speed: 0.28 },
+  { withinM: Infinity, speed: 0.12 },
 ]);
 
 export function speedForDistance(distance, bands = CHASE_SPEED_BANDS) {

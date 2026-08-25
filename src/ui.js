@@ -93,7 +93,26 @@ export function createUI(documentRoot = document) {
     chaseGaugeFill: documentRoot.querySelector('#chaseGaugeFill'),
     chaseHint: documentRoot.querySelector('#chaseHint'),
     chaseArrow: documentRoot.querySelector('#chaseArrow'),
+    hudToggle: documentRoot.querySelector('#hudToggle'),
   };
+
+  // The metrics card is a diagnostic wall of text that covers half a phone
+  // screen. On a page that offers a toggle it starts hidden.
+  let metricsVisible = !elements.hudToggle;
+
+  function applyMetricsVisible() {
+    if (elements.metrics) elements.metrics.style.display = metricsVisible ? '' : 'none';
+    if (elements.hudToggle) elements.hudToggle.textContent = metricsVisible ? '수치 ✕' : '수치';
+  }
+
+  if (elements.hudToggle) {
+    elements.hudToggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      metricsVisible = !metricsVisible;
+      applyMetricsVisible();
+    });
+    applyMetricsVisible();
+  }
 
   function bindCommands({ onScan, onNewRound, onExtend, onMark, onCheck }) {
     const bindings = [
@@ -103,7 +122,10 @@ export function createUI(documentRoot = document) {
       [elements.mark, onMark],
       [elements.check, onCheck],
     ];
+    // The chase page drops the two diagnostic buttons, so a missing element is
+    // normal rather than a mistake.
     bindings.forEach(([element, command]) => {
+      if (!element) return;
       element.addEventListener('click', (event) => {
         event.stopPropagation();
         command();
@@ -112,11 +134,16 @@ export function createUI(documentRoot = document) {
   }
 
   function setControls({ scan, newRound, extend, mark, check }) {
-    elements.scan.disabled = !scan;
-    elements.newRound.disabled = !newRound;
-    elements.extend.disabled = !extend;
-    elements.mark.disabled = !mark;
-    elements.check.disabled = !check;
+    const states = [
+      [elements.scan, scan],
+      [elements.newRound, newRound],
+      [elements.extend, extend],
+      [elements.mark, mark],
+      [elements.check, check],
+    ];
+    states.forEach(([element, enabled]) => {
+      if (element) element.disabled = !enabled;
+    });
   }
 
   function bindOperator({ onToggle }) {
@@ -130,8 +157,9 @@ export function createUI(documentRoot = document) {
     });
   }
 
-  // Chase mode asks the player to HOLD scan rather than tap it, so that simply
-  // pointing the camera is not enough to make an arrest.
+  // Chase mode used to ask the player to HOLD scan. On Android a long press on
+  // a DOM button raises the text-selection toolbar, and dismissing it with Back
+  // closes the browser, so the hold is gone unless handlers are passed in.
   function bindChase({ onToggle, onHoldStart, onHoldEnd }) {
     if (elements.chaseBtn) {
       elements.chaseBtn.addEventListener('click', (event) => {
@@ -140,7 +168,7 @@ export function createUI(documentRoot = document) {
       });
     }
     const scan = elements.scan;
-    if (!scan) return;
+    if (!scan || !onHoldStart || !onHoldEnd) return;
     const start = (event) => {
       event.stopPropagation();
       onHoldStart();
@@ -177,6 +205,18 @@ export function createUI(documentRoot = document) {
     },
     setMetrics(text) {
       elements.metrics.textContent = text;
+    },
+    setMetricsVisible(visible) {
+      metricsVisible = Boolean(visible);
+      applyMetricsVisible();
+    },
+    isMetricsVisible() {
+      return metricsVisible;
+    },
+    // SCAN has no meaning while Hachuping is running, and leaving it there
+    // invites the long press the capture rule no longer wants.
+    setScanVisible(visible) {
+      if (elements.scan) elements.scan.style.display = visible ? '' : 'none';
     },
     showFallback(detail) {
       elements.fallbackDetail.textContent = detail;

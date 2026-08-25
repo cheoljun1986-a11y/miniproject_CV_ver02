@@ -1,5 +1,10 @@
-// Capture rule for the chase: hold SCAN while keeping Hachuping close and on
-// screen. All three conditions must hold at once for the gauge to fill.
+// Capture rule for the chase: keep Hachuping close and on screen and the gauge
+// fills. Both conditions must hold at once.
+//
+// An earlier version also required holding the SCAN button. On a phone that
+// turned into a long-press on a DOM element, which Android answers with the
+// text-selection toolbar, so the requirement was dropped; requireHold keeps the
+// old behaviour available for tests.
 //
 // The gauge decays instead of resetting. AR range readings jitter and the
 // target briefly disappears behind furniture, and restarting a five second
@@ -56,11 +61,13 @@ export class CaptureGauge {
     angleDeg = CAPTURE_ANGLE_DEG,
     seconds = CAPTURE_SECONDS,
     decayPerSecond = CAPTURE_DECAY_PER_S,
+    requireHold = false,
   } = {}) {
     this.radius = radius;
     this.angleDeg = angleDeg;
     this.fillPerSecond = 1 / seconds;
     this.decayPerSecond = decayPerSecond;
+    this.requireHold = requireHold;
     this.reset();
   }
 
@@ -69,14 +76,14 @@ export class CaptureGauge {
     this.captured = false;
     this.inRange = false;
     this.onScreen = false;
-    this.holding = false;
+    this.holding = !this.requireHold;
   }
 
   // dt in seconds. Returns the current state; `captured` latches until reset.
   update(dt, { distance = Infinity, angleDeg = 180, holding = false } = {}) {
     this.inRange = distance <= this.radius;
     this.onScreen = angleDeg <= this.angleDeg;
-    this.holding = Boolean(holding);
+    this.holding = this.requireHold ? Boolean(holding) : true;
 
     if (this.captured) return this.getState();
 

@@ -40,7 +40,9 @@ test('a wall offers nothing to stand on at floor height', () => {
 test('a wall top is standable geometry but not reachable from the floor', async () => {
   const { reachableFrom } = await import('../src/chase-path.js');
   const { nodeKey } = await import('../src/traversal-grid.js');
-  const grid = new TraversalGrid();
+  // The height cap is lifted here so the reachability rule is what is under
+  // test rather than the cap; the cap gets its own tests below.
+  const grid = new TraversalGrid({ maxStandAboveFloor: 100 });
   floorPatch(grid, 0, 2, 0, 2);
   for (let y = 0.02; y < 2.2; y += 0.05) grid.observe([1.05, y, 1.05]);
 
@@ -129,4 +131,62 @@ test('nodeAtWorld snaps to the nearest standable level', () => {
   const high = grid.nodeAtWorld([1.1, 0.85, 1.1]);
   assert.equal(low.level, 0);
   assert.equal(high.level, 1);
+});
+
+// ── height cap ───────────────────────────────────────────────
+// A ceiling is a flat surface with clear air below it, exactly like a tabletop.
+// Only its height separates the two, so the grid refuses surfaces that sit too
+// far above the detected floor. Without this Hachuping climbed onto the
+// ceiling during a live test.
+test('a ceiling is not somewhere to stand', () => {
+  const grid = new TraversalGrid();
+  floorPatch(grid, 0, 2, 0, 2);
+  floorPatch(grid, 0, 2, 0, 2, 2.4);
+  const cx = grid.cellX(1.1);
+  const cz = grid.cellZ(1.1);
+  const levels = grid.levels(cx, cz);
+  assert.equal(levels.length, 1);
+  assert.ok(Math.abs(levels[0] - 0.1) < 1e-6);
+});
+
+test('furniture height still counts', () => {
+  const grid = new TraversalGrid();
+  floorPatch(grid, 0, 2, 0, 2);
+  grid.observe([1.1, 0.75, 1.1]);   // tabletop
+  const levels = grid.levels(grid.cellX(1.1), grid.cellZ(1.1));
+  assert.equal(levels.length, 2);
+  assert.ok(levels[1] > 0.7 && levels[1] < 0.9);
+});
+
+test('the cap follows the floor rather than the grid origin', () => {
+  // A real session puts the origin at the phone, roughly 1.4m above the floor,
+  // so every useful height is negative. A fixed cap would erase the whole map.
+  const grid = new TraversalGrid();
+  floorPatch(grid, 0, 2, 0, 2, -1.4);
+  floorPatch(grid, 0, 2, 0, 2, 1.0); // ceiling, 2.4m above that floor
+  const levels = grid.levels(grid.cellX(1.1), grid.cellZ(1.1));
+  assert.equal(levels.length, 1);
+  assert.ok(levels[0] < -1.2);
+});
+
+test('a few stray points below the floor do not raise the cap', () => {
+  const grid = new TraversalGrid();
+  floorPatch(grid, 0, 2, 0, 2);
+  grid.observe([0.05, -1.5, 0.05]); // depth noise well under the floor
+  floorPatch(grid, 0, 2, 0, 2, 2.4);
+  const levels = grid.levels(grid.cellX(1.1), grid.cellZ(1.1));
+  assert.equal(levels.length, 1);
+  assert.ok(Math.abs(levels[0] - 0.1) < 1e-6);
+});
+
+test('the cap is re-applied when the floor is found later', () => {
+  const grid = new TraversalGrid();
+  // Scanned high first: with nothing else known this reads as the floor.
+  floorPatch(grid, 0, 2, 0, 2, 2.4);
+  assert.ok(grid.isWalkable(grid.cellX(1.1), grid.cellZ(1.1)));
+  // The real floor turns up, and the earlier surface is now out of reach.
+  floorPatch(grid, 0, 2, 0, 2);
+  const after = grid.levels(grid.cellX(1.1), grid.cellZ(1.1));
+  assert.equal(after.length, 1);
+  assert.ok(Math.abs(after[0] - 0.1) < 1e-6);
 });

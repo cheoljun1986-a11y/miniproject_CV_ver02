@@ -39,6 +39,7 @@ import {
   CHASE_GRID_SLABS,
   CHASE_MAX_DROP_M,
   CHASE_MAX_JUMP_UP_M,
+  CHASE_MAX_STAND_ABOVE_FLOOR_M,
   CHASE_MAX_STEP_UP_M,
   CHASE_MIN_WALKABLE_CELLS,
   CHASE_RECENT_WINDOW_MS,
@@ -90,7 +91,6 @@ let chaseGrid = null;
 let chaseRunner = null;
 let captureGauge = null;
 let chaseActive = false;
-let scanHeld = false;
 let lastChaseTime = null;
 let chaseTiles = null;
 let chaseTilesRevision = -1;
@@ -148,18 +148,16 @@ async function init() {
   scene.add(controller);
 
   ui.bindCommands({
-    // While a chase is running SCAN means "hold to arrest", not "check here".
+    // SCAN is hidden during a chase; ignore it defensively all the same.
     onScan: () => { if (!chaseActive) game.triggerScan(); },
     onNewRound: () => game.hideNewTarget(),
     onExtend: () => game.startMapping(MAP_SECONDS, false),
     onMark: () => game.saveCheckpoint(),
     onCheck: () => game.checkReturnError(),
   });
-  ui.bindChase({
-    onToggle: toggleChase,
-    onHoldStart: () => { scanHeld = true; },
-    onHoldEnd: () => { scanHeld = false; },
-  });
+  // No hold handlers: capture now needs only range plus aim, so SCAN keeps its
+  // ordinary tap behaviour and never sees a long press.
+  ui.bindChase({ onToggle: toggleChase });
   addEventListener('resize', onResize);
 
   const supported = Boolean(navigator.xr)
@@ -200,6 +198,7 @@ async function init() {
         maxStepUp: CHASE_MAX_STEP_UP_M,
         maxJumpUp: CHASE_MAX_JUMP_UP_M,
         maxDropDown: CHASE_MAX_DROP_M,
+        maxStandAboveFloor: CHASE_MAX_STAND_ABOVE_FLOOR_M,
       });
       chaseRunner = new ChaseRunner({
         grid: chaseGrid,
@@ -319,7 +318,6 @@ function detachOccluder() {
 function resetChaseState() {
   if (!chaseRunner) return;
   chaseActive = false;
-  scanHeld = false;
   lastChaseTime = null;
   chaseRunner.reset();
   chaseGrid.reset();
@@ -330,18 +328,19 @@ function resetChaseState() {
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
   ui.setChaseButton('도망 모드', true);
+  ui.setScanVisible(true);
 }
 
 function stopChase(message) {
   if (!chaseRunner) return;
   chaseActive = false;
-  scanHeld = false;
   chaseRunner.stop();
   game.setExternalControl(false);
   game.setTargetOpacity(NINJA_CAMOUFLAGE_OPACITY);
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
   ui.setChaseButton('도망 모드', true);
+  ui.setScanVisible(true);
   if (message) ui.setMessage(message);
 }
 
@@ -375,8 +374,9 @@ function toggleChase() {
   ui.setChaseVisible(true);
   ui.setChaseGauge(0);
   ui.setChaseButton('도망 모드 끄기', true);
+  ui.setScanVisible(false);
   ui.setStatus('하츄핑이 도망칩니다');
-  ui.setMessage('쫓아가서 SCAN 을 누른 채로 조준을 유지하세요.');
+  ui.setMessage('1.2m 안까지 쫓아가 화면 중앙에 5초간 담아두세요.');
 }
 
 function updateChase(time, viewerPose) {
@@ -413,7 +413,7 @@ function updateChase(time, viewerPose) {
   const dz = state.position[2] - viewerPose.position[2];
   const distance = Math.hypot(dx, dy, dz);
   const angleDeg = angleToTargetDeg(forward, viewerPose.position, state.position);
-  const capture = captureGauge.update(dt, { distance, angleDeg, holding: scanHeld });
+  const capture = captureGauge.update(dt, { distance, angleDeg });
 
   ui.setChaseGauge(capture.value);
   ui.setChaseHint(`${captureGauge.hint()}  ·  ${distance.toFixed(1)}m`);

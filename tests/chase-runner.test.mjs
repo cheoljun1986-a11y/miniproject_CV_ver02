@@ -23,15 +23,17 @@ function run(runner, seconds, options, dt = 1 / 60) {
 
 // ── speed ────────────────────────────────────────────────────
 test('it nearly stops when the player is far away', () => {
-  assert.equal(speedForDistance(10), 0.25);
+  assert.equal(speedForDistance(10), 0.12);
 });
 
 test('it runs fastest when the player is on top of it', () => {
-  assert.equal(speedForDistance(0.8), 0.95);
+  assert.equal(speedForDistance(0.8), 0.50);
 });
 
-test('its top speed stays under a walking player', () => {
-  assert.ok(speedForDistance(0) < 1.0);
+// It has to be catchable by someone walking while staring at a phone, which is
+// a good deal slower than an unencumbered walk.
+test('its top speed stays well under a walking player', () => {
+  assert.ok(speedForDistance(0) < 0.6);
 });
 
 // ── movement ─────────────────────────────────────────────────
@@ -90,7 +92,10 @@ test('it does not sit in one corner — it covers ground', () => {
     runner.update(1 / 60, { playerPosition: [0.3, 1.5, 0.3], now });
     seen.add(`${runner.grid.cellX(runner.position[0])},${runner.grid.cellZ(runner.position[2])}`);
   }
-  assert.ok(seen.size > 25, `only visited ${seen.size} cells in 40s`);
+  // Ground covered scales with speed, and the speeds were halved after the
+  // first on-device test. Sitting in one corner would show up as a handful of
+  // cells, so the threshold is still far above the failure it guards against.
+  assert.ok(seen.size > 15, `only visited ${seen.size} cells in 40s`);
 });
 
 // Floor on the left, a 40cm ledge on the right. The only way across is up.
@@ -138,7 +143,7 @@ test('it actually performs the jump when that is the only way on', () => {
 
 // ── capture ──────────────────────────────────────────────────
 test('the gauge only fills when all three conditions hold', () => {
-  const gauge = new CaptureGauge();
+  const gauge = new CaptureGauge({ requireHold: true });
   gauge.update(1, { distance: 0.8, angleDeg: 5, holding: false });
   assert.equal(gauge.value, 0);
   gauge.update(1, { distance: 3.0, angleDeg: 5, holding: true });
@@ -147,6 +152,15 @@ test('the gauge only fills when all three conditions hold', () => {
   assert.equal(gauge.value, 0);
   gauge.update(1, { distance: 0.8, angleDeg: 5, holding: true });
   assert.ok(gauge.value > 0);
+});
+
+// The shipped rule is range plus aim only: holding a button turned into an
+// Android long press, which raises the text-selection toolbar over the game.
+test('by default no button hold is needed', () => {
+  const gauge = new CaptureGauge();
+  gauge.update(1, { distance: 0.8, angleDeg: 5 });
+  assert.ok(gauge.value > 0);
+  assert.equal(gauge.hint(), '검거 중');
 });
 
 test('five good seconds capture', () => {
@@ -176,7 +190,7 @@ test('hachuping slows as the lock builds', () => {
 });
 
 test('the hint names the condition that is blocking', () => {
-  const gauge = new CaptureGauge();
+  const gauge = new CaptureGauge({ requireHold: true });
   gauge.update(0.1, { distance: 5, angleDeg: 5, holding: true });
   assert.equal(gauge.hint(), '더 가까이');
   gauge.update(0.1, { distance: 0.8, angleDeg: 90, holding: true });

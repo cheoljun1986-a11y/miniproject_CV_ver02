@@ -44,6 +44,14 @@ export class TraversalGrid {
     maxStepUp = 0.15,
     maxJumpUp = 0.7,
     maxDropDown = 1.2,
+    // A ceiling is geometrically identical to a tabletop: a thin occupied slab
+    // with clear air on one side. Only its height tells them apart, so cap how
+    // far above the floor a surface may be and still count as standable.
+    maxStandAboveFloor = 1.3,
+    // How many cells must share a slab before it is believed to be the floor.
+    // A handful of stray depth points below the real floor would otherwise
+    // drag the ceiling up with them.
+    floorMinCells = 8,
   } = {}) {
     this.cellSize = cellSize;
     this.slabHeight = slabHeight;
@@ -53,8 +61,14 @@ export class TraversalGrid {
     this.maxStepUp = maxStepUp;
     this.maxJumpUp = maxJumpUp;
     this.maxDropDown = maxDropDown;
+    this.maxStandAboveFloor = maxStandAboveFloor;
+    this.floorMinCells = floorMinCells;
     this.cells = new Map();
     this.revision = 0;
+    this.slabCells = new Int32Array(64);
+    this.floorSlab = null;
+    this.floorDirty = true;
+    this.standGen = 0;
   }
 
   // ── coordinate helpers ────────────────────────────────────
@@ -95,7 +109,7 @@ export class TraversalGrid {
     const key = cellKey(cx, cz);
     let cell = this.cells.get(key);
     if (!cell) {
-      cell = { cx, cz, lo: UNSEEN, hi: UNSEEN, levels: null };
+      cell = { cx, cz, lo: UNSEEN, hi: UNSEEN, levels: null, levelsGen: -1 };
       this.cells.set(key, cell);
     }
 
@@ -108,9 +122,40 @@ export class TraversalGrid {
       if ((cell.hi & bit) !== 0) return false;
       cell.hi |= bit;
     }
+    this.slabCells[slab] += 1;
+    if (this.floorSlab === null || slab <= this.floorSlab) this.floorDirty = true;
     cell.levels = null; // recompute lazily
     this.revision += 1;
     return true;
+  }
+
+  // Lowest slab that enough cells share to be believable as the floor.
+  // Recomputed only when a new low slab appears, and every cached level list is
+  // invalidated when the answer moves, because the standable ceiling moves too.
+  resolveFloorSlab() {
+    if (!this.floorDirty) return this.floorSlab;
+    this.floorDirty = false;
+    let found = null;
+    for (let slab = 0; slab < this.slabCount; slab += 1) {
+      if (this.slabCells[slab] >= this.floorMinCells) { found = slab; break; }
+    }
+    if (found === null) {
+      for (let slab = 0; slab < this.slabCount; slab += 1) {
+        if (this.slabCells[slab] > 0) { found = slab; break; }
+      }
+    }
+    if (found !== this.floorSlab) {
+      this.floorSlab = found;
+      this.standGen += 1;
+    }
+    return this.floorSlab;
+  }
+
+  // Highest y a surface may sit at and still be somewhere Hachuping could go.
+  standCeilingY() {
+    const floor = this.resolveFloorSlab();
+    if (floor === null) return Infinity;
+    return this.slabTopY(floor) + this.maxStandAboveFloor;
   }
 
   hasSlab(cell, slab) {
@@ -131,6 +176,10 @@ export class TraversalGrid {
   reset() {
     if (this.cells.size) this.revision += 1;
     this.cells.clear();
+    this.slabCells.fill(0);
+    this.floorSlab = null;
+    this.floorDirty = true;
+    this.standGen += 1;
   }
 
   // ── reading ───────────────────────────────────────────────
@@ -147,11 +196,14 @@ export class TraversalGrid {
   levels(cx, cz) {
     const cell = this.getCell(cx, cz);
     if (!cell) return [];
-    if (cell.levels) return cell.levels;
+    const ceiling = this.standCeilingY();
+    if (cell.levels && cell.levelsGen === this.standGen) return cell.levels;
 
     const levels = [];
     for (let slab = 0; slab < this.slabCount; slab += 1) {
       if (!this.hasSlab(cell, slab)) continue;
+      // Too high above the floor to be anywhere a small character could get.
+      if (this.slabTopY(slab) > ceiling) break;
       // The body height must fit, and it must fit inside the mapped band —
       // otherwise the top of a wall reads as a ledge you could stand on.
       if (slab + this.headroomSlabs >= this.slabCount) break;
@@ -165,6 +217,7 @@ export class TraversalGrid {
       if (clear) levels.push(this.slabTopY(slab));
     }
     cell.levels = levels;
+    cell.levelsGen = this.standGen;
     return levels;
   }
 

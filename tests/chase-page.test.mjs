@@ -227,3 +227,74 @@ test('external control stops the anchor fighting the chase', async () => {
   assert.equal(object.position.x, 2, 'anchor overwrote a chase position');
   assert.deepEqual(game.getTargetPosition(), [2, 0.3, -4]);
 });
+
+// ── on-device fixes from the first play test ─────────────────
+test('the chase page makes nothing in the HUD selectable', async () => {
+  // A long press on selectable text raises Android's selection toolbar, and
+  // dismissing that toolbar with Back closes Chrome out of the AR session.
+  const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
+  assert.match(html, /user-select\s*:\s*none/);
+  assert.match(html, /-webkit-touch-callout\s*:\s*none/);
+  assert.match(html, /contextmenu/);
+});
+
+test('the control row clears the system navigation area', async () => {
+  const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
+  assert.match(html, /safe-area-inset-bottom/);
+  const controls = html.match(/#controls\s*\{[^}]*\}/);
+  assert.ok(controls, '#controls rule missing');
+  const bottom = controls[0].match(/bottom:calc\((\d+)px/);
+  assert.ok(bottom && Number(bottom[1]) >= 48, 'control row still sits on the Back key');
+});
+
+test('the chase page drops the two diagnostic buttons', async () => {
+  const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /id="markBtn"/);
+  assert.doesNotMatch(html, /id="checkBtn"/);
+  assert.match(html, /id="hudToggle"/);
+});
+
+test('commands and control states survive missing buttons', () => {
+  const doc = stubDocument(BASE_IDS.filter((id) => id !== 'markBtn' && id !== 'checkBtn'));
+  const ui = createUI(doc);
+  ui.bindCommands({
+    onScan() {}, onNewRound() {}, onExtend() {}, onMark() {}, onCheck() {},
+  });
+  ui.setControls({ scan: true, newRound: false, extend: true, mark: true, check: true });
+  assert.equal(doc.elements.get('scanBtn').disabled, false);
+  assert.equal(doc.elements.get('newRoundBtn').disabled, true);
+});
+
+test('metrics start hidden where the page offers a toggle', () => {
+  const doc = stubDocument([...BASE_IDS, 'hudToggle']);
+  const ui = createUI(doc);
+  assert.equal(ui.isMetricsVisible(), false);
+  assert.equal(doc.elements.get('metrics').style.display, 'none');
+
+  const toggle = doc.elements.get('hudToggle');
+  toggle.listeners.find(([type]) => type === 'click')[1]({ stopPropagation() {} });
+  assert.equal(ui.isMetricsVisible(), true);
+  assert.equal(doc.elements.get('metrics').style.display, '');
+});
+
+test('metrics stay visible on a page with no toggle', () => {
+  const ui = createUI(stubDocument(BASE_IDS));
+  assert.equal(ui.isMetricsVisible(), true);
+});
+
+test('SCAN can be taken off screen for the chase', () => {
+  const doc = stubDocument([...BASE_IDS, ...CHASE_IDS]);
+  const ui = createUI(doc);
+  ui.setScanVisible(false);
+  assert.equal(doc.elements.get('scanBtn').style.display, 'none');
+  ui.setScanVisible(true);
+  assert.equal(doc.elements.get('scanBtn').style.display, '');
+});
+
+test('without hold handlers SCAN is never wired for a long press', () => {
+  const doc = stubDocument([...BASE_IDS, ...CHASE_IDS]);
+  const ui = createUI(doc);
+  ui.bindChase({ onToggle() {} });
+  const scan = doc.elements.get('scanBtn');
+  assert.equal(scan.listeners.some(([type]) => type === 'pointerdown'), false);
+});
