@@ -126,6 +126,26 @@ export function selectCells(cells, { minObservations = 1 } = {}) {
   return cells.filter((cell) => cell.observationCount >= minObservations);
 }
 
+// Confirmed cells as world points, for consumers that want occupancy rather
+// than the cell records — TraversalGrid being the one that matters.
+//
+// Grid centres, not accumulated means. TraversalGrid was tuned against
+// VoxelMap, which emitted centres, so holding that convention keeps the only
+// change the one that is being tested: which accumulator decided a cell is
+// real, not where it sits.
+export function confirmedCellPositions(cells, {
+  minObservations = 3,
+  voxelSize = 0.05,
+  origin = [0, 0, 0],
+} = {}) {
+  const points = [];
+  for (const cell of cells) {
+    if (cell.observationCount < minObservations) continue;
+    points.push(cellCenterPosition(cell, voxelSize, origin));
+  }
+  return points;
+}
+
 export function histogramDisplayCount(histogram, minObservations) {
   if (minObservations <= 1) return histogram.total;
   if (minObservations === 2) return histogram.two + histogram.three + histogram.fourPlus;

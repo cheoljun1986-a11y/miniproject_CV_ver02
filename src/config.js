@@ -89,3 +89,7 @@ export const VOXEL_OCCLUDER_MIN_OBSERVATIONS = 3;
 // from every angle and costs nothing.
 export const VOXEL_OCCLUDER_POLYGON_OFFSET_FACTOR = 1;
 export const VOXEL_OCCLUDER_POLYGON_OFFSET_UNITS = 1;
+// Terrain is built from confirmed cells only: a voxel seen once is as likely
+// to be depth noise as a surface, and standing Hachuping on noise is worse
+// than leaving a gap in the map.
+export const VOXEL_TRAVERSAL_MIN_OBSERVATIONS = 3;

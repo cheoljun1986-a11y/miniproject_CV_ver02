@@ -24,6 +24,7 @@ import {
   TRAIL_MIN_STEP_M,
   VOXEL_DEBUG_MAX_INSTANCES,
   VOXEL_OCCLUDER_MIN_OBSERVATIONS,
+  VOXEL_TRAVERSAL_MIN_OBSERVATIONS,
   VOXEL_MAX_SOLID,
   VOXEL_MAX_PENDING,
   VOXEL_SIZE_M,
@@ -67,6 +68,7 @@ import {
   formatVoxelDebugStatus,
   formatVoxelDebugSummary,
 } from './ui.js';
+import { confirmedCellPositions } from './voxel-grid.js';
 import { VoxelDebugController } from './voxel-debug-controller.js';
 import { createVoxelDebugPanel } from './voxel-debug-panel.js';
 import { VoxelMap } from './voxel-map.js';
@@ -124,6 +126,7 @@ let voxelDebug = null;
 let voxelOverlay = null;
 let voxelPanel = null;
 let voxelOccluder = null;
+let chaseFedRevision = -1;
 
 init();
 
@@ -239,7 +242,7 @@ async function init() {
       minStep: TRAIL_MIN_STEP_M,
       maxPoints: TRAIL_MAX_POINTS,
     });
-    if (DEPTH_CLOUD_MODE) {
+    if (DEPTH_CLOUD_MODE && !KEYFRAME_SCAN_MODE) {
       voxelMap = new VoxelMap({
         voxelSize: VOXEL_SIZE_M,
         solidMinHits: VOXEL_SOLID_MIN_HITS,
@@ -334,6 +337,7 @@ async function init() {
     voxelDebug?.reset();
     voxelOverlay?.clear();
     voxelOccluder?.reset();
+    chaseFedRevision = -1;
     voxelDebug?.startScan(performance.now());
     await xrSession.start();
     if (autoStartsGame(APP_MODE)) game.startSession();
@@ -534,6 +538,7 @@ function render(time, frame) {
       voxelDebug.update(frame, localSpace, time, viewerPose);
       voxelDebug.rebuildIfDirty();
       maybeBuildVoxelOccluder();
+      maybeFeedChaseGrid();
     }
     if (!KEYFRAME_SCAN_MODE) {
       depthCloud?.update(frame, localSpace, time);
@@ -617,6 +622,27 @@ function render(time, frame) {
   }
   if (!VOXEL_DEBUG_MODE) updateMetrics(viewerPose);
   renderer.render(scene, camera);
+}
+
+// Hands the keyframe reconstruction to the chase terrain. Without this the
+// grid starves in keyframe mode, since it was only ever fed through
+// VoxelMap.onSolid, which fires off the DepthCloud path this mode replaces.
+//
+// The rebuild is wholesale rather than incremental: a threshold change can
+// remove cells as well as add them, and TraversalGrid accumulates, so it has
+// to start clean. A few thousand points once per rebuild is cheap.
+function maybeFeedChaseGrid() {
+  if (!chaseGrid || !voxelDebug) return;
+  if (voxelDebug.isScanning(performance.now())) return;
+  if (voxelDebug.getRevision() === chaseFedRevision) return;
+  chaseFedRevision = voxelDebug.getRevision();
+
+  const points = confirmedCellPositions(voxelDebug.getRenderCells(), {
+    minObservations: VOXEL_TRAVERSAL_MIN_OBSERVATIONS,
+    voxelSize: voxelDebug.getParams().voxelSize,
+  });
+  chaseGrid.reset();
+  chaseGrid.observeAll(points);
 }
 
 // The occluder is static: built when the scan settles and left alone. Only a

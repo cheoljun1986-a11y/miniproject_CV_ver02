@@ -5,6 +5,7 @@ import {
   VoxelGrid,
   cellCenterPosition,
   cellMeanPosition,
+  confirmedCellPositions,
   histogramDisplayCount,
   selectCells,
 } from '../src/voxel-grid.js';
@@ -115,4 +116,26 @@ test('the revision bumps on new cells and on reset, not on accumulation', () => 
   grid.reset();
   assert.ok(grid.getRevision() > afterNew);
   assert.equal(grid.getCellCount(), 0);
+});
+
+test('confirmed cells convert to grid-centre world points', () => {
+  const grid = new VoxelGrid({ voxelSize: 0.1 });
+  grid.observe(0.05, 0.05, 0.05, 1); // one observation
+  for (const f of [1, 2, 3]) grid.observe(0.35, 0.05, 0.05, f); // three
+
+  const points = confirmedCellPositions(grid.getCells(), {
+    minObservations: 3,
+    voxelSize: 0.1,
+  });
+  assert.equal(points.length, 1, 'the single-observation cell is not confirmed');
+  assert.ok(Math.abs(points[0][0] - 0.35) < 1e-9, 'grid centre, not the raw sample');
+});
+
+test('confirmed positions honour a non-zero origin', () => {
+  const grid = new VoxelGrid({ voxelSize: 0.1, origin: [1, 0, 0] });
+  for (const f of [1, 2, 3]) grid.observe(1.05, 0.05, 0.05, f);
+  const points = confirmedCellPositions(grid.getCells(), {
+    minObservations: 3, voxelSize: 0.1, origin: [1, 0, 0],
+  });
+  assert.ok(Math.abs(points[0][0] - 1.05) < 1e-9);
 });
