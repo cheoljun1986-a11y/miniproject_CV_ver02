@@ -173,13 +173,22 @@
   <div class="card" style="margin-top:14px">
     <h2>사용법</h2>
     <p class="note">
-      ① START를 누릅니다.<br>
-      ② 폰을 들고 <b>천천히 좌우로 1~2m 걸으며</b> 바닥·벽·책상을 비춥니다.<br>
-      &nbsp;&nbsp;&nbsp;&nbsp;깊이 측정은 <b>폰이 움직여야</b> 시작됩니다. 제자리에 서 있으면 값이 안 나옵니다.<br>
-      ③ 화면 중앙 십자에 물체를 맞추면 <b>그 물체까지의 거리(m)</b>가 표시됩니다.<br>
-      &nbsp;&nbsp;&nbsp;&nbsp;실제 거리와 비슷하면 깊이 측정이 정상입니다.<br>
-      ④ 30초쯤 돌아다닌 뒤 <b>[결과 저장]</b>을 누르고 AR을 종료합니다.<br>
-      ⑤ 종료 화면에 나온 리포트를 저에게 보내주세요.
+      <b>① 깊이 측정</b> — 폰을 들고 천천히 좌우로 1~2m 걷습니다.<br>
+      &nbsp;&nbsp;→ <b>우측 위에 흑백 그림</b>이 나타나면 성공입니다. 가까운 곳이 밝게 나옵니다.<br>
+      &nbsp;&nbsp;→ 중앙 십자 아래 <b>거리(m)</b>가 실제와 비슷한지도 봅니다.<br><br>
+
+      <b>② 평면 인식</b> — 바닥과 벽을 각각 몇 초씩 비춥니다.<br>
+      &nbsp;&nbsp;→ <b style="color:#4ade80">초록 면</b>(바닥·책상)과 <b style="color:#ffb454">주황 면</b>(벽)이
+      실제 표면 위에 <b>덮여서</b> 나타납니다.<br>
+      &nbsp;&nbsp;→ 덮인 범위가 실제 벽·바닥과 얼마나 맞는지가 곧 인식 품질입니다.<br><br>
+
+      <b>③ 앵커</b> — 바닥을 겨눠 흰 원이 보일 때 <b>[앵커 테스트]</b>를 누릅니다.<br>
+      &nbsp;&nbsp;→ 그 자리에 <b style="color:#ff40d9">분홍 십자</b>가 박힙니다.<br>
+      &nbsp;&nbsp;→ 3~5m 걸었다 돌아와서 <b>십자가 같은 자리에 그대로 있는지</b> 봅니다.<br>
+      &nbsp;&nbsp;→ 화면의 <b>밀림(m)</b> 수치가 작을수록 좋습니다.<br><br>
+
+      <b>④ 마무리</b> — 30초 이상 지난 뒤 <b>[결과 저장]</b> → <b>[종료]</b> →
+      리포트를 복사해서 보내주세요.
     </p>
   </div>
 
@@ -249,6 +258,10 @@ const toastEl   = el('toast');
 let gl = null, session = null;
 let refSpace = null, refSpaceType = null, viewerSpace = null;
 let hitSource = null, lightProbe = null;
+
+// 인식 결과를 화면에 직접 그리기 위한 최소 렌더 자원
+let prog = null, locPos = -1, locMVP = null, locColor = null, vbo = null;
+let overlayOn = true;
 
 // 진단 결과 누적
 const R = {
@@ -353,6 +366,7 @@ async function start() {
     || canvas.getContext('webgl', { xrCompatible: true, alpha: true, antialias: false });
   if (!gl) { toast('WebGL 컨텍스트 생성 실패'); startBtn.disabled = false; return; }
   try { await gl.makeXRCompatible(); } catch (e) { R.errors.push('makeXRCompatible: ' + e.message); }
+  initGL();
 
   // 모든 기능을 optional 로 요청합니다.
   // optional 이므로 미지원 기능이 있어도 세션 자체는 열립니다.
@@ -479,6 +493,7 @@ function onFrame(time, frame) {
     probeDepth(frame, pose, time);
     probeLight(frame);
     probeAnchor(frame);
+    drawOverlay(frame, pose);
   }
 
   if (time - lastHudDraw > 220) { lastHudDraw = time; drawHud(); }
@@ -512,6 +527,19 @@ function probePlanes(frame) {
     if (pl.orientation === 'horizontal') h++;
     else if (pl.orientation === 'vertical') v++;
     if (pl.polygon) verts += pl.polygon.length;
+
+    // 평면이 얼마나 크게 잡혔는지 = 인식 품질. 조각만 잡히면 쓸모가 적습니다.
+    if (pl.polygon && pl.polygon.length >= 3) {
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      pl.polygon.forEach(p => {
+        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+        z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z);
+      });
+      const w = x1 - x0, d = z1 - z0, area = w * d;
+      const key = pl.orientation === 'vertical' ? 'biggestVertical' : 'biggestHorizontal';
+      if (!R.planes[key] || area > R.planes[key].area)
+        R.planes[key] = { w: w, d: d, area: area };
+    }
   });
   planeSeenMax = Math.max(planeSeenMax, set.size);
   planeHoriz = Math.max(planeHoriz, h);
@@ -645,6 +673,115 @@ el('anchorBtn').addEventListener('click', async () => {
   }
 });
 
+// ── 인식 결과를 카메라 영상 위에 그리기 ──────────────────────
+// 숫자만으로는 "제대로 인식했는지" 알 수 없으므로,
+// 인식된 평면과 앵커를 실제 위치에 겹쳐 그려서 눈으로 확인합니다.
+const VS = `attribute vec3 aPos; uniform mat4 uMVP;
+void main(){ gl_Position = uMVP * vec4(aPos,1.0); gl_PointSize = 8.0; }`;
+const FS = `precision mediump float; uniform vec4 uColor;
+void main(){ gl_FragColor = uColor; }`;
+
+function initGL() {
+  const mk = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) R.errors.push('shader: ' + gl.getShaderInfoLog(s));
+    return s;
+  };
+  prog = gl.createProgram();
+  gl.attachShader(prog, mk(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, mk(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) R.errors.push('link: ' + gl.getProgramInfoLog(prog));
+  locPos = gl.getAttribLocation(prog, 'aPos');
+  locMVP = gl.getUniformLocation(prog, 'uMVP');
+  locColor = gl.getUniformLocation(prog, 'uColor');
+  vbo = gl.createBuffer();
+}
+
+// 4x4 행렬 곱 (WebXR 은 열 우선 배열로 줍니다)
+function mul(a, b) {
+  const o = new Float32Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+  }
+  return o;
+}
+
+function drawVerts(mvp, verts, mode, color) {
+  gl.uniformMatrix4fv(locMVP, false, mvp);
+  gl.uniform4fv(locColor, color);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(locPos);
+  gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(mode, 0, verts.length / 3);
+}
+
+function drawOverlay(frame, pose) {
+  if (!prog || !overlayOn) return;
+  const layer = session.renderState.baseLayer;
+  if (!layer) return;
+
+  gl.useProgram(prog);
+  gl.disable(gl.DEPTH_TEST);          // 진단용이므로 항상 보이게
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  for (const view of pose.views) {
+    const vp = layer.getViewport(view);
+    if (!vp) continue;
+    gl.viewport(vp.x, vp.y, vp.width, vp.height);
+    const VP = mul(view.projectionMatrix, view.transform.inverse.matrix);
+
+    // ① 인식된 평면 — 실제 위치에 색 면 + 테두리
+    const planes = frame.detectedPlanes;
+    if (planes) planes.forEach(pl => {
+      const pp = frame.getPose(pl.planeSpace, refSpace);
+      if (!pp || !pl.polygon || pl.polygon.length < 3) return;
+      const mvp = mul(VP, pp.transform.matrix);
+      const v = new Float32Array(pl.polygon.length * 3);
+      pl.polygon.forEach((pt, i) => { v[i * 3] = pt.x; v[i * 3 + 1] = 0; v[i * 3 + 2] = pt.z; });
+      const horiz = pl.orientation === 'horizontal';
+      const fill = horiz ? [0.21, 0.82, 0.50, 0.22] : [1.0, 0.63, 0.25, 0.26];
+      const edge = horiz ? [0.30, 1.0, 0.62, 0.95] : [1.0, 0.72, 0.32, 0.95];
+      drawVerts(mvp, v, gl.TRIANGLE_FAN, fill);
+      drawVerts(mvp, v, gl.LINE_LOOP, edge);
+    });
+
+    // ② 앵커 — 십자 축 + 바닥 사각형. 걸어다녀도 이게 제자리에 붙어 있어야 정상
+    if (anchorObj) {
+      const ap = frame.getPose(anchorObj.anchorSpace, refSpace);
+      if (ap) {
+        const mvp = mul(VP, ap.transform.matrix);
+        const s = 0.12;
+        drawVerts(mvp, new Float32Array([
+          -s, 0, 0, s, 0, 0,
+          0, -s * 0.3, 0, 0, s * 1.6, 0,
+          0, 0, -s, 0, 0, s
+        ]), gl.LINES, [1.0, 0.25, 0.85, 1.0]);
+        drawVerts(mvp, new Float32Array([
+          -s, 0, -s, s, 0, -s, s, 0, s, -s, 0, s
+        ]), gl.LINE_LOOP, [1.0, 0.25, 0.85, 0.9]);
+      }
+    }
+
+    // ③ hit-test 지점 — 지금 겨누고 있는 표면
+    if (lastHitResult) {
+      const hp = lastHitResult.getPose(refSpace);
+      if (hp) {
+        const mvp = mul(VP, hp.transform.matrix);
+        const r = 0.06, seg = 20, v = new Float32Array(seg * 3);
+        for (let i = 0; i < seg; i++) {
+          const a = i / seg * Math.PI * 2;
+          v[i * 3] = Math.cos(a) * r; v[i * 3 + 1] = 0; v[i * 3 + 2] = Math.sin(a) * r;
+        }
+        drawVerts(mvp, v, gl.LINE_LOOP, [1, 1, 1, 0.9]);
+      }
+    }
+  }
+}
+
 // ── HUD ─────────────────────────────────────────────────────
 function drawHud() {
   const sec = (performance.now() - startedAt) / 1000;
@@ -663,9 +800,16 @@ function drawHud() {
     ? ` <span style="color:var(--dim)">${R.hit.count}회 · ${n(R.hit.min)}~${n(R.hit.max)}m</span>`
     : ' <span style="color:var(--dim)">아직 없음</span>')));
 
-  out.push(row('plane', g('plane-detection') + (R.planes && R.planes.available
-    ? ` <span style="color:var(--dim)">현재 ${R.planes.now} · 최대 ${R.planes.max} (수평 ${R.planes.horizontal} / 수직 ${R.planes.vertical})</span>`
-    : '')));
+  let pTxt = g('plane-detection');
+  if (R.planes && R.planes.available) {
+    const bh = R.planes.biggestHorizontal, bv = R.planes.biggestVertical;
+    pTxt += ` <span style="color:var(--dim)">현재 ${R.planes.now}개</span>`;
+    pTxt += `<br><span style="color:#4ade80">■ 수평 ${R.planes.horizontal}개`
+      + (bh ? ` · 최대 ${n(bh.w,1)}×${n(bh.d,1)}m` : '') + '</span>';
+    pTxt += `<br><span style="color:#ffb454">■ 수직(벽) ${R.planes.vertical}개`
+      + (bv ? ` · 최대 ${n(bv.w,1)}×${n(bv.d,1)}m` : ' — 벽을 더 비춰보세요') + '</span>';
+  }
+  out.push(row('plane', pTxt));
 
   let dTxt = g('depth-sensing');
   if (R.depth && R.depth.width) {
@@ -676,8 +820,14 @@ function drawHud() {
   }
   out.push(row('depth', dTxt));
 
-  out.push(row('anchors', g('anchors') + ` <span style="color:var(--dim)">${anchorState}` +
-    (anchorObj && anchorDrift ? ` · 이동 ${n(anchorDrift)}m` : '') + '</span>'));
+  let aTxt = g('anchors') + ` <span style="color:var(--dim)">${anchorState}</span>`;
+  if (anchorObj) {
+    const d = anchorDrift;
+    const cls = d < 0.05 ? 'ok' : d < 0.15 ? 'warn' : 'bad';
+    aTxt += `<br><span style="color:#ff40d9">✚ 분홍 십자 표시 확인</span>`
+      + ` <span style="color:var(--dim)">· 밀림 </span>` + badge(cls, n(d, 3) + ' m');
+  }
+  out.push(row('anchors', aTxt));
 
   let lTxt = g('light-estimation');
   if (R.light && R.light.intensity) {
@@ -725,6 +875,9 @@ function buildReport() {
     line('  최대 평면 수  : ' + R.planes.max);
     line('  수평 / 수직   : ' + R.planes.horizontal + ' / ' + R.planes.vertical);
     line('  평균 꼭짓점   : ' + R.planes.avgVerts);
+    const bh = R.planes.biggestHorizontal, bv = R.planes.biggestVertical;
+    line('  최대 수평면   : ' + (bh ? n(bh.w, 2) + ' x ' + n(bh.d, 2) + ' m (' + n(bh.area, 2) + ' m2)' : '없음'));
+    line('  최대 수직면   : ' + (bv ? n(bv.w, 2) + ' x ' + n(bv.d, 2) + ' m (' + n(bv.area, 2) + ' m2)' : '없음 — 벽 미인식'));
   } else line('  사용 불가 (frame.detectedPlanes 없음)');
   line('');
   line('[depth-sensing]');
