@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { applyFit, createInstanceFrom, fitToHeight } from '../src/hidden-model.js';
+import {
+  applyFit,
+  createInstanceFrom,
+  fitToHeight,
+  srgbAttributeToLinear,
+  srgbToLinear,
+} from '../src/hidden-model.js';
 
 // Minimal stand-ins for the three.js objects these helpers touch. They only
 // need clone/traverse and the scale/position writers, so no three.js import.
@@ -102,4 +108,38 @@ test('leaves an opaque instance writing depth so it does not self-blend', () => 
   const instance = createInstanceFrom(template, 1);
 
   assert.equal(instance.children[0].material.depthWrite, true);
+});
+
+test('converts a mid sRGB value to its linear equivalent', () => {
+  assert.ok(Math.abs(srgbToLinear(0.5) - 0.21404) < 1e-4);
+});
+
+test('uses the linear segment for very dark sRGB values', () => {
+  assert.equal(srgbToLinear(0.04), 0.04 / 12.92);
+});
+
+test('keeps the endpoints of the sRGB range fixed', () => {
+  assert.equal(srgbToLinear(0), 0);
+  assert.ok(Math.abs(srgbToLinear(1) - 1) < 1e-6);
+});
+
+test('converts byte vertex colors to linear floats', () => {
+  const linear = srgbAttributeToLinear(Uint8Array.from([191, 135, 138, 255]), 4, 255);
+
+  assert.ok(Math.abs(linear[0] - srgbToLinear(191 / 255)) < 1e-6);
+  assert.ok(Math.abs(linear[1] - srgbToLinear(135 / 255)) < 1e-6);
+  assert.ok(Math.abs(linear[2] - srgbToLinear(138 / 255)) < 1e-6);
+});
+
+test('leaves alpha untouched while converting colors', () => {
+  const linear = srgbAttributeToLinear(Uint8Array.from([255, 0, 0, 128]), 4, 255);
+
+  assert.ok(Math.abs(linear[3] - 128 / 255) < 1e-6);
+});
+
+test('converts every vertex in a multi-vertex attribute', () => {
+  const linear = srgbAttributeToLinear(Float32Array.from([1, 1, 1, 0.5, 0.5, 0.5]), 3, 1);
+
+  assert.ok(Math.abs(linear[0] - 1) < 1e-6);
+  assert.ok(Math.abs(linear[3] - srgbToLinear(0.5)) < 1e-6);
 });

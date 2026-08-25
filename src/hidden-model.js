@@ -43,3 +43,25 @@ export function createInstanceFrom(template, opacity) {
   });
   return instance;
 }
+
+// Decode one sRGB channel to linear light, the space three.js shades in.
+export function srgbToLinear(value) {
+  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+}
+
+// Decode a whole vertex color attribute. Scanners commonly write display-ready
+// sRGB bytes into COLOR_0, while glTF declares that attribute to be linear, so
+// three.js renders the model washed out until the values are decoded once.
+// Alpha carries no color and is copied through.
+//
+// maxValue scales the incoming components to 0..1 (255 for byte attributes).
+export function srgbAttributeToLinear(components, itemSize, maxValue) {
+  const linear = new Float32Array(components.length);
+  for (let offset = 0; offset < components.length; offset += itemSize) {
+    for (let channel = 0; channel < itemSize; channel += 1) {
+      const value = components[offset + channel] / maxValue;
+      linear[offset + channel] = channel < 3 ? srgbToLinear(value) : value;
+    }
+  }
+  return linear;
+}
