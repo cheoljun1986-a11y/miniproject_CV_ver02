@@ -9,12 +9,7 @@ export class VoxelMap {
     solidMinHits = 3,
     maxSolid = 20000,
     maxPending = maxSolid * 2,
-    // Called with the voxel centre the moment a cell is confirmed solid. The
-    // chase grid uses this to update only the cells that changed instead of
-    // rebuilding itself from the whole map every frame.
-    onSolid = null,
   } = {}) {
-    this.onSolid = onSolid;
     this.voxelSize = voxelSize;
     this.solidMinHits = solidMinHits;
     this.maxSolid = maxSolid;
@@ -53,7 +48,6 @@ export class VoxelMap {
     const colorT = Math.min(1, Math.max(0, (center[1] + 1) / 3));
     this.solid.set(key, { position: center, colorT });
     this.revision += 1;
-    this.onSolid?.(center);
     if (this.solid.size >= this.maxSolid) this.counts.clear();
     return true;
   }

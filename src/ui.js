@@ -86,13 +86,6 @@ export function createUI(documentRoot = document) {
     operatorCanvas: documentRoot.querySelector('#operatorCanvas'),
     operatorCloseBtn: documentRoot.querySelector('#operatorCloseBtn'),
     operatorStatus: documentRoot.querySelector('#operatorStatus'),
-    // Chase mode elements exist only on the chase page; every use below is
-    // guarded so index.html keeps behaving exactly as before.
-    chaseBtn: documentRoot.querySelector('#chaseBtn'),
-    chasePanel: documentRoot.querySelector('#chasePanel'),
-    chaseGaugeFill: documentRoot.querySelector('#chaseGaugeFill'),
-    chaseHint: documentRoot.querySelector('#chaseHint'),
-    chaseArrow: documentRoot.querySelector('#chaseArrow'),
   };
 
   function bindCommands({ onScan, onNewRound, onExtend, onMark, onCheck }) {
@@ -128,33 +121,6 @@ export function createUI(documentRoot = document) {
       event.stopPropagation();
       onToggle(false);
     });
-  }
-
-  // Chase mode asks the player to HOLD scan rather than tap it, so that simply
-  // pointing the camera is not enough to make an arrest.
-  function bindChase({ onToggle, onHoldStart, onHoldEnd }) {
-    if (elements.chaseBtn) {
-      elements.chaseBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        onToggle();
-      });
-    }
-    const scan = elements.scan;
-    if (!scan) return;
-    const start = (event) => {
-      event.stopPropagation();
-      onHoldStart();
-    };
-    const end = (event) => {
-      event.stopPropagation();
-      onHoldEnd();
-    };
-    scan.addEventListener('pointerdown', start);
-    scan.addEventListener('pointerup', end);
-    scan.addEventListener('pointercancel', end);
-    scan.addEventListener('pointerleave', end);
-    // A pointer released outside the button must still stop the attempt.
-    documentRoot.addEventListener?.('pointerup', () => onHoldEnd());
   }
 
   function flash() {
@@ -195,41 +161,6 @@ export function createUI(documentRoot = document) {
     },
     getOperatorCanvas() {
       return elements.operatorCanvas;
-    },
-    bindChase,
-    hasChaseControls() {
-      return Boolean(elements.chaseBtn);
-    },
-    setChaseButton(label, enabled) {
-      if (!elements.chaseBtn) return;
-      elements.chaseBtn.textContent = label;
-      elements.chaseBtn.disabled = !enabled;
-    },
-    setChaseVisible(visible) {
-      if (!elements.chasePanel) return;
-      elements.chasePanel.style.display = visible ? 'flex' : 'none';
-    },
-    setChaseGauge(value) {
-      if (!elements.chaseGaugeFill) return;
-      elements.chaseGaugeFill.style.width = `${Math.round(value * 100)}%`;
-      elements.chaseGaugeFill.style.background = value >= 1
-        ? '#35d07f'
-        : (value > 0 ? '#ffc44d' : '#556');
-    },
-    setChaseHint(text) {
-      if (elements.chaseHint) elements.chaseHint.textContent = text;
-    },
-    // Points at Hachuping when it has run out of frame. Without this the
-    // player simply loses it and the chase stalls.
-    setChaseArrow(angleRad) {
-      if (!elements.chaseArrow) return;
-      if (angleRad === null) {
-        elements.chaseArrow.style.display = 'none';
-        return;
-      }
-      elements.chaseArrow.style.display = 'block';
-      elements.chaseArrow.style.transform =
-        `translate(-50%, -50%) rotate(${angleRad}rad)`;
     },
   };
 }
