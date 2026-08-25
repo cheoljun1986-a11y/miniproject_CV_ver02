@@ -3,8 +3,10 @@ import { ARButton } from 'three/addons/webxr/ARButton.js';
 
 import {
   APP_MODES,
+  autoStartsGame,
   depthUsageForMode,
   resolveAppMode,
+  usesDepthCloud,
   usesSpaceMapping,
 } from './app-mode.js';
 import {
@@ -19,6 +21,7 @@ import {
   OPERATOR_STATUS_GAP_MS,
   TRAIL_MAX_POINTS,
   TRAIL_MIN_STEP_M,
+  VOXEL_DEBUG_MAX_INSTANCES,
   VOXEL_MAX_SOLID,
   VOXEL_MAX_PENDING,
   VOXEL_SIZE_M,
@@ -55,8 +58,17 @@ import * as ninjaModel from './ninja-model.js';
 import { OperatorView } from './operator-view.js';
 import { PlayerTrail } from './player-trail.js';
 import { SpatialMapper } from './spatial-mapper.js';
-import { createUI, formatMetrics, formatOperatorStatus } from './ui.js';
+import {
+  createUI,
+  formatMetrics,
+  formatOperatorStatus,
+  formatVoxelDebugStatus,
+  formatVoxelDebugSummary,
+} from './ui.js';
+import { VoxelDebugController } from './voxel-debug-controller.js';
+import { createVoxelDebugPanel } from './voxel-debug-panel.js';
 import { VoxelMap } from './voxel-map.js';
+import { VoxelOverlay } from './voxel-overlay.js';
 import { XRSessionController } from './xr-session.js';
 
 // A WebXR session uses one depth mode. CPU mode shares that single feed between
@@ -65,7 +77,9 @@ const APP_MODE = resolveAppMode(location.search);
 const CLOUD_MODE = APP_MODE === APP_MODES.CLOUD;
 const CPU_OCCLUSION_MODE = APP_MODE === APP_MODES.CPU_OCCLUSION;
 const GPU_OCCLUSION_MODE = APP_MODE === APP_MODES.GPU_OCCLUSION;
+const VOXEL_DEBUG_MODE = APP_MODE === APP_MODES.VOXEL_DEBUG;
 const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE);
+const DEPTH_CLOUD_MODE = usesDepthCloud(APP_MODE);
 
 const ui = createUI();
 let scene;
@@ -99,6 +113,9 @@ let lastOperatorStatusTime = -Infinity;
 let lastOperatorRenderTime = -Infinity;
 let operatorVoxelRevision = -1;
 let operatorSolidVoxels = [];
+let voxelDebug = null;
+let voxelOverlay = null;
+let voxelPanel = null;
 
 init();
 
@@ -179,11 +196,13 @@ async function init() {
     console.error('Hidden model unavailable, using the built-in ninja:', error);
   }
 
-  ui.setStatus(CLOUD_MODE
-    ? 'WebXR AR 지원됨 (공간 복원 모드) — START AR을 누르세요'
-    : CPU_OCCLUSION_MODE
-      ? 'WebXR AR 지원됨 (CPU 깊이 가림 모드) — START AR을 누르세요'
-      : 'WebXR AR 지원됨 — START AR을 누르세요');
+  ui.setStatus(VOXEL_DEBUG_MODE
+    ? 'WebXR AR 지원됨 (복셀 진단 모드) — START AR을 누르세요'
+    : CLOUD_MODE
+      ? 'WebXR AR 지원됨 (공간 복원 모드) — START AR을 누르세요'
+      : CPU_OCCLUSION_MODE
+        ? 'WebXR AR 지원됨 (CPU 깊이 가림 모드) — START AR을 누르세요'
+        : 'WebXR AR 지원됨 — START AR을 누르세요');
   if (SPACE_MAPPING_MODE) {
     depthSource = new CpuDepthFrameSource({
       getSession: () => xrSession.getSession(),
@@ -208,30 +227,40 @@ async function init() {
       });
       captureGauge = new CaptureGauge();
     }
-
-    voxelMap = new VoxelMap({
-      voxelSize: VOXEL_SIZE_M,
-      solidMinHits: VOXEL_SOLID_MIN_HITS,
-      maxSolid: VOXEL_MAX_SOLID,
-      maxPending: VOXEL_MAX_PENDING,
-      // One cell touched per confirmed voxel — never a full grid rebuild.
-      onSolid: chaseGrid ? (center) => chaseGrid.observe(center) : null,
-    });
     playerTrail = new PlayerTrail({
       minStep: TRAIL_MIN_STEP_M,
       maxPoints: TRAIL_MAX_POINTS,
     });
-    depthCloud = new DepthCloud({
-      scene,
-      voxelMap,
-      renderPoints: false,
-      depthSource,
-    });
+    if (DEPTH_CLOUD_MODE) {
+      voxelMap = new VoxelMap({
+        voxelSize: VOXEL_SIZE_M,
+        solidMinHits: VOXEL_SOLID_MIN_HITS,
+        maxSolid: VOXEL_MAX_SOLID,
+        maxPending: VOXEL_MAX_PENDING,
+        // One cell touched per confirmed voxel — never a full grid rebuild.
+        onSolid: chaseGrid ? (center) => chaseGrid.observe(center) : null,
+      });
+      depthCloud = new DepthCloud({
+        scene,
+        voxelMap,
+        renderPoints: false,
+        depthSource,
+      });
+    }
+    if (VOXEL_DEBUG_MODE) {
+      // Keyframe-gated capture with per-frame dedup, replacing DepthCloud's
+      // 200ms timer which lets a single frame promote a voxel on its own.
+      voxelDebug = new VoxelDebugController({ depthSource });
+      voxelOverlay = new VoxelOverlay({ scene });
+    }
     if (CPU_OCCLUSION_MODE) {
       cpuDepthOccluder = new CpuDepthOccluder({ scene, depthSource });
     }
     try {
-      operatorView = new OperatorView({ canvas: ui.getOperatorCanvas() });
+      operatorView = new OperatorView({
+        canvas: ui.getOperatorCanvas(),
+        maxVoxels: VOXEL_DEBUG_MODE ? VOXEL_DEBUG_MAX_INSTANCES : VOXEL_MAX_SOLID,
+      });
       ui.setOperatorButtonVisible(true);
       ui.bindOperator({
         onToggle(visible) {
@@ -242,6 +271,22 @@ async function init() {
     } catch (error) {
       console.error('Operator view unavailable:', error);
       operatorView = null;
+    }
+    if (VOXEL_DEBUG_MODE) {
+      voxelPanel = createVoxelDebugPanel({
+        root: document.querySelector('#hud'),
+        controller: voxelDebug,
+        overlay: voxelOverlay,
+        operatorView,
+        onOperatorToggle: () => {
+          operatorVisible = !operatorVisible;
+          ui.setOperatorVisible(operatorVisible);
+        },
+        onStartGame: () => game.startSession(),
+      });
+      // Nothing on the legacy metrics card applies while the game is idle, and
+      // the panel already reports everything else.
+      ui.setMetricsVisible(false);
     }
   }
 
@@ -270,8 +315,11 @@ async function init() {
     lastOperatorRenderTime = -Infinity;
     operatorVoxelRevision = -1;
     operatorSolidVoxels = [];
+    voxelDebug?.reset();
+    voxelOverlay?.clear();
+    voxelDebug?.startScan(performance.now());
     await xrSession.start();
-    game.startSession();
+    if (autoStartsGame(APP_MODE)) game.startSession();
   });
   renderer.xr.addEventListener('sessionend', () => {
     detachOccluder();
@@ -285,9 +333,11 @@ async function init() {
     lastOperatorRenderTime = -Infinity;
     operatorVoxelRevision = -1;
     operatorSolidVoxels = [];
+    voxelDebug?.reset();
+    voxelOverlay?.clear();
     operatorVisible = false;
     ui.setOperatorVisible(false);
-    game.endSession();
+    if (autoStartsGame(APP_MODE)) game.endSession();
     xrSession.end();
   });
   renderer.setAnimationLoop(render);
@@ -462,22 +512,34 @@ function render(time, frame) {
     if (CPU_OCCLUSION_MODE) {
       cpuDepthOccluder?.update(frame, localSpace, time);
     }
-    depthCloud?.update(frame, localSpace, time);
+    if (VOXEL_DEBUG_MODE) {
+      voxelDebug.update(frame, localSpace, time, viewerPose);
+      voxelDebug.rebuildIfDirty();
+    } else {
+      depthCloud?.update(frame, localSpace, time);
+    }
     if (viewerPose) playerTrail?.record(viewerPose.position);
     updateChase(time, viewerPose);
     if (operatorVisible) buildChaseTiles(time);
 
     const ninjaPosition = game.getTargetPosition();
-    const voxelCount = voxelMap?.getSolidCount() ?? 0;
+    const voxelCount = voxelMap?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0;
     if (time - lastOperatorStatusTime >= OPERATOR_STATUS_GAP_MS) {
       lastOperatorStatusTime = time;
-      ui.setOperatorStatus(formatOperatorStatus({
-        anchorState: game.getAnchorState(),
-        voxelCount,
-        ninjaPosition,
-        playerPosition: viewerPose?.position ?? null,
-        pathPointCount: playerTrail?.getCount() ?? 0,
-      }));
+      if (VOXEL_DEBUG_MODE) {
+        const stats = voxelDebug.getStats(time);
+        voxelPanel?.setStatus(formatVoxelDebugStatus(stats));
+        voxelPanel?.refresh();
+        ui.setOperatorStatus(formatVoxelDebugSummary(stats));
+      } else {
+        ui.setOperatorStatus(formatOperatorStatus({
+          anchorState: game.getAnchorState(),
+          voxelCount,
+          ninjaPosition,
+          playerPosition: viewerPose?.position ?? null,
+          pathPointCount: playerTrail?.getCount() ?? 0,
+        }));
+      }
     }
     if (
       operatorVisible
@@ -485,28 +547,55 @@ function render(time, frame) {
       && time - lastOperatorRenderTime >= OPERATOR_RENDER_GAP_MS
     ) {
       lastOperatorRenderTime = time;
-      const voxelRevision = voxelMap.getRevision();
-      if (voxelRevision !== operatorVoxelRevision) {
-        operatorVoxelRevision = voxelRevision;
-        operatorSolidVoxels = voxelMap.getSolidVoxels();
+      if (VOXEL_DEBUG_MODE) {
+        const revision = voxelDebug.getRevision();
+        operatorView.setVoxelSize(voxelDebug.getParams().voxelSize);
+        operatorView.setVoxelCells(
+          voxelDebug.getRenderCells(),
+          revision,
+          voxelDebug.getColorMode(),
+        );
+        operatorView.setKeyframePoses(voxelDebug.getKeyframePoses());
+        operatorView.render({
+          solidVoxels: null,
+          voxelRevision: revision,
+          ninjaPos: ninjaPosition,
+          playerPos: viewerPose?.position ?? null,
+          playerPath: playerTrail.getPoints(),
+        });
+      } else {
+        const voxelRevision = voxelMap.getRevision();
+        if (voxelRevision !== operatorVoxelRevision) {
+          operatorVoxelRevision = voxelRevision;
+          operatorSolidVoxels = voxelMap.getSolidVoxels();
+        }
+        operatorView.render({
+          gridTiles: chaseTiles,
+          gridRevision: chaseTilesRevision,
+          cellSize: CHASE_CELL_SIZE_M,
+          chasePath: chaseActive ? chaseRunner?.remainingPathWorld() : null,
+          hachupingPos: chaseActive ? chaseRunner?.position : null,
+          solidVoxels: operatorSolidVoxels,
+          voxelRevision,
+          ninjaPos: ninjaPosition,
+          playerPos: viewerPose?.position ?? null,
+          playerPath: playerTrail.getPoints(),
+        });
       }
-      operatorView.render({
-        gridTiles: chaseTiles,
-        gridRevision: chaseTilesRevision,
-        cellSize: CHASE_CELL_SIZE_M,
-        chasePath: chaseActive ? chaseRunner?.remainingPathWorld() : null,
-        hachupingPos: chaseActive ? chaseRunner?.position : null,
-        solidVoxels: operatorSolidVoxels,
-        voxelRevision,
-        ninjaPos: ninjaPosition,
-        playerPos: viewerPose?.position ?? null,
-        playerPath: playerTrail.getPoints(),
-      });
+    }
+    if (VOXEL_DEBUG_MODE && voxelOverlay?.isVisible()) {
+      voxelOverlay.setVoxelSize(voxelDebug.getParams().voxelSize);
+      voxelOverlay.setCells(
+        voxelDebug.getRenderCells(),
+        voxelDebug.getRevision(),
+        voxelDebug.getColorMode(),
+        { cameraPosition: viewerPose?.position ?? null },
+      );
     }
   } else if (GPU_OCCLUSION_MODE) {
     maybeAttachOccluder();
   }
-  updateMetrics(viewerPose);
+  if (!VOXEL_DEBUG_MODE) updateMetrics(viewerPose);
   renderer.render(scene, camera);
 }
 
@@ -544,7 +633,9 @@ function updateMetrics(viewerPose) {
       ? 'cpu'
       : GPU_OCCLUSION_MODE && renderer.xr.hasDepthSensing?.() ? 'gpu' : null,
     occlusionTriangles: cpuDepthOccluder?.getTriangleCount() ?? 0,
-    voxelCount: SPACE_MAPPING_MODE ? (voxelMap?.getSolidCount() ?? 0) : null,
+    voxelCount: SPACE_MAPPING_MODE
+      ? (voxelMap?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0)
+      : null,
     depthUsage,
     depthDataFormat,
     anchorState: game.getAnchorState(),

@@ -5,6 +5,8 @@ import {
   formatAnchorStatus,
   formatMetrics,
   formatOperatorStatus,
+  formatVoxelDebugStatus,
+  formatVoxelDebugSummary,
 } from '../src/ui.js';
 
 test('formatMetrics preserves the existing HUD measurements', () => {
@@ -175,4 +177,54 @@ test('formatOperatorStatus reports map, anchor, ninja, and player state', () => 
       + 'Ninja  x 1.00  y 2.00  z -3.00\n'
       + '플레이어  x 0.10  y 1.60  z -0.20 · 경로 9점',
   );
+});
+
+test('voxel debug status reports keyframes, histogram and where samples went', () => {
+  const text = formatVoxelDebugStatus({
+    scanning: false,
+    keyframeCount: 7,
+    maxKeyframes: 15,
+    elapsedMs: 12400,
+    cellCount: 4213,
+    displayedCount: 1188,
+    histogram: { one: 3025, two: 812, three: 300, fourPlus: 76, total: 4213 },
+    colorMode: '관측 횟수',
+    params: {
+      nearM: 0.3, farM: 5, gradientMaxJumpM: 0.1, voxelSize: 0.05, minObservations: 1,
+    },
+    buildMs: 38,
+    rejected: { zero: 118400, range: 9210, gradient: 4102, accepted: 12288 },
+  });
+
+  assert.equal(text, `복셀 디버그 · 스캔 완료 · 키프레임 7/15 · 경과 12.4s
+복셀 4213 (표시 1188) · 재구성 38ms
+관측 1회 3025 · 2회 812 · 3+회 376
+클립 0.30–5.00m · 그래디언트 0.10m · 크기 0.05m · 임계 1
+버림  0값 118400 · 범위 9210 · 경사 4102 · 수용 12288
+색상 관측 횟수`);
+});
+
+test('voxel debug status flags a live scan, an import and a truncated grid', () => {
+  const scanning = formatVoxelDebugStatus({ scanning: true, scanLeftSec: 8.6, truncated: true });
+  assert.match(scanning, /스캔 중 9s/);
+  assert.match(scanning, /⚠상한/);
+
+  assert.match(formatVoxelDebugStatus({ imported: true }), /JSON 불러옴/);
+});
+
+test('voxel debug summary condenses the panel block to one line', () => {
+  assert.equal(formatVoxelDebugSummary({
+    cellCount: 19330,
+    displayedCount: 5215,
+    clusterCount: 12,
+    keyframeCount: 28,
+    maxKeyframes: 40,
+    buildMs: 249,
+  }), '복셀 19330 (표시 5215) · 클러스터 12 · 키프레임 28/40 · 재구성 249ms');
+});
+
+test('voxel debug summary omits clusters before Phase 4 has run', () => {
+  assert.equal(formatVoxelDebugSummary({
+    cellCount: 100, displayedCount: 100, keyframeCount: 3, maxKeyframes: 40, buildMs: 4,
+  }), '복셀 100 (표시 100) · 키프레임 3/40 · 재구성 4ms');
 });

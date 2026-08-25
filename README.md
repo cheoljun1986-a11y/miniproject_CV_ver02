@@ -6,6 +6,7 @@
 - 공개 데모: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/>
 - CPU 동적 가림 + 통합 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?occlusion=cpu>
 - 공간 복원 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?depth=cloud>
+- 복셀 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?voxel=debug>
 
 > **이 문서는 발표 자료로 쓸 수 있도록 시계열로 정리했다.**
 > 3장 타임라인 표가 목차, 4장의 각 단계가 슬라이드 한 장에 대응한다.
@@ -65,7 +66,7 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 | 9 | 08-25 11:37 | 하츄핑 3D 모델로 교체 | 코드로 만든 닌자 대신 스캔 모델 사용 | GLB 로드 + 크기/바닥 정규화 + 인스턴스 복제 |
 | 10 | 08-25 13:27 | **색이 검게 나오는 문제** | 스캔 모델이 거의 검게 렌더링됨 | 기본 재질이 금속 → unlit + sRGB 디코딩 |
 
-자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개**
+자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 156개**
 
 ---
 
@@ -362,16 +363,41 @@ vertex 0: 원본 GLB 바이트 191 135 138
 
 WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다.
 
-| | 기본 URL | `?occlusion=cpu` | `?depth=cloud` |
-|---|---|---|---|
-| depth usage | `gpu-optimized` | `cpu-optimized` | `cpu-optimized` |
-| 하는 일 | three.js 내장 가림 | 동적 메시 가림 + 복셀 지도 | 복셀 공간 복원 진단 |
-| 동적 손 가림 | 브라우저 지원 시 가능 | 가능, 실기기 검증 필요 | 불가(과거 점을 누적) |
-| 운영자 뷰 | 없음 | 복셀·Ninja·anchor·이동 경로 | 같은 공간지도 진단 뷰 |
-| HUD 표시 | `가림 GPU` 또는 unavailable | `가림 CPU · 삼각형 N · 복셀 N` | `복셀 N` |
-| 갤럭시 현재 결과 | GPU depth unavailable | 새 검증 대상 | CPU depth 정상 확인 |
+| | 기본 URL | `?occlusion=cpu` | `?depth=cloud` | `?voxel=debug` |
+|---|---|---|---|---|
+| depth usage | `gpu-optimized` | `cpu-optimized` | `cpu-optimized` | `cpu-optimized` |
+| 하는 일 | three.js 내장 가림 | 동적 메시 가림 + 복셀 지도 | 복셀 공간 복원 진단 | 키프레임 복셀 진단 |
+| 동적 손 가림 | 브라우저 지원 시 가능 | 가능, 실기기 검증 필요 | 불가(과거 점을 누적) | 불가(가림 전부 끔) |
+| 운영자 뷰 | 없음 | 복셀·Ninja·anchor·이동 경로 | 같은 공간지도 진단 뷰 | 복셀·키프레임 프러스텀 |
+| HUD 표시 | `가림 GPU` 또는 unavailable | `가림 CPU · 삼각형 N · 복셀 N` | `복셀 N` | 키프레임·히스토그램·폐기 통계 |
+| 갤럭시 현재 결과 | GPU depth unavailable | 새 검증 대상 | CPU depth 정상 확인 | 실기기 진단 대기 |
 
 `?depth=cloud&occlusion=cpu`처럼 두 값을 동시에 넣으면 통합 CPU 게임 모드를 우선한다.
+`?voxel=debug`는 그보다도 우선한다 — 가림이 살아 있으면 복셀 wireframe이 실물 뒤에서
+깊이 테스트로 잘려나가, 정작 확인해야 할 "책상 반대편이 복셀화됐는가"를 볼 수 없다.
+
+### `?voxel=debug` — 키프레임 복셀 진단 모드
+
+기존 `?depth=cloud`의 복셀 누적에는 결함이 있다. `depth-cloud.js`가 200ms마다 40×30 격자를
+뿌리는데 **프레임 구분이 없어**, 1m 거리에서 샘플 간격 ~2.9cm가 5cm 복셀에 한 프레임만으로
+2~3표를 넣어 즉시 solid로 승격시킨다. `VOXEL_SOLID_MIN_HITS = 3`이 "세 시점에서 봤다"를
+보장하지 못한다. 게다가 이 결함은 거리 의존적이라(2m에서 5.8cm, 4m에서 11.6cm) **가까운 것은
+초록, 먼 것은 빨강**인 맵을 만드는데, 이건 "다중 관측 검증 실패" 증상과 구분되지 않는다.
+
+이 모드는 그래서 별도 파이프라인을 쓴다.
+
+- **키프레임만 캡처** — 20cm 이동 또는 15° 회전, 최대 15장. 포즈는 매 프레임 평가하고
+  250ms 쿨다운은 캡처에만 걸어, 쿨다운이 포즈 임계값을 넓히지 않는다
+- **원본 보존** — depth를 네이티브 해상도(보통 160×120)로 보관(~1.2MB). 복셀 맵은 시각화
+  시점에 계산하므로 **슬라이더를 움직이면 재스캔 없이 같은 데이터로 재필터**된다
+- **프레임 단위 중복 제거** — 한 키프레임은 한 셀에 관측 1회만 기여
+- **누적 평균 좌표** — 격자 중심이 아니라 실측 점들의 평균을 저장
+- **색상 모드 3종** — 관측 횟수(1=빨강/2=노랑/3+=초록), 높이, 클러스터(Phase 4 예정)
+- **키프레임 프러스텀** — pose 누적이 매끄러운 호를 그리는지 육안 확인
+- **JSON 내보내기/불러오기** — 같은 스캔으로 PC에서 반복 실험
+
+가림(occlusion)은 이 모드에서 전부 꺼진다. 실세계 깊이가 깊이 버퍼를 채우면 복셀 wireframe이
+실물 뒤에서 잘려, 판단해야 할 대상이 안 보이기 때문이다.
 
 ## 6. 기술 스택
 
@@ -379,7 +405,7 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
 - **three.js 0.180** (렌더링, WebXR 매니저, 내장 depth-sensing 오클루전, GLTFLoader)
 - WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, (옵션) `anchors`, `local-floor`
 - **정적 호스팅**: GitHub Pages (백엔드 없음). CDN(three.js)만 외부 의존.
-- 테스트: Node.js `node:test` — **89개** (순수 로직·게임 상태·WebXR 경계·depth 소비자)
+- 테스트: Node.js `node:test` — **156개** (순수 로직·게임 상태·WebXR 경계·depth 소비자·복셀 진단)
 
 ## 7. 실행 / 테스트 방법
 
@@ -416,7 +442,7 @@ WebXR depth 세션 활성화 문제로 분류한다.
 ```bash
 python -m http.server 8000
 # http://localhost:8000  (단, WebXR는 HTTPS 또는 실기기 필요)
-node --test tests/*.test.mjs   # 자동 테스트 89개
+node --test tests/*.test.mjs   # 자동 테스트 156개
 ```
 
 ## 8. 현재 상태 / 검증
@@ -432,7 +458,8 @@ node --test tests/*.test.mjs   # 자동 테스트 89개
 | 복셀 재구성 + 운영자 3D 뷰 | ✅ 구현 / 실기기 확인 필요 |
 | CPU depth 공유 | ✅ 같은 XRFrame당 한 번 조회하도록 구현·자동 테스트 |
 | 하츄핑 GLB 모델 교체 | ✅ 구현·자동 테스트 / 크기·바닥·색 왕복 실측 확인 |
-| 자동 테스트 | ✅ **89개 통과** |
+| 복셀 진단 모드 (키프레임·재필터·시각화) | ✅ 구현·자동 테스트 / 실기기 Phase 2 진단 필요 |
+| 자동 테스트 | ✅ **156개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 
@@ -484,9 +511,19 @@ src/
   cpu-depth-occluder.js CPU 깊이 → 동적 깊이 전용 Three.js 메시
   depth-cloud.js      cpu 깊이 → 포인트클라우드 누적
   voxel-map.js        복셀 점유·노이즈제거·상한 관리 (three 비의존, 테스트됨)
+  keyframe-gate.js    포즈 델타 키프레임 선정 (three 비의존, 테스트됨)
+  voxel-grid.js       프레임 중복제거·관측횟수·누적평균 (three 비의존, 테스트됨)
+  depth-grid-filter.js 범위 클립·4이웃 그래디언트 (three 비의존, 테스트됨)
+  keyframe-store.js   스냅샷 보존·재구성·JSON 코덱 (three 비의존, 테스트됨)
+  voxel-color-modes.js 관측횟수/높이/클러스터 색상 (three 비의존, 테스트됨)
+  voxel-debug-params.js 슬라이더 스키마·clamp (three 비의존, 테스트됨)
+  keyframe-capture.js XRCPUDepthInformation → 스냅샷
+  voxel-debug-controller.js 스캔 수명주기·재구성 글루
+  voxel-overlay.js    AR 화면 복셀 wireframe
+  voxel-debug-panel.js 런타임 생성 슬라이더 패널
   player-trail.js     플레이어 경로 버퍼 (three 비의존, 테스트됨)
   operator-view.js    운영자 오빗 3D 뷰 오버레이
-tests/                자동 테스트 (node:test) 89개
+tests/                자동 테스트 (node:test) 156개
 docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 ```
 

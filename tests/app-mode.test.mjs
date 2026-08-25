@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   APP_MODES,
+  autoStartsGame,
   depthUsageForMode,
   resolveAppMode,
+  usesDepthCloud,
   usesSpaceMapping,
 } from '../src/app-mode.js';
 
@@ -30,4 +32,35 @@ test('CPU occlusion and cloud diagnostics both accumulate a space map', () => {
   assert.equal(usesSpaceMapping(APP_MODES.CPU_OCCLUSION), true);
   assert.equal(usesSpaceMapping(APP_MODES.CLOUD), true);
   assert.equal(usesSpaceMapping(APP_MODES.GPU_OCCLUSION), false);
+});
+
+test('voxel debug URL selects the keyframe voxel diagnostic', () => {
+  assert.equal(resolveAppMode('?voxel=debug'), 'voxel-debug');
+  assert.equal(resolveAppMode('?voxel=on'), 'gpu-occlusion');
+});
+
+// A live CPU occluder writes real-world depth, which would depth-cull the voxel
+// wireframe overlay exactly where we most need to see it (behind a table).
+test('voxel debug outranks the other experimental parameters', () => {
+  assert.equal(resolveAppMode('?voxel=debug&occlusion=cpu'), 'voxel-debug');
+  assert.equal(resolveAppMode('?depth=cloud&voxel=debug'), 'voxel-debug');
+});
+
+test('voxel debug requests CPU-optimized depth and shares the space-map wiring', () => {
+  assert.equal(depthUsageForMode(APP_MODES.VOXEL_DEBUG), 'cpu-optimized');
+  assert.equal(usesSpaceMapping(APP_MODES.VOXEL_DEBUG), true);
+});
+
+test('only the legacy modes drive DepthCloud and VoxelMap', () => {
+  assert.equal(usesDepthCloud(APP_MODES.CPU_OCCLUSION), true);
+  assert.equal(usesDepthCloud(APP_MODES.CLOUD), true);
+  assert.equal(usesDepthCloud(APP_MODES.VOXEL_DEBUG), false);
+  assert.equal(usesDepthCloud(APP_MODES.GPU_OCCLUSION), false);
+});
+
+test('only the voxel diagnostic keeps the game idle at session start', () => {
+  assert.equal(autoStartsGame(APP_MODES.GPU_OCCLUSION), true);
+  assert.equal(autoStartsGame(APP_MODES.CPU_OCCLUSION), true);
+  assert.equal(autoStartsGame(APP_MODES.CLOUD), true);
+  assert.equal(autoStartsGame(APP_MODES.VOXEL_DEBUG), false);
 });
