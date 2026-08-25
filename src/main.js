@@ -300,7 +300,13 @@ async function init() {
           operatorVisible = !operatorVisible;
           ui.setOperatorVisible(operatorVisible);
         },
-        onStartGame: () => game.startSession(),
+        onStartGame: () => {
+          game.startSession();
+          // Starting the game in the diagnostic has exactly one purpose:
+          // watching whether the character hides. Leaving the occluder off
+          // makes that test silently measure nothing.
+          voxelOccluder?.setVisible(true);
+        },
         occluder: voxelOccluder,
       });
       // Nothing on the legacy metrics card applies while the game is idle, and
