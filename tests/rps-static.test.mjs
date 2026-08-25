@@ -10,6 +10,7 @@ test('entrypoint contains the complete rock paper scissors duel overlay', async 
     'rpsOverlay', 'rpsCountdown', 'handStatus', 'playerMoveCanvas',
     'ninjaMoveCanvas', 'playerMoveLabel', 'ninjaMoveLabel', 'rpsResult',
     'rpsError', 'manualMoves', 'manualRock', 'manualPaper', 'manualScissors',
+    'handPreviewFrame', 'handPreviewMount',
   ]) {
     assert.match(html, new RegExp(`id=(?:${quote}|')${id}(?:${quote}|')`));
   }

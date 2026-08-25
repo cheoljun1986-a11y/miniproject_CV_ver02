@@ -54,7 +54,7 @@
 | `gesture-consensus.js` | 신뢰도·최근 프레임·일치 횟수 기반 패 확정 |
 | `rps-game.js` | 카운트다운, 인식 시간, 결과 표시, 재대결 상태 머신 |
 | `raw-camera-frame-source.js` | `view.camera`와 `XRWebGLBinding`에서 입력 프레임 획득 |
-| `camera-texture-copier.js` | 카메라 WebGL 텍스처를 256px 추론 캔버스로 복사 |
+| `camera-texture-copier.js` | 세로·가로 비율을 유지해 최대 320px 추론 캔버스로 복사 |
 | `hand-gesture-recognizer.js` | MediaPipe Tasks Vision 1.0.1 초기화와 로컬 추론 |
 | `rps-runtime.js` | 카메라/수동 입력, UI, 닌자 승패 전환을 한 경로로 조립 |
 | `rps-art.js` / `rps-sign.js` | HUD 벡터 손 그림과 닌자 위 패 표식 |
@@ -65,7 +65,7 @@
 
 ### 검증 상태
 
-- PC 자동 테스트: **141개 통과** (`node --test tests/*.test.mjs`)
+- PC 자동 테스트: **151개 통과** (`node --test tests/*.test.mjs`)
 - `main.js` 구문 검사와 모델 크기·SHA-256 검증 완료
 - 실제 Android에서 반드시 추가 확인할 항목:
   카메라 권한, 세로 화면 방향, 실내 조명의 세 손 모양 정확도, CPU 가림 프레임률,
@@ -73,6 +73,15 @@
 
 PC 테스트 통과는 실제 AR 카메라 품질 검증을 대신하지 않는다. 특히 `camera-access` 지원과
 카메라 텍스처 방향은 배포 대상 Android Chrome에서 직접 확인해야 한다.
+
+### 08-25 실기기 피드백 반영
+
+- 페이지 진입을 막던 MediaPipe 초기화를 제거하고 AR 세션의 20초 공간 스캔 중
+  백그라운드에서 모델을 준비한다.
+- 세로 카메라를 256×256으로 찌그러뜨리지 않고 원본 비율을 유지한다.
+- 손 검출 0.5, 패 신뢰도 0.55, 최근 5프레임 중 3회 합의로 실기기 판정을 완화했다.
+- 중앙의 큰 패널을 상단 안내 바로 축소하고, 큰 패 카드는 결과 순간에만 표시한다.
+- 우측 하단에 'AI가 보는 화면'과 `바위 인식 중 2/3 · 81%` 형식의 진행도를 표시한다.
 
 > **이 문서는 발표 자료로 쓸 수 있도록 시계열로 정리했다.**
 > 3장 타임라인 표가 목차, 4장의 각 단계가 슬라이드 한 장에 대응한다.
@@ -133,7 +142,7 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 | 10 | 08-25 13:27 | **색이 검게 나오는 문제** | 스캔 모델이 거의 검게 렌더링됨 | 기본 재질이 금속 → unlit + sRGB 디코딩 |
 | 11 | 08-25 | **손 인식 가위바위보** | SCAN 즉시 포획이라 상호작용이 짧음 | Raw Camera + MediaPipe 손 인식, 승패별 포획·재대결·재배치 |
 
-자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 130개 → 141개**
+자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 130개 → 141개 → 151개**
 
 ---
 
@@ -449,7 +458,7 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
   (옵션) `anchors`, `local-floor`
 - **정적 호스팅**: GitHub Pages (백엔드 없음). three.js와 MediaPipe 실행 모듈은 CDN,
   손 모양 모델은 저장소의 고정 파일을 사용한다.
-- 테스트: Node.js `node:test` — **141개** (순수 로직·게임 상태·WebXR 경계·depth·손 인식 소비자)
+- 테스트: Node.js `node:test` — **151개** (순수 로직·게임 상태·WebXR 경계·depth·손 인식 소비자)
 
 ## 7. 실행 / 테스트 방법
 
@@ -486,7 +495,7 @@ WebXR depth 세션 활성화 문제로 분류한다.
 ```bash
 python -m http.server 8000
 # http://localhost:8000  (단, WebXR는 HTTPS 또는 실기기 필요)
-node --test tests/*.test.mjs   # 자동 테스트 141개
+node --test tests/*.test.mjs   # 자동 테스트 151개
 ```
 
 ## 8. 현재 상태 / 검증
@@ -502,7 +511,7 @@ node --test tests/*.test.mjs   # 자동 테스트 141개
 | 복셀 재구성 + 운영자 3D 뷰 | ✅ 구현 / 실기기 확인 필요 |
 | CPU depth 공유 | ✅ 같은 XRFrame당 한 번 조회하도록 구현·자동 테스트 |
 | 하츄핑 GLB 모델 교체 | ✅ 구현·자동 테스트 / 크기·바닥·색 왕복 실측 확인 |
-| 자동 테스트 | ✅ **141개 통과** |
+| 자동 테스트 | ✅ **151개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 
@@ -560,7 +569,7 @@ src/
   gesture-consensus.js 여러 카메라 프레임의 손 모양 합의
   raw-camera-frame-source.js / camera-texture-copier.js  WebXR 카메라 프레임 입력
   hand-gesture-recognizer.js  MediaPipe 손 모양 추론
-tests/                자동 테스트 (node:test) 141개
+tests/                자동 테스트 (node:test) 151개
 docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 ```
 

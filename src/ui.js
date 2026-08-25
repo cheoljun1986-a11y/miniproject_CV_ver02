@@ -97,6 +97,7 @@ export function createUI(documentRoot = document) {
     operatorCloseBtn: documentRoot.querySelector('#operatorCloseBtn'),
     operatorStatus: documentRoot.querySelector('#operatorStatus'),
     rpsOverlay: documentRoot.querySelector('#rpsOverlay'),
+    handPreviewMount: documentRoot.querySelector('#handPreviewMount'),
     rpsCountdown: documentRoot.querySelector('#rpsCountdown'),
     handStatus: documentRoot.querySelector('#handStatus'),
     playerMoveCanvas: documentRoot.querySelector('#playerMoveCanvas'),
@@ -190,6 +191,13 @@ export function createUI(documentRoot = document) {
     bindManualMoves,
     setDuelVisible(visible) {
       elements.rpsOverlay.style.display = visible ? 'flex' : 'none';
+    },
+    setDuelPhase(phase) {
+      elements.rpsOverlay.dataset.phase = phase;
+      elements.rpsResult.style.display = phase === 'duel-result' ? 'block' : 'none';
+    },
+    setHandPreview(canvas) {
+      elements.handPreviewMount.replaceChildren(...(canvas ? [canvas] : []));
     },
     setCountdown(value) {
       elements.rpsCountdown.textContent = value ? String(value) : '가위바위보!';

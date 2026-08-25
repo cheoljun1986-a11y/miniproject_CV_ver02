@@ -46,21 +46,35 @@ function createProgram(gl) {
   return program;
 }
 
+export function fitInferenceSize(cameraWidth, cameraHeight, maxDimension = 320) {
+  const width = Number(cameraWidth);
+  const height = Number(cameraHeight);
+  if (!(width > 0) || !(height > 0) || !(maxDimension > 0)) {
+    return { width: maxDimension, height: maxDimension };
+  }
+  const scale = maxDimension / Math.max(width, height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
 export class CameraTextureCopier {
-  constructor(gl, canvas, size = 256) {
+  constructor(gl, canvas, maxDimension = 320) {
     if (typeof gl.createVertexArray !== 'function') {
       throw new Error('WebGL2 is required for camera texture copying');
     }
     this.gl = gl;
     this.canvas = canvas;
-    this.canvas.width = size;
-    this.canvas.height = size;
+    this.maxDimension = maxDimension;
+    this.canvas.width = maxDimension;
+    this.canvas.height = maxDimension;
     this.context2d = canvas.getContext('2d', { alpha: false });
     this.program = createProgram(gl);
     this.sampler = gl.getUniformLocation(this.program, 'cameraTexture');
     this.framebuffer = gl.createFramebuffer();
     this.outputTexture = gl.createTexture();
-    this.pixels = new Uint8Array(size * size * 4);
+    this.pixels = new Uint8Array(maxDimension * maxDimension * 4);
 
     gl.bindTexture(gl.TEXTURE_2D, this.outputTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -68,7 +82,7 @@ export class CameraTextureCopier {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(
-      gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0,
+      gl.TEXTURE_2D, 0, gl.RGBA, maxDimension, maxDimension, 0,
       gl.RGBA, gl.UNSIGNED_BYTE, null,
     );
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
@@ -79,7 +93,13 @@ export class CameraTextureCopier {
     gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
-  copy(cameraTexture) {
+  copy(cameraTexture, camera = null) {
+    const size = fitInferenceSize(
+      camera?.width,
+      camera?.height,
+      this.maxDimension,
+    );
+    this.resize(size.width, size.height);
     const gl = this.gl;
     const previous = {
       framebuffer: gl.getParameter(gl.FRAMEBUFFER_BINDING),
@@ -119,6 +139,21 @@ export class CameraTextureCopier {
     const image = this.context2d.createImageData(this.canvas.width, this.canvas.height);
     image.data.set(this.pixels);
     this.context2d.putImageData(image, 0, 0);
+  }
+
+  resize(width, height) {
+    if (this.canvas.width === width && this.canvas.height === height) return;
+    const gl = this.gl;
+    const previousTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
+    this.canvas.width = width;
+    this.canvas.height = height;
+    this.pixels = new Uint8Array(width * height * 4);
+    gl.bindTexture(gl.TEXTURE_2D, this.outputTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0,
+      gl.RGBA, gl.UNSIGNED_BYTE, null,
+    );
+    gl.bindTexture(gl.TEXTURE_2D, previousTexture);
   }
 
   restoreCapability(capability, enabled) {

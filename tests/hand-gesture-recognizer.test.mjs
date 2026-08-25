@@ -56,6 +56,55 @@ test('initializes and emits only a stable mapped hand move', async () => {
   ]);
 });
 
+test('exposes the current candidate confidence and consensus progress', async () => {
+  const recognizer = new HandGestureRecognizer({
+    consensus: makeConsensus(3),
+    createRecognizer: async () => ({
+      recognizeForVideo: () => result('Victory', 0.83),
+      close() {},
+    }),
+  });
+  await recognizer.initialize();
+  recognizer.recognize({}, 10);
+  recognizer.recognize({}, 20);
+
+  assert.equal(typeof recognizer.getObservation, 'function');
+  assert.deepEqual(recognizer.getObservation(), {
+    detected: true,
+    move: 'scissors',
+    confidence: 0.83,
+    matches: 2,
+    requiredMatches: 3,
+  });
+});
+
+test('distinguishes a visible unsupported gesture from no detected hand', async () => {
+  const outputs = [
+    result('Thumb_Up', 0.91),
+    { gestures: [], handedness: [], landmarks: [], worldLandmarks: [] },
+  ];
+  const recognizer = new HandGestureRecognizer({
+    consensus: makeConsensus(1),
+    createRecognizer: async () => ({
+      recognizeForVideo: () => outputs.shift(),
+      close() {},
+    }),
+  });
+  await recognizer.initialize();
+
+  recognizer.recognize({}, 10);
+  assert.equal(typeof recognizer.getObservation, 'function');
+  assert.deepEqual(recognizer.getObservation(), {
+    detected: true,
+    move: null,
+    confidence: 0.91,
+    matches: 0,
+    requiredMatches: 1,
+  });
+  recognizer.recognize({}, 20);
+  assert.equal(recognizer.getObservation().detected, false);
+});
+
 test('ignores absent unsupported and low confidence gestures', async () => {
   const outputs = [
     { gestures: [], handedness: [], landmarks: [], worldLandmarks: [] },
