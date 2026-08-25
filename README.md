@@ -7,73 +7,6 @@
 - CPU 동적 가림 + 통합 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?occlusion=cpu>
 - 공간 복원 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?depth=cloud>
 
-## private/junsung — 손 인식 가위바위보 미니게임
-
-이 브랜치는 기존 `cj_develop`의 공간 스캔, XRAnchor, CPU 동적 가림, 운영자 뷰와
-`hcp.glb` 모델을 그대로 유지하면서 **닌자 발견 뒤 실제 손으로 하는 가위바위보**를 추가한다.
-
-- 브랜치 코드: <https://github.com/cheoljun1986-a11y/miniproject_CV_ver02/tree/private/junsung>
-- 비교 기준: `cj_develop`
-- 정상 실행 쿼리: `?occlusion=cpu`
-- PC/비상 진단용 수동 입력: `?occlusion=cpu&input=manual`
-
-> 현재 GitHub Pages가 `main`을 배포한다면 브랜치 코드가 공개 데모 주소에 바로 나타나지 않는다.
-> `private/junsung`을 Pages 배포 브랜치로 지정하거나 병합한 뒤 위 쿼리 주소로 테스트해야 한다.
-
-### 게임 흐름
-
-1. 기존처럼 20초 동안 공간을 스캔하고 숨은 닌자를 찾는다.
-2. 화면 중앙에 닌자를 맞춰 `SCAN`을 누른다.
-3. 탐지에 성공해도 바로 포획되지 않고 `3 → 2 → 1 → 가위바위보!`가 시작된다.
-4. 촬영자는 손 전체를 화면 중앙에 두고 한 가지 모양을 잠시 유지한다.
-   - 주먹 `Closed_Fist` → 바위
-   - 손바닥 `Open_Palm` → 보
-   - V 손가락 `Victory` → 가위
-5. 여러 프레임에서 신뢰도 높은 같은 결과가 반복되어야 사용자 패로 확정된다.
-6. 승리하면 닌자를 포획하고, 무승부면 같은 자리에서 다시 겨룬다.
-7. 패배하면 닌자가 직전 후보를 제외한 다른 스캔 위치로 이동한다.
-
-손을 찾지 못하거나 신뢰도가 낮은 프레임은 패배로 처리하지 않는다. 제한 시간이 지나면
-손 전체를 중앙에 놓으라는 안내와 함께 같은 라운드의 인식을 다시 시도한다.
-
-### 기기와 권한
-
-- Android ARCore 지원 기기, 최신 Chrome, HTTPS가 필요하다.
-- AR 세션의 `camera-access` 권한이 필요하다.
-- 손 영상은 브라우저 안에서 MediaPipe로만 처리하며 저장하거나 서버로 보내지 않는다.
-- 정상 주소에서는 수동 버튼이 표시되지 않는다. `input=manual`은 카메라가 없는 PC에서
-  승패 흐름을 점검하거나 시연 장애 원인을 분리하기 위한 진단 기능이다.
-- 브라우저가 WebXR Raw Camera Access를 제공하지 않으면 자동으로 수동 모드로 바꾸지 않고
-  호환성 오류를 표시한다.
-
-### 구현 구조
-
-| 파일 | 역할 |
-|---|---|
-| `rps-rules.js` | MediaPipe 라벨 변환, 닌자 패 선택, 9가지 승패 계산 |
-| `gesture-consensus.js` | 신뢰도·최근 프레임·일치 횟수 기반 패 확정 |
-| `rps-game.js` | 카운트다운, 인식 시간, 결과 표시, 재대결 상태 머신 |
-| `raw-camera-frame-source.js` | `view.camera`와 `XRWebGLBinding`에서 입력 프레임 획득 |
-| `camera-texture-copier.js` | 카메라 WebGL 텍스처를 256px 추론 캔버스로 복사 |
-| `hand-gesture-recognizer.js` | MediaPipe Tasks Vision 1.0.1 초기화와 로컬 추론 |
-| `rps-runtime.js` | 카메라/수동 입력, UI, 닌자 승패 전환을 한 경로로 조립 |
-| `rps-art.js` / `rps-sign.js` | HUD 벡터 손 그림과 닌자 위 패 표식 |
-| `assets/gesture_recognizer.task` | Google 공식 모델 8,373,440바이트 |
-
-모델 SHA-256:
-`97952348cf6a6a4915c2ea1496b4b37ebabc50cbbf80571435643c455f2b0482`
-
-### 검증 상태
-
-- PC 자동 테스트: **130개 통과** (`node --test tests/*.test.mjs`)
-- `main.js` 구문 검사와 모델 크기·SHA-256 검증 완료
-- 실제 Android에서 반드시 추가 확인할 항목:
-  카메라 권한, 세로 화면 방향, 실내 조명의 세 손 모양 정확도, CPU 가림 프레임률,
-  반복 플레이 발열, 패배 후 위치 이동, 승리 포획
-
-PC 테스트 통과는 실제 AR 카메라 품질 검증을 대신하지 않는다. 특히 `camera-access` 지원과
-카메라 텍스처 방향은 배포 대상 Android Chrome에서 직접 확인해야 한다.
-
 > **이 문서는 발표 자료로 쓸 수 있도록 시계열로 정리했다.**
 > 3장 타임라인 표가 목차, 4장의 각 단계가 슬라이드 한 장에 대응한다.
 > 각 단계는 `상황 → 왜 이렇게 했나 → 문제 → 해결 → 결과` 순서로 통일했다.
@@ -131,9 +64,8 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 | 8 | 08-25 06:46 ~ 11:21 | 앵커 + 표면 분리 + depth 공유 | 위치 드리프트·표면 파묻힘·중복 조회·메모리 증가 | XRAnchor, normal 오프셋, frame 캐시, 상한 |
 | 9 | 08-25 11:37 | 하츄핑 3D 모델로 교체 | 코드로 만든 닌자 대신 스캔 모델 사용 | GLB 로드 + 크기/바닥 정규화 + 인스턴스 복제 |
 | 10 | 08-25 13:27 | **색이 검게 나오는 문제** | 스캔 모델이 거의 검게 렌더링됨 | 기본 재질이 금속 → unlit + sRGB 디코딩 |
-| 11 | 08-25 | **손 인식 가위바위보** | SCAN 즉시 포획이라 상호작용이 짧음 | Raw Camera + MediaPipe 손 인식, 승패별 포획·재대결·재배치 |
 
-자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 130개**
+자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개**
 
 ---
 
@@ -445,11 +377,9 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
 
 - **WebXR** `immersive-ar` (Android Chrome + ARCore)
 - **three.js 0.180** (렌더링, WebXR 매니저, 내장 depth-sensing 오클루전, GLTFLoader)
-- WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, `camera-access`,
-  (옵션) `anchors`, `local-floor`
-- **정적 호스팅**: GitHub Pages (백엔드 없음). three.js와 MediaPipe 실행 모듈은 CDN,
-  손 모양 모델은 저장소의 고정 파일을 사용한다.
-- 테스트: Node.js `node:test` — **130개** (순수 로직·게임 상태·WebXR 경계·depth·손 인식 소비자)
+- WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, (옵션) `anchors`, `local-floor`
+- **정적 호스팅**: GitHub Pages (백엔드 없음). CDN(three.js)만 외부 의존.
+- 테스트: Node.js `node:test` — **89개** (순수 로직·게임 상태·WebXR 경계·depth 소비자)
 
 ## 7. 실행 / 테스트 방법
 
@@ -486,7 +416,7 @@ WebXR depth 세션 활성화 문제로 분류한다.
 ```bash
 python -m http.server 8000
 # http://localhost:8000  (단, WebXR는 HTTPS 또는 실기기 필요)
-node --test tests/*.test.mjs   # 자동 테스트 130개
+node --test tests/*.test.mjs   # 자동 테스트 89개
 ```
 
 ## 8. 현재 상태 / 검증
@@ -502,7 +432,7 @@ node --test tests/*.test.mjs   # 자동 테스트 130개
 | 복셀 재구성 + 운영자 3D 뷰 | ✅ 구현 / 실기기 확인 필요 |
 | CPU depth 공유 | ✅ 같은 XRFrame당 한 번 조회하도록 구현·자동 테스트 |
 | 하츄핑 GLB 모델 교체 | ✅ 구현·자동 테스트 / 크기·바닥·색 왕복 실측 확인 |
-| 자동 테스트 | ✅ **130개 통과** |
+| 자동 테스트 | ✅ **89개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 
@@ -526,7 +456,7 @@ node --test tests/*.test.mjs   # 자동 테스트 130개
   세션 종료 후 같은 현실 위치를 복원하려면 Persistent 또는 Cloud Anchor가 필요하다.
   별도 저장 권한·API·식별자 수명·개인정보 설계가 필요해 이번 범위에서 제외했다.
 - **매끄러운 메시**(마칭큐브 등): 성능 확인 후 복셀 다음 단계로.
-- **SCAN 손동작 트리거**: 가위바위보 인식과 별개로, SCAN 버튼도 연속 제스처로 대체하는 후속 기능.
+- **MediaPipe 손동작 트리거**: SCAN 버튼을 `주먹→가위→주먹` 제스처로 대체.
 - **모델 경량화**: 하츄핑 186,117 삼각형이 실기기에서 무거우면 감량 검토.
 
 ## 10. 코드 구조
@@ -556,11 +486,7 @@ src/
   voxel-map.js        복셀 점유·노이즈제거·상한 관리 (three 비의존, 테스트됨)
   player-trail.js     플레이어 경로 버퍼 (three 비의존, 테스트됨)
   operator-view.js    운영자 오빗 3D 뷰 오버레이
-  rps-*.js            가위바위보 규칙·상태·실행 조립·HUD 그림·3D 패 표식
-  gesture-consensus.js 여러 카메라 프레임의 손 모양 합의
-  raw-camera-frame-source.js / camera-texture-copier.js  WebXR 카메라 프레임 입력
-  hand-gesture-recognizer.js  MediaPipe 손 모양 추론
-tests/                자동 테스트 (node:test) 130개
+tests/                자동 테스트 (node:test) 89개
 docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 ```
 
@@ -580,5 +506,4 @@ docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 - 하츄핑 모델은 조명을 받지 않는 unlit으로 그려진다. 스캔 당시의 음영이 그대로 보이며,
   주변 조명에 따라 밝아지거나 그림자가 지지 않는다.
 - 숨어 있는 동안 모델은 13% 투명이므로 색이 흐릿하다. 발견 시 불투명해진다.
-- MediaPipe 가위바위보는 WebXR Raw Camera Access에 의존하므로 배포 대상 Android Chrome에서
-  권한, 화면 방향, 세 손 모양 인식률을 반드시 실측해야 한다.
+- 아직 MediaPipe 손동작은 WebXR와 결합되지 않았고, SCAN 버튼이 그 자리를 대신한다.

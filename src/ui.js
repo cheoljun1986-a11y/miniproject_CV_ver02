@@ -1,5 +1,3 @@
-import { drawMove, MOVE_LABELS } from './rps-art.js';
-
 export function formatMetrics({
   viewerPosition,
   pathDistance,
@@ -96,19 +94,6 @@ export function createUI(documentRoot = document) {
     operatorCanvas: documentRoot.querySelector('#operatorCanvas'),
     operatorCloseBtn: documentRoot.querySelector('#operatorCloseBtn'),
     operatorStatus: documentRoot.querySelector('#operatorStatus'),
-    rpsOverlay: documentRoot.querySelector('#rpsOverlay'),
-    rpsCountdown: documentRoot.querySelector('#rpsCountdown'),
-    handStatus: documentRoot.querySelector('#handStatus'),
-    playerMoveCanvas: documentRoot.querySelector('#playerMoveCanvas'),
-    ninjaMoveCanvas: documentRoot.querySelector('#ninjaMoveCanvas'),
-    playerMoveLabel: documentRoot.querySelector('#playerMoveLabel'),
-    ninjaMoveLabel: documentRoot.querySelector('#ninjaMoveLabel'),
-    rpsResult: documentRoot.querySelector('#rpsResult'),
-    rpsError: documentRoot.querySelector('#rpsError'),
-    manualMoves: documentRoot.querySelector('#manualMoves'),
-    manualRock: documentRoot.querySelector('#manualRock'),
-    manualPaper: documentRoot.querySelector('#manualPaper'),
-    manualScissors: documentRoot.querySelector('#manualScissors'),
   };
 
   function bindCommands({ onScan, onNewRound, onExtend, onMark, onCheck }) {
@@ -155,20 +140,6 @@ export function createUI(documentRoot = document) {
     }, 130);
   }
 
-  function bindManualMoves(onMove) {
-    const bindings = [
-      [elements.manualRock, 'rock'],
-      [elements.manualPaper, 'paper'],
-      [elements.manualScissors, 'scissors'],
-    ];
-    for (const [element, move] of bindings) {
-      element.addEventListener('click', (event) => {
-        event.stopPropagation();
-        onMove(move);
-      });
-    }
-  }
-
   return {
     bindCommands,
     setControls,
@@ -187,34 +158,6 @@ export function createUI(documentRoot = document) {
     },
     flash,
     bindOperator,
-    bindManualMoves,
-    setDuelVisible(visible) {
-      elements.rpsOverlay.style.display = visible ? 'flex' : 'none';
-    },
-    setCountdown(value) {
-      elements.rpsCountdown.textContent = value ? String(value) : '가위바위보!';
-    },
-    setHandStatus(text) {
-      elements.handStatus.textContent = text;
-    },
-    showMoves({ playerMove, ninjaMove, result }) {
-      drawMove(elements.playerMoveCanvas.getContext('2d'), playerMove);
-      drawMove(elements.ninjaMoveCanvas.getContext('2d'), ninjaMove);
-      elements.playerMoveLabel.textContent = MOVE_LABELS[playerMove] ?? '-';
-      elements.ninjaMoveLabel.textContent = MOVE_LABELS[ninjaMove] ?? '-';
-      elements.rpsResult.textContent = ({
-        win: '승리!',
-        draw: '무승부 — 다시!',
-        lose: '패배 — Ninja가 도망갑니다!',
-      })[result] ?? '';
-    },
-    showDuelError(text) {
-      elements.rpsError.textContent = text;
-      elements.rpsError.style.display = text ? 'block' : 'none';
-    },
-    setManualMode(enabled) {
-      elements.manualMoves.style.display = enabled ? 'flex' : 'none';
-    },
     setOperatorButtonVisible(visible) {
       elements.operatorBtn.style.display = visible ? '' : 'none';
     },
