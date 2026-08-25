@@ -86,7 +86,33 @@ export function createUI(documentRoot = document) {
     operatorCanvas: documentRoot.querySelector('#operatorCanvas'),
     operatorCloseBtn: documentRoot.querySelector('#operatorCloseBtn'),
     operatorStatus: documentRoot.querySelector('#operatorStatus'),
+    // Chase mode elements exist only on the chase page; every use below is
+    // guarded so index.html keeps behaving exactly as before.
+    chaseBtn: documentRoot.querySelector('#chaseBtn'),
+    chasePanel: documentRoot.querySelector('#chasePanel'),
+    chaseGaugeFill: documentRoot.querySelector('#chaseGaugeFill'),
+    chaseHint: documentRoot.querySelector('#chaseHint'),
+    chaseArrow: documentRoot.querySelector('#chaseArrow'),
+    hudToggle: documentRoot.querySelector('#hudToggle'),
   };
+
+  // The metrics card is a diagnostic wall of text that covers half a phone
+  // screen. On a page that offers a toggle it starts hidden.
+  let metricsVisible = !elements.hudToggle;
+
+  function applyMetricsVisible() {
+    if (elements.metrics) elements.metrics.style.display = metricsVisible ? '' : 'none';
+    if (elements.hudToggle) elements.hudToggle.textContent = metricsVisible ? '수치 ✕' : '수치';
+  }
+
+  if (elements.hudToggle) {
+    elements.hudToggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      metricsVisible = !metricsVisible;
+      applyMetricsVisible();
+    });
+    applyMetricsVisible();
+  }
 
   function bindCommands({ onScan, onNewRound, onExtend, onMark, onCheck }) {
     const bindings = [
@@ -96,7 +122,10 @@ export function createUI(documentRoot = document) {
       [elements.mark, onMark],
       [elements.check, onCheck],
     ];
+    // The chase page drops the two diagnostic buttons, so a missing element is
+    // normal rather than a mistake.
     bindings.forEach(([element, command]) => {
+      if (!element) return;
       element.addEventListener('click', (event) => {
         event.stopPropagation();
         command();
@@ -105,11 +134,16 @@ export function createUI(documentRoot = document) {
   }
 
   function setControls({ scan, newRound, extend, mark, check }) {
-    elements.scan.disabled = !scan;
-    elements.newRound.disabled = !newRound;
-    elements.extend.disabled = !extend;
-    elements.mark.disabled = !mark;
-    elements.check.disabled = !check;
+    const states = [
+      [elements.scan, scan],
+      [elements.newRound, newRound],
+      [elements.extend, extend],
+      [elements.mark, mark],
+      [elements.check, check],
+    ];
+    states.forEach(([element, enabled]) => {
+      if (element) element.disabled = !enabled;
+    });
   }
 
   function bindOperator({ onToggle }) {
@@ -121,6 +155,34 @@ export function createUI(documentRoot = document) {
       event.stopPropagation();
       onToggle(false);
     });
+  }
+
+  // Chase mode used to ask the player to HOLD scan. On Android a long press on
+  // a DOM button raises the text-selection toolbar, and dismissing it with Back
+  // closes the browser, so the hold is gone unless handlers are passed in.
+  function bindChase({ onToggle, onHoldStart, onHoldEnd }) {
+    if (elements.chaseBtn) {
+      elements.chaseBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        onToggle();
+      });
+    }
+    const scan = elements.scan;
+    if (!scan || !onHoldStart || !onHoldEnd) return;
+    const start = (event) => {
+      event.stopPropagation();
+      onHoldStart();
+    };
+    const end = (event) => {
+      event.stopPropagation();
+      onHoldEnd();
+    };
+    scan.addEventListener('pointerdown', start);
+    scan.addEventListener('pointerup', end);
+    scan.addEventListener('pointercancel', end);
+    scan.addEventListener('pointerleave', end);
+    // A pointer released outside the button must still stop the attempt.
+    documentRoot.addEventListener?.('pointerup', () => onHoldEnd());
   }
 
   function flash() {
@@ -144,6 +206,18 @@ export function createUI(documentRoot = document) {
     setMetrics(text) {
       elements.metrics.textContent = text;
     },
+    setMetricsVisible(visible) {
+      metricsVisible = Boolean(visible);
+      applyMetricsVisible();
+    },
+    isMetricsVisible() {
+      return metricsVisible;
+    },
+    // SCAN has no meaning while Hachuping is running, and leaving it there
+    // invites the long press the capture rule no longer wants.
+    setScanVisible(visible) {
+      if (elements.scan) elements.scan.style.display = visible ? '' : 'none';
+    },
     showFallback(detail) {
       elements.fallbackDetail.textContent = detail;
       elements.fallback.style.display = 'flex';
@@ -161,6 +235,41 @@ export function createUI(documentRoot = document) {
     },
     getOperatorCanvas() {
       return elements.operatorCanvas;
+    },
+    bindChase,
+    hasChaseControls() {
+      return Boolean(elements.chaseBtn);
+    },
+    setChaseButton(label, enabled) {
+      if (!elements.chaseBtn) return;
+      elements.chaseBtn.textContent = label;
+      elements.chaseBtn.disabled = !enabled;
+    },
+    setChaseVisible(visible) {
+      if (!elements.chasePanel) return;
+      elements.chasePanel.style.display = visible ? 'flex' : 'none';
+    },
+    setChaseGauge(value) {
+      if (!elements.chaseGaugeFill) return;
+      elements.chaseGaugeFill.style.width = `${Math.round(value * 100)}%`;
+      elements.chaseGaugeFill.style.background = value >= 1
+        ? '#35d07f'
+        : (value > 0 ? '#ffc44d' : '#556');
+    },
+    setChaseHint(text) {
+      if (elements.chaseHint) elements.chaseHint.textContent = text;
+    },
+    // Points at Hachuping when it has run out of frame. Without this the
+    // player simply loses it and the chase stalls.
+    setChaseArrow(angleRad) {
+      if (!elements.chaseArrow) return;
+      if (angleRad === null) {
+        elements.chaseArrow.style.display = 'none';
+        return;
+      }
+      elements.chaseArrow.style.display = 'block';
+      elements.chaseArrow.style.transform =
+        `translate(-50%, -50%) rotate(${angleRad}rad)`;
     },
   };
 }
