@@ -379,6 +379,10 @@ export class NinjaGame {
     return this.target ? this.target.position.slice() : null;
   }
 
+  getTargetObject() {
+    return this.target?.object ?? null;
+  }
+
   getAnchorState() {
     return this.target?.anchorState ?? null;
   }
