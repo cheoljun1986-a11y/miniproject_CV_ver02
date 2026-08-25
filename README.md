@@ -53,6 +53,14 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 - 후보 중 한 곳(정면에서 벗어난 1~8m 지점 선호)에 Ninja를 13% 투명도로 숨김
 - 화면 중앙 조준 후 `SCAN` → 거리 ≤5m, 정면 ±12°면 `DETECTED!`
 - `다시 숨기기`, `+20초 스캔`, 기준점 저장 → 복귀 오차(위치 m / 자세 deg) 측정
+- Ninja를 숨기면 과거 `XRHitTestResult` 객체를 저장해 재사용하지 않는다. 운영자 스캔에서는 local
+  기준의 표면 행렬·좌표만 보관하고, Ninja의 최종 offset 좌표를 정한 뒤 **다음 활성 XRFrame**에서
+  `XRFrame.createAnchor(pose, localSpace)`를 호출한다. WebXR anchor 생성은 활성 frame 안에서만
+  허용되기 때문이다.
+- 생성된 anchor의 `anchorSpace` pose를 매 frame 다시 읽어 Ninja 렌더 행렬, SCAN 탐지 좌표,
+  운영자 표시 좌표를 함께 갱신한다. pose가 잠시 사라지면 마지막 위치를 유지해 점프를 막고,
+  다시 추적되면 자동 복구한다. 브라우저가 anchor를 지원하지 않거나 생성이 거절되면 게임을
+  중단하지 않고 처음 계산한 local 좌표에 고정한다.
 
 ### 4-2. 스캔 점 시각화
 - 20초 스캔 동안 저장되는 후보 점마다 AR 씬에 마커를 찍어 실시간으로 보여준다.

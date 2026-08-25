@@ -4,6 +4,22 @@ import assert from 'node:assert/strict';
 import { NinjaGame } from '../src/ninja-game.js';
 import { SpatialMapper } from '../src/spatial-mapper.js';
 
+const LOCAL_SPACE = { kind: 'local-space' };
+const IDENTITY_MATRIX = [
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  0, 0, 0, 1,
+];
+
+function matrixAt(x, y, z) {
+  const matrix = IDENTITY_MATRIX.slice();
+  matrix[12] = x;
+  matrix[13] = y;
+  matrix[14] = z;
+  return matrix;
+}
+
 function createHarness() {
   const statuses = [];
   const controls = [];
@@ -24,6 +40,12 @@ function createHarness() {
   const model = {
     createNinja() {
       return {
+        matrixAutoUpdate: true,
+        matrixWorldNeedsUpdate: false,
+        matrix: {
+          values: null,
+          fromArray(values) { this.values = Array.from(values); },
+        },
         position: {
           x: 0,
           y: 0,
@@ -54,13 +76,37 @@ function createHarness() {
     mapper,
     model,
     getSession: () => ({}),
-    getLocalSpace: () => ({}),
+    getLocalSpace: () => LOCAL_SPACE,
     getViewerPose: () => pose,
+    makeRigidTransform: (position) => ({ position }),
     now: () => 1000,
     random: () => 0,
   });
 
   return { game, mapper, statuses, controls, sceneObjects };
+}
+
+function addHorizontalCandidate(mapper, position = [0, 0, -2]) {
+  mapper.recordSurface({
+    position,
+    upY: 1,
+    matrix: matrixAt(...position),
+  });
+}
+
+function deferredPromise() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushPromises() {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 test('session start enters mapping with the existing control availability', () => {
@@ -143,4 +189,136 @@ test('uses the same surface-offset position for rendering and detection', () => 
   const rendered = sceneObjects.at(-1).position;
   assert.deepEqual(game.getTargetPosition(), [rendered.x, rendered.y, rendered.z]);
   assert.deepEqual(game.getTargetPosition(), [0, 0.02, -2]);
+});
+
+test('creates an anchor from the final local pose on the next active XR frame', async () => {
+  const { game, mapper, sceneObjects } = createHarness();
+  addHorizontalCandidate(mapper);
+  game.hideNewTarget();
+  assert.equal(game.getAnchorState(), 'anchor-pending');
+
+  const anchor = { anchorSpace: {} };
+  let createCalls = 0;
+  const frame = {
+    createAnchor(transform, space) {
+      createCalls += 1;
+      assert.deepEqual(transform.position, { x: 0, y: 0.02, z: -2 });
+      assert.equal(space, LOCAL_SPACE);
+      return Promise.resolve(anchor);
+    },
+    getPose(space, referenceSpace) {
+      assert.equal(space, anchor.anchorSpace);
+      assert.equal(referenceSpace, LOCAL_SPACE);
+      return { transform: { matrix: matrixAt(1, 2, 3) } };
+    },
+  };
+
+  game.update(1001, frame, null);
+  await flushPromises();
+  game.update(1002, frame, null);
+
+  assert.equal(createCalls, 1);
+  assert.equal(game.getAnchorState(), 'anchor');
+  assert.deepEqual(game.getTargetPosition(), [1, 2, 3]);
+  assert.equal(sceneObjects[0].matrixAutoUpdate, false);
+  assert.deepEqual(sceneObjects[0].matrix.values, matrixAt(1, 2, 3));
+  assert.equal(sceneObjects[0].matrixWorldNeedsUpdate, true);
+});
+
+test('falls back to local placement when XRFrame anchor creation is unavailable', () => {
+  const { game, mapper } = createHarness();
+  addHorizontalCandidate(mapper);
+  game.hideNewTarget();
+
+  game.update(1001, {}, null);
+
+  assert.equal(game.getAnchorState(), 'local');
+  assert.deepEqual(game.getTargetPosition(), [0, 0.02, -2]);
+});
+
+test('falls back to local placement when anchor creation rejects', async () => {
+  const { game, mapper } = createHarness();
+  addHorizontalCandidate(mapper);
+  game.hideNewTarget();
+
+  game.update(1001, {
+    createAnchor: () => Promise.reject(new Error('anchors rejected')),
+  }, null);
+  await flushPromises();
+
+  assert.equal(game.getAnchorState(), 'local');
+  assert.deepEqual(game.getTargetPosition(), [0, 0.02, -2]);
+});
+
+test('keeps the last anchor pose during temporary tracking loss and recovers', async () => {
+  const { game, mapper } = createHarness();
+  addHorizontalCandidate(mapper);
+  game.hideNewTarget();
+  const anchor = { anchorSpace: {} };
+  const poses = [
+    { transform: { matrix: matrixAt(1, 2, 3) } },
+    null,
+    { transform: { matrix: matrixAt(4, 5, 6) } },
+  ];
+  const frame = {
+    createAnchor: () => Promise.resolve(anchor),
+    getPose: () => poses.shift(),
+  };
+
+  game.update(1001, frame, null);
+  await flushPromises();
+  game.update(1002, frame, null);
+  assert.equal(game.getAnchorState(), 'anchor');
+  assert.deepEqual(game.getTargetPosition(), [1, 2, 3]);
+
+  game.update(1003, frame, null);
+  assert.equal(game.getAnchorState(), 'anchor-lost');
+  assert.deepEqual(game.getTargetPosition(), [1, 2, 3]);
+
+  game.update(1004, frame, null);
+  assert.equal(game.getAnchorState(), 'anchor');
+  assert.deepEqual(game.getTargetPosition(), [4, 5, 6]);
+});
+
+test('deletes an anchor that resolves after its target was cleared', async () => {
+  const { game, mapper } = createHarness();
+  addHorizontalCandidate(mapper);
+  game.hideNewTarget();
+  const deferred = deferredPromise();
+  const staleAnchor = {
+    anchorSpace: {},
+    deleted: false,
+    delete() { this.deleted = true; },
+  };
+
+  game.update(1001, { createAnchor: () => deferred.promise }, null);
+  game.clearTarget();
+  deferred.resolve(staleAnchor);
+  await flushPromises();
+
+  assert.equal(staleAnchor.deleted, true);
+  assert.equal(game.getTargetPosition(), null);
+});
+
+test('deletes the current anchor when the session ends', async () => {
+  const { game, mapper } = createHarness();
+  addHorizontalCandidate(mapper);
+  game.hideNewTarget();
+  const anchor = {
+    anchorSpace: {},
+    deleted: false,
+    delete() { this.deleted = true; },
+  };
+  const frame = {
+    createAnchor: () => Promise.resolve(anchor),
+    getPose: () => ({ transform: { matrix: matrixAt(1, 2, 3) } }),
+  };
+  game.update(1001, frame, null);
+  await flushPromises();
+  game.update(1002, frame, null);
+
+  game.endSession();
+
+  assert.equal(anchor.deleted, true);
+  assert.equal(game.getAnchorState(), null);
 });

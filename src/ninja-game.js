@@ -26,6 +26,7 @@ export class NinjaGame {
     now = () => performance.now(),
     random = Math.random,
     schedule = setTimeout,
+    makeRigidTransform = (position) => new XRRigidTransform(position),
   }) {
     this.scene = scene;
     this.ui = ui;
@@ -37,6 +38,7 @@ export class NinjaGame {
     this.now = now;
     this.random = random;
     this.schedule = schedule;
+    this.makeRigidTransform = makeRigidTransform;
     this.phase = 'idle';
     this.mappingEnd = 0;
     this.lastSampleTime = 0;
@@ -156,9 +158,10 @@ export class NinjaGame {
     this.target = {
       object,
       anchor: null,
+      anchorPromise: null,
+      anchorState: 'anchor-pending',
       position: placement.position.slice(),
       found: false,
-      mode: 'local-space',
     };
     this.phase = 'hunt';
     this.setControls({ scan: true, newRound: true });
@@ -237,9 +240,69 @@ export class NinjaGame {
 
   updateTargetAnchor(frame) {
     const localSpace = this.getLocalSpace();
-    if (!this.target?.anchor || !localSpace) return;
-    const pose = frame.getPose(this.target.anchor.anchorSpace, localSpace);
-    if (pose) this.target.object.matrix.fromArray(pose.transform.matrix);
+    if (!this.target) return;
+    if (this.target.anchorState === 'anchor-pending') {
+      this.beginAnchorCreation(frame, localSpace);
+    }
+
+    const target = this.target;
+    if (!target?.anchor || !localSpace || typeof frame?.getPose !== 'function') return;
+
+    let pose = null;
+    try {
+      pose = frame.getPose(target.anchor.anchorSpace, localSpace);
+    } catch {
+      // A tracked anchor can be temporarily unlocatable without being invalid.
+    }
+    if (!pose) {
+      target.anchorState = 'anchor-lost';
+      return;
+    }
+
+    const matrix = pose.transform.matrix;
+    target.object.matrix.fromArray(matrix);
+    target.object.matrixWorldNeedsUpdate = true;
+    target.position[0] = matrix[12];
+    target.position[1] = matrix[13];
+    target.position[2] = matrix[14];
+    target.anchorState = 'anchor';
+  }
+
+  beginAnchorCreation(frame, localSpace) {
+    const target = this.target;
+    if (!target || target.anchorPromise || target.anchorState !== 'anchor-pending') return;
+    if (!localSpace || typeof frame?.createAnchor !== 'function') {
+      target.anchorState = 'local';
+      return;
+    }
+
+    const [x, y, z] = target.position;
+    let anchorResult;
+    try {
+      const transform = this.makeRigidTransform({ x, y, z });
+      anchorResult = frame.createAnchor(transform, localSpace);
+    } catch {
+      target.anchorState = 'local';
+      return;
+    }
+
+    target.anchorPromise = Promise.resolve(anchorResult)
+      .then((anchor) => {
+        if (this.target !== target) {
+          try {
+            anchor?.delete?.();
+          } catch {
+            // The stale anchor is already detached from game state.
+          }
+          return;
+        }
+        target.anchor = anchor;
+        target.anchorState = 'anchor';
+        target.object.matrixAutoUpdate = false;
+      })
+      .catch(() => {
+        if (this.target === target) target.anchorState = 'local';
+      });
   }
 
   addSurfaceMarker(surface) {
@@ -271,6 +334,10 @@ export class NinjaGame {
 
   getTargetPosition() {
     return this.target ? this.target.position.slice() : null;
+  }
+
+  getAnchorState() {
+    return this.target?.anchorState ?? null;
   }
 
   getState() {
