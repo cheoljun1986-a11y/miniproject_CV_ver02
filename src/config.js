@@ -6,6 +6,8 @@ export const HORIZONTAL_SURFACE_THRESHOLD = 0.62;
 export const DETECT_MAX_DISTANCE_M = 5;
 export const DETECT_MAX_ANGLE_DEG = 12;
 export const NINJA_CAMOUFLAGE_OPACITY = 0.13;
+export const NINJA_HORIZONTAL_OFFSET_M = 0.02;
+export const NINJA_VERTICAL_OFFSET_M = 0.12;
 
 // Depth point-cloud reconstruction (?depth=cloud mode).
 export const DEPTH_CLOUD_SAMPLE_GAP_MS = 200; // read depth at most this often

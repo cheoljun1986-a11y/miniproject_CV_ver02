@@ -124,3 +124,23 @@ test('getTargetPosition returns the hidden position while hunting and null other
   game.endSession();
   assert.equal(game.getTargetPosition(), null);
 });
+
+test('uses the same surface-offset position for rendering and detection', () => {
+  const { game, mapper, sceneObjects } = createHarness();
+  game.startSession();
+  mapper.recordSurface({
+    position: [0, 0, -2],
+    upY: 1,
+    matrix: [
+      1, 0, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      0, 0, -2, 1,
+    ],
+  });
+
+  assert.equal(game.hideNewTarget(), true);
+  const rendered = sceneObjects.at(-1).position;
+  assert.deepEqual(game.getTargetPosition(), [rendered.x, rendered.y, rendered.z]);
+  assert.deepEqual(game.getTargetPosition(), [0, 0.02, -2]);
+});

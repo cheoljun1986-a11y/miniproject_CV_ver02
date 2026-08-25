@@ -12,6 +12,7 @@ import {
   measureTarget,
   rankCandidates,
 } from './game-rules.js';
+import { placeNinjaOnSurface } from './surface-placement.js';
 
 export class NinjaGame {
   constructor({
@@ -146,16 +147,16 @@ export class NinjaGame {
       this.random,
     );
     const chosen = ranked[0].candidate;
+    const placement = placeNinjaOnSurface(chosen, viewerPose.position);
     const object = this.model.createNinja(NINJA_CAMOUFLAGE_OPACITY);
-    object.position.set(...chosen.pos);
-    object.position.y += 0.02;
+    object.position.set(...placement.position);
     object.quaternion.identity();
     this.scene.add(object);
 
     this.target = {
       object,
       anchor: null,
-      position: Array.from(chosen.pos),
+      position: placement.position.slice(),
       found: false,
       mode: 'local-space',
     };
