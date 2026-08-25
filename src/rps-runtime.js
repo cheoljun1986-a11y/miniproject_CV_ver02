@@ -1,5 +1,19 @@
 import { RpsGame } from './rps-game.js';
 
+const MOVE_LABELS = {
+  rock: '바위',
+  paper: '보',
+  scissors: '가위',
+};
+
+export function formatGestureObservation(observation) {
+  if (!observation?.detected) return '손을 찾는 중… 손 전체를 미리보기 안에 넣으세요.';
+  if (!observation.move) return '손은 보입니다 · 손가락을 펴거나 주먹을 또렷하게 해주세요.';
+  const label = MOVE_LABELS[observation.move] ?? observation.move;
+  const confidence = Math.round((observation.confidence ?? 0) * 100);
+  return `${label} 인식 중 ${observation.matches}/${observation.requiredMatches} · ${confidence}%`;
+}
+
 export class RpsRuntime {
   constructor({
     ui,
@@ -24,6 +38,7 @@ export class RpsRuntime {
     this.clearNinjaMove = clearNinjaMove;
     this.resetRendererState = resetRendererState;
     this.currentTime = 0;
+    this.initializationPromise = null;
     this.duel = new RpsGame({
       random,
       countdownMs,
@@ -45,12 +60,19 @@ export class RpsRuntime {
 
   async initialize() {
     if (this.manualMode) return true;
-    const ready = await this.recognizer.initialize();
-    if (!ready) {
-      const status = this.recognizer.getStatus();
-      this.ui.showDuelError(`손 인식 모델을 불러오지 못했습니다: ${status.detail ?? '알 수 없는 오류'}`);
+    if (this.recognizer.getStatus().state === 'ready') return true;
+    if (!this.initializationPromise) {
+      this.initializationPromise = this.recognizer.initialize().then((ready) => {
+        if (!ready) {
+          const status = this.recognizer.getStatus();
+          this.ui.showDuelError(
+            `손 인식 모델을 불러오지 못했습니다: ${status.detail ?? '알 수 없는 오류'}`,
+          );
+        }
+        return ready;
+      });
     }
-    return ready;
+    return this.initializationPromise;
   }
 
   startSession(session, gl) {
@@ -61,6 +83,12 @@ export class RpsRuntime {
       this.ui.showDuelError(
         `AR 카메라 손 인식을 시작할 수 없습니다: ${status.detail ?? status.state}`,
       );
+    } else {
+      this.ui.setHandPreview(this.cameraSource.getCanvas());
+      if (this.recognizer.getStatus().state !== 'ready') {
+        this.ui.setHandStatus('손 인식 모델을 백그라운드에서 준비하는 중…');
+        void this.initialize();
+      }
     }
     return ready;
   }
@@ -107,7 +135,9 @@ export class RpsRuntime {
     this.resetRendererState();
     const move = this.recognizer.recognize(image, time);
     if (move) this.duel.acceptPlayerMove(move, time);
-    else this.ui.setHandStatus('손 전체를 중앙에 두고 가위·바위·보를 유지하세요.');
+    else this.ui.setHandStatus(
+      formatGestureObservation(this.recognizer.getObservation()),
+    );
     return this.duel.getState();
   }
 
@@ -116,6 +146,7 @@ export class RpsRuntime {
     this.duel.reset();
     this.cameraSource.reset();
     this.recognizer.resetRound();
+    this.ui.setHandPreview(null);
     this.ui.setDuelVisible(false);
     this.ui.showDuelError('');
   }
@@ -126,6 +157,7 @@ export class RpsRuntime {
 
   handlePhase(state) {
     if (state.phase.startsWith('duel-')) this.game.setDuelPhase(state.phase);
+    this.ui.setDuelPhase(state.phase);
     this.ui.setDuelVisible(state.phase !== 'idle');
     this.ui.setCountdown(state.countdown);
     if (state.phase === 'duel-countdown') {

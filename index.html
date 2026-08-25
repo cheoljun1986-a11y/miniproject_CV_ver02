@@ -60,29 +60,42 @@
   code { background:#222; padding:2px 6px; border-radius:6px; }
   #rpsOverlay {
     position:fixed; inset:0; z-index:19; display:none;
-    align-items:center; justify-content:center; flex-direction:column;
-    padding:18px; pointer-events:none;
+    align-items:center; justify-content:flex-start; flex-direction:column;
+    padding:12px; pointer-events:none;
   }
   .rps-panel {
-    width:min(92vw,520px); padding:18px; border-radius:24px;
-    background:linear-gradient(160deg,rgba(12,17,31,.92),rgba(38,15,43,.88));
-    border:1px solid rgba(255,255,255,.24); box-shadow:0 18px 60px rgba(0,0,0,.45);
-    backdrop-filter:blur(12px); text-align:center; color:white;
+    width:min(92vw,480px); padding:9px 13px; border-radius:16px;
+    background:linear-gradient(160deg,rgba(12,17,31,.68),rgba(38,15,43,.62));
+    border:1px solid rgba(255,255,255,.22); box-shadow:0 8px 28px rgba(0,0,0,.28);
+    backdrop-filter:blur(7px); text-align:center; color:white;
   }
   #rpsCountdown {
-    min-height:1.2em; font-size:clamp(42px,15vw,84px); line-height:1;
+    min-height:1.1em; font-size:clamp(28px,8vw,48px); line-height:1;
     font-weight:950; letter-spacing:-.04em; text-shadow:0 0 28px rgba(101,214,255,.55);
   }
-  #handStatus { margin:10px 0 12px; min-height:1.5em; font-weight:750; }
-  .rps-moves { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  #handStatus { margin:5px 0 2px; min-height:1.5em; font-size:14px; font-weight:750; }
+  .rps-moves { display:none; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  #rpsOverlay[data-phase='duel-result'] .rps-moves { display:grid; }
   .rps-card {
-    border-radius:18px; padding:10px; background:rgba(255,255,255,.08);
+    border-radius:14px; padding:7px; background:rgba(255,255,255,.08);
     border:1px solid rgba(255,255,255,.16);
   }
-  .rps-card canvas { width:min(30vw,140px); height:min(30vw,140px); margin:auto; }
+  .rps-card canvas { width:min(24vw,104px); height:min(24vw,104px); margin:auto; }
   .rps-owner { font-size:12px; opacity:.72; }
-  .rps-label { font-size:21px; font-weight:900; }
-  #rpsResult { min-height:1.5em; margin-top:12px; font-size:22px; font-weight:950; }
+  .rps-label { font-size:18px; font-weight:900; }
+  #rpsResult { display:none; min-height:0; margin-top:0; font-size:20px; font-weight:950; }
+  #rpsOverlay[data-phase='duel-result'] #rpsResult {
+    display:block; min-height:1.5em; margin-top:7px;
+  }
+  #handPreviewFrame {
+    position:absolute; right:12px; bottom:104px; width:min(34vw,144px);
+    overflow:hidden; padding:5px; border-radius:14px;
+    background:rgba(0,0,0,.55); border:2px solid rgba(100,224,168,.85);
+    color:white; font-size:10px; text-align:center;
+  }
+  #handPreviewMount { margin-top:4px; border-radius:9px; overflow:hidden; }
+  #handPreviewMount canvas { width:100%; height:auto; max-height:29vh; object-fit:contain; }
+  #rpsOverlay[data-phase='duel-result'] #handPreviewFrame { display:none; }
   #rpsError {
     display:none; margin-top:12px; padding:10px; border-radius:12px;
     background:rgba(190,35,55,.82); line-height:1.45;
@@ -127,6 +140,10 @@
       <button type='button' class='ctrl' id='manualPaper'>보</button>
       <button type='button' class='ctrl' id='manualScissors'>가위</button>
     </div>
+  </div>
+  <div id='handPreviewFrame'>
+    AI가 보는 화면
+    <div id='handPreviewMount'></div>
   </div>
 </div>
 <div id="hud">

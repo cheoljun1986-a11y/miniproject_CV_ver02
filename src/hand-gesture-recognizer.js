@@ -1,4 +1,5 @@
 import {
+  HAND_DETECTION_CONFIDENCE,
   HAND_MIN_CONFIDENCE,
 } from './config.js';
 import { mapGestureLabel } from './rps-rules.js';
@@ -21,9 +22,9 @@ export async function createMediaPipeRecognizer() {
     },
     runningMode: 'VIDEO',
     numHands: 1,
-    minHandDetectionConfidence: HAND_MIN_CONFIDENCE,
-    minHandPresenceConfidence: HAND_MIN_CONFIDENCE,
-    minTrackingConfidence: 0.6,
+    minHandDetectionConfidence: HAND_DETECTION_CONFIDENCE,
+    minHandPresenceConfidence: HAND_DETECTION_CONFIDENCE,
+    minTrackingConfidence: 0.5,
   };
   try {
     return await GestureRecognizer.createFromOptions(vision, common);
@@ -44,6 +45,7 @@ export class HandGestureRecognizer {
     this.consensus = consensus;
     this.createRecognizer = createRecognizer;
     this.recognizer = null;
+    this.observation = this.emptyObservation();
     this.setStatus('idle');
   }
 
@@ -66,13 +68,35 @@ export class HandGestureRecognizer {
     try {
       const result = this.recognizer.recognizeForVideo(image, time);
       const category = result?.gestures?.[0]?.[0];
+      if (!category) {
+        this.observation = this.emptyObservation();
+        return null;
+      }
       const move = mapGestureLabel(category?.categoryName);
-      if (!move) return null;
-      return this.consensus.add({
+      if (!move) {
+        this.observation = {
+          detected: true,
+          move: null,
+          confidence: category.score,
+          matches: 0,
+          requiredMatches: this.consensus.requiredMatches,
+        };
+        return null;
+      }
+      const accepted = this.consensus.add({
         move,
         confidence: category.score,
         time,
       });
+      const progress = this.consensus.getProgress();
+      this.observation = {
+        detected: true,
+        move,
+        confidence: category.score,
+        matches: progress?.move === move ? progress.matches : 0,
+        requiredMatches: this.consensus.requiredMatches,
+      };
+      return accepted;
     } catch (error) {
       this.setStatus('error', error);
       return null;
@@ -81,6 +105,11 @@ export class HandGestureRecognizer {
 
   resetRound() {
     this.consensus.reset();
+    this.observation = this.emptyObservation();
+  }
+
+  getObservation() {
+    return { ...this.observation };
   }
 
   close() {
@@ -91,6 +120,7 @@ export class HandGestureRecognizer {
     }
     this.recognizer = null;
     this.consensus.reset();
+    this.observation = this.emptyObservation();
     this.setStatus('idle');
   }
 
@@ -102,6 +132,16 @@ export class HandGestureRecognizer {
     this.status = {
       state,
       detail: error ? (error.message || String(error)) : null,
+    };
+  }
+
+  emptyObservation() {
+    return {
+      detected: false,
+      move: null,
+      confidence: 0,
+      matches: 0,
+      requiredMatches: this.consensus.requiredMatches,
     };
   }
 }
