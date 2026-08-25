@@ -276,6 +276,11 @@ function render(time, frame) {
       ui.setOperatorStatus(formatOperatorStatus({
         anchorState: game.getAnchorState(),
         voxelCount,
+        pendingCount: voxelMap?.getPendingCount() ?? 0,
+        occlusionTriangles: CPU_OCCLUSION_MODE
+          ? (cpuDepthOccluder?.getTriangleCount() ?? 0)
+          : null,
+        depthUsage: readDepthSensing().usage,
         ninjaPosition,
         playerPosition: viewerPose?.position ?? null,
         pathPointCount: playerTrail?.getCount() ?? 0,
@@ -307,6 +312,18 @@ function render(time, frame) {
   renderer.render(scene, camera);
 }
 
+// depthUsage/depthDataFormat throw when depth-sensing was not granted for this
+// session, so both the HUD and the operator status read them through here.
+function readDepthSensing() {
+  const session = xrSession.getSession();
+  if (!session) return { usage: null, format: null };
+  try {
+    return { usage: session.depthUsage ?? null, format: session.depthDataFormat ?? null };
+  } catch {
+    return { usage: null, format: null };
+  }
+}
+
 function updateMetrics(viewerPose) {
   if (!viewerPose) {
     ui.setMetrics('pose: tracking 대기 중');
@@ -315,17 +332,7 @@ function updateMetrics(viewerPose) {
 
   const spatial = mapper.getMetrics();
   const gameState = game.getState();
-  let depthUsage = null;
-  let depthDataFormat = null;
-  const session = xrSession.getSession();
-  if (session) {
-    try {
-      depthUsage = session.depthUsage;
-      depthDataFormat = session.depthDataFormat;
-    } catch {
-      // Access throws when depth-sensing was not enabled for this session.
-    }
-  }
+  const { usage: depthUsage, format: depthDataFormat } = readDepthSensing();
   ui.setMetrics(formatMetrics({
     viewerPosition: viewerPose.position,
     pathDistance: spatial.pathDistance,
