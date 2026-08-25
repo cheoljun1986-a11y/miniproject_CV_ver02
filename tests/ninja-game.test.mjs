@@ -24,6 +24,7 @@ function createHarness() {
   const statuses = [];
   const controls = [];
   const sceneObjects = [];
+  const duelStarts = [];
   const ui = {
     setStatus(value) { statuses.push(value); },
     setMessage() {},
@@ -40,6 +41,7 @@ function createHarness() {
   const model = {
     createNinja() {
       return {
+        opacity: 0.13,
         matrixAutoUpdate: true,
         matrixWorldNeedsUpdate: false,
         matrix: {
@@ -59,6 +61,7 @@ function createHarness() {
         quaternion: { identity() {} },
       };
     },
+    setNinjaOpacity(object, opacity) { object.opacity = opacity; },
     revealNinja(object) { object.revealed = true; },
     disposeObject(object) { object.disposed = true; },
     createSurfaceMarker(position, horizontal) {
@@ -81,9 +84,10 @@ function createHarness() {
     makeRigidTransform: (position) => ({ position }),
     now: () => 1000,
     random: () => 0,
+    onDuelStart: ({ target }) => duelStarts.push(target),
   });
 
-  return { game, mapper, statuses, controls, sceneObjects };
+  return { game, mapper, statuses, controls, sceneObjects, duelStarts };
 }
 
 function addHorizontalCandidate(mapper, position = [0, 0, -2]) {
@@ -123,8 +127,8 @@ test('session start enters mapping with the existing control availability', () =
   });
 });
 
-test('mapping candidates produce a hidden target that can be detected', () => {
-  const { game, mapper, sceneObjects } = createHarness();
+test('a detected scan starts a duel without capturing the ninja', () => {
+  const { game, mapper, sceneObjects, duelStarts } = createHarness();
   game.startSession();
   for (const [index, position] of [[0, 0, -2], [0.3, 0, -2], [0.6, 0, -2]].entries()) {
     mapper.recordSurface({ position, matrix: [index], upY: 1 });
@@ -135,8 +139,62 @@ test('mapping candidates produce a hidden target that can be detected', () => {
   assert.equal(sceneObjects.length, 1);
 
   assert.equal(game.triggerScan(), true);
+  assert.equal(game.getState().phase, 'duel-countdown');
+  assert.equal(sceneObjects[0].revealed, undefined);
+  assert.equal(sceneObjects[0].opacity, 1);
+  assert.equal(duelStarts.length, 1);
+});
+
+test('winning the duel captures and reveals the current ninja', () => {
+  const { game, mapper, sceneObjects } = createHarness();
+  addHorizontalCandidate(mapper);
+  game.hideNewTarget();
+  game.triggerScan();
+
+  assert.equal(game.resolveDuel('win'), true);
   assert.equal(game.getState().phase, 'found');
   assert.equal(sceneObjects[0].revealed, true);
+});
+
+test('drawing keeps the same target for another countdown', () => {
+  const { game, mapper, sceneObjects } = createHarness();
+  addHorizontalCandidate(mapper);
+  game.hideNewTarget();
+  game.triggerScan();
+  const firstObject = sceneObjects[0];
+  const firstPosition = game.getTargetPosition();
+
+  assert.equal(game.resolveDuel('draw'), true);
+  assert.equal(game.getState().phase, 'duel-countdown');
+  assert.equal(sceneObjects[0], firstObject);
+  assert.deepEqual(game.getTargetPosition(), firstPosition);
+});
+
+test('losing relocates to a different mapped candidate', () => {
+  const { game, mapper, sceneObjects } = createHarness();
+  addHorizontalCandidate(mapper, [0, 0, -2]);
+  addHorizontalCandidate(mapper, [0.3, 0, -2]);
+  game.hideNewTarget();
+  game.triggerScan();
+  const firstObject = sceneObjects[0];
+  const firstPosition = game.getTargetPosition();
+
+  assert.equal(game.resolveDuel('lose'), true);
+  assert.equal(game.getState().phase, 'hunt');
+  assert.equal(firstObject.disposed, true);
+  assert.notDeepEqual(game.getTargetPosition(), firstPosition);
+  assert.equal(sceneObjects.length, 1);
+});
+
+test('losing with one candidate reuses it without failing', () => {
+  const { game, mapper, statuses } = createHarness();
+  addHorizontalCandidate(mapper);
+  game.hideNewTarget();
+  game.triggerScan();
+
+  assert.equal(game.resolveDuel('lose'), true);
+  assert.equal(game.getState().phase, 'hunt');
+  assert.match(statuses.at(-1), /후보|위치/);
 });
 
 test('mapping drops a visible marker for each stored scan point and clears them on a new scan', () => {
