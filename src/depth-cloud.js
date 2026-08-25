@@ -8,7 +8,9 @@ import {
   DEPTH_CLOUD_SAMPLE_GAP_MS,
   DEPTH_CLOUD_VOXEL_M,
 } from './config.js';
+import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
 import { depthSampleToWorld, voxelKey } from './depth-math.js';
+import { isDepthUpdateDue, shouldUpdatePointGeometry } from './depth-update-policy.js';
 
 // Accumulates a world-space point cloud from WebXR cpu-optimized depth frames.
 // Each frame samples a coarse grid of the depth image, unprojects every sample
@@ -17,53 +19,63 @@ import { depthSampleToWorld, voxelKey } from './depth-math.js';
 // coloured by height for readability. Requires the session to have been created
 // with depth-sensing in cpu-optimized usage; otherwise update() is a no-op.
 export class DepthCloud {
-  constructor({ scene, voxelMap = null, renderPoints = true }) {
+  constructor({
+    scene,
+    voxelMap = null,
+    renderPoints = true,
+    depthSource = new CpuDepthFrameSource(),
+  }) {
     this.scene = scene;
     this.voxelMap = voxelMap;
     this.renderPoints = renderPoints;
+    this.depthSource = depthSource;
     this.lastSampleTime = -Infinity;
     this.occupied = new Set();
     this.count = 0;
+    this.inverseProjection = new THREE.Matrix4();
 
-    this.positions = new Float32Array(DEPTH_CLOUD_MAX_POINTS * 3);
-    this.colors = new Float32Array(DEPTH_CLOUD_MAX_POINTS * 3);
-    this.geometry = new THREE.BufferGeometry();
-    this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
-    this.geometry.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
-    this.geometry.setDrawRange(0, 0);
-    this.points = new THREE.Points(
-      this.geometry,
-      new THREE.PointsMaterial({ size: 0.012, vertexColors: true, sizeAttenuation: true }),
-    );
-    this.points.frustumCulled = false;
+    this.positions = null;
+    this.colors = null;
+    this.geometry = null;
+    this.points = null;
     // In cloud mode the operator view shows the reconstruction; the raw points
     // are only added to the AR game scene when explicitly requested.
-    if (renderPoints) this.scene.add(this.points);
+    if (shouldUpdatePointGeometry(renderPoints)) {
+      this.positions = new Float32Array(DEPTH_CLOUD_MAX_POINTS * 3);
+      this.colors = new Float32Array(DEPTH_CLOUD_MAX_POINTS * 3);
+      this.geometry = new THREE.BufferGeometry();
+      this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+      this.geometry.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
+      this.geometry.setDrawRange(0, 0);
+      this.points = new THREE.Points(
+        this.geometry,
+        new THREE.PointsMaterial({ size: 0.012, vertexColors: true, sizeAttenuation: true }),
+      );
+      this.points.frustumCulled = false;
+      this.scene.add(this.points);
+    }
   }
 
   update(frame, localSpace, time) {
-    if (!localSpace || typeof frame.getDepthInformation !== 'function') return this.count;
-    if (time - this.lastSampleTime < DEPTH_CLOUD_SAMPLE_GAP_MS) return this.count;
+    if (!isDepthUpdateDue(this.lastSampleTime, time, DEPTH_CLOUD_SAMPLE_GAP_MS)) {
+      return this.count;
+    }
     this.lastSampleTime = time;
 
-    const pose = frame.getViewerPose(localSpace);
-    if (!pose) return this.count;
-
-    const invProjection = new THREE.Matrix4();
-    for (const view of pose.views) {
-      const depthInfo = frame.getDepthInformation(view);
-      if (!depthInfo) continue;
-
-      invProjection.fromArray(view.projectionMatrix).invert();
-      const invProjectionArray = invProjection.elements;
+    const snapshot = this.depthSource.read(frame, localSpace);
+    for (const { view, depthInformation } of snapshot.views) {
+      this.inverseProjection.fromArray(view.projectionMatrix).invert();
+      const invProjectionArray = this.inverseProjection.elements;
       const viewMatrix = view.transform.matrix;
-      this.sampleView(depthInfo, invProjectionArray, viewMatrix);
+      this.sampleView(depthInformation, invProjectionArray, viewMatrix);
     }
 
-    this.geometry.attributes.position.needsUpdate = true;
-    this.geometry.attributes.color.needsUpdate = true;
-    this.geometry.setDrawRange(0, this.count);
-    this.geometry.computeBoundingSphere();
+    if (shouldUpdatePointGeometry(this.renderPoints)) {
+      this.geometry.attributes.position.needsUpdate = true;
+      this.geometry.attributes.color.needsUpdate = true;
+      this.geometry.setDrawRange(0, this.count);
+      this.geometry.computeBoundingSphere();
+    }
     return this.count;
   }
 
@@ -71,7 +83,7 @@ export class DepthCloud {
     for (let row = 0; row < DEPTH_CLOUD_GRID_ROWS; row += 1) {
       const v = (row + 0.5) / DEPTH_CLOUD_GRID_ROWS;
       for (let col = 0; col < DEPTH_CLOUD_GRID_COLS; col += 1) {
-        if (this.count >= DEPTH_CLOUD_MAX_POINTS) return;
+        if (this.renderPoints && this.count >= DEPTH_CLOUD_MAX_POINTS) return;
         const u = (col + 0.5) / DEPTH_CLOUD_GRID_COLS;
 
         let depth;
@@ -85,7 +97,7 @@ export class DepthCloud {
         const point = depthSampleToWorld(u, v, depth, invProjection, viewMatrix);
         if (!point) continue;
         this.voxelMap?.observe(point);
-        this.addPoint(point);
+        if (this.renderPoints) this.addPoint(point);
       }
     }
   }
@@ -116,6 +128,6 @@ export class DepthCloud {
     this.occupied.clear();
     this.count = 0;
     this.lastSampleTime = -Infinity;
-    this.geometry.setDrawRange(0, 0);
+    this.geometry?.setDrawRange(0, 0);
   }
 }

@@ -156,6 +156,20 @@ Ninja가 실제 손이나 물건 뒤에 있어도 계속 화면 위에 보였다
 손 위치까지 남을 수 있어 움직이는 손 가림에는 맞지 않는다. CPU 가림 모드는 누적하지 않고 최신
 깊이만 짧게 유지하므로 손의 움직임을 따라간다.
 
+### CPU depth 하나를 두 기능이 공유하는 방법
+
+`CpuDepthFrameSource`는 현재 `XRFrame`을 열쇠로 삼아 viewer pose와 각 view의
+`getDepthInformation(view)` 결과를 보관한다. 같은 frame에서 오클루전과 공간지도가 차례로
+요청하면 두 번째 요청은 이미 읽은 snapshot을 받으므로 WebXR depth를 중복 조회하지 않는다.
+
+- 동적 가림: `66ms` 간격(약 15Hz), `80×60` 샘플로 최신 삼각형 메시를 교체한다.
+- 공간지도: `200ms` 간격(약 5Hz), `40×30` 샘플만 복셀에 누적한다.
+
+두 소비자의 시계는 독립적이므로 휴대폰 부하가 크면 한쪽 간격만 따로 조절할 수 있다. 운영자
+모드에서는 원시 point를 게임 장면에 그리지 않으므로 대형 point 좌표·색상 버퍼와 geometry를
+만들지 않고 복셀 관측만 계속한다. 반대로 동적 가림 메시의 TypedArray와 GPU BufferAttribute는
+처음 만든 것을 재사용하며, 새 depth가 `250ms` 넘게 없으면 오래된 메시를 숨긴다.
+
 ## 6. 세 개의 depth 모드
 
 WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다.
@@ -232,6 +246,7 @@ src/
   depth-math.js       깊이 역투영·복셀 순수 수식 (three 비의존, 테스트됨)
   cpu-occlusion-math.js CPU 메시의 유효 깊이·삼각형 연결 규칙 (three 비의존, 테스트됨)
   cpu-depth-frame-source.js 같은 XRFrame의 CPU depth 조회 결과 공유 (three 비의존, 테스트됨)
+  depth-update-policy.js 오클루전/지도 독립 주기와 stale 판정 (three 비의존, 테스트됨)
   cpu-depth-occluder.js CPU 깊이 → 동적 깊이 전용 Three.js 메시
   depth-cloud.js      cpu 깊이 → 포인트클라우드 누적
   voxel-map.js        복셀 점유·노이즈제거 (three 비의존, 테스트됨)

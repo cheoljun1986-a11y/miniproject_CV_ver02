@@ -10,7 +10,9 @@ import {
   CPU_OCCLUSION_STALE_MS,
 } from './config.js';
 import { depthSampleToWorld } from './depth-math.js';
+import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
 import { depthWithOcclusionBias, writeGridTriangleIndices } from './cpu-occlusion-math.js';
+import { isDepthStale, isDepthUpdateDue } from './depth-update-policy.js';
 
 const VERTEX_COUNT = CPU_OCCLUSION_GRID_COLS * CPU_OCCLUSION_GRID_ROWS;
 const MAX_INDEX_COUNT = (CPU_OCCLUSION_GRID_COLS - 1)
@@ -18,8 +20,9 @@ const MAX_INDEX_COUNT = (CPU_OCCLUSION_GRID_COLS - 1)
   * 6;
 
 export class CpuDepthOccluder {
-  constructor({ scene }) {
+  constructor({ scene, depthSource = new CpuDepthFrameSource() }) {
     this.scene = scene;
+    this.depthSource = depthSource;
     this.lastSampleTime = -Infinity;
     this.lastDepthTime = -Infinity;
     this.triangleCount = 0;
@@ -53,33 +56,15 @@ export class CpuDepthOccluder {
   }
 
   update(frame, referenceSpace, time) {
-    if (time - this.lastSampleTime < CPU_OCCLUSION_SAMPLE_GAP_MS) {
+    if (!isDepthUpdateDue(this.lastSampleTime, time, CPU_OCCLUSION_SAMPLE_GAP_MS)) {
       this.hideIfStale(time);
       return this.triangleCount;
     }
     this.lastSampleTime = time;
 
-    if (!referenceSpace || typeof frame.getDepthInformation !== 'function') {
-      this.hideIfStale(time);
-      return this.triangleCount;
-    }
-
-    const pose = frame.getViewerPose(referenceSpace);
-    if (!pose) {
-      this.hideIfStale(time);
-      return this.triangleCount;
-    }
-
-    for (const view of pose.views) {
-      let depthInfo;
-      try {
-        depthInfo = frame.getDepthInformation(view);
-      } catch {
-        continue;
-      }
-      if (!depthInfo) continue;
-
-      this.sampleView(depthInfo, view);
+    const snapshot = this.depthSource.read(frame, referenceSpace);
+    for (const { view, depthInformation } of snapshot.views) {
+      this.sampleView(depthInformation, view);
       this.lastDepthTime = time;
       this.mesh.visible = this.triangleCount > 0;
       return this.triangleCount;
@@ -137,7 +122,7 @@ export class CpuDepthOccluder {
   }
 
   hideIfStale(time) {
-    if (time - this.lastDepthTime <= CPU_OCCLUSION_STALE_MS) return;
+    if (!isDepthStale(this.lastDepthTime, time, CPU_OCCLUSION_STALE_MS)) return;
     this.triangleCount = 0;
     this.geometry.setDrawRange(0, 0);
     this.mesh.visible = false;
