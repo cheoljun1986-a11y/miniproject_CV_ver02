@@ -37,7 +37,12 @@ export class OperatorView {
 
     this.voxels = new THREE.InstancedMesh(
       new THREE.BoxGeometry(VOXEL_SIZE_M, VOXEL_SIZE_M, VOXEL_SIZE_M),
-      new THREE.MeshLambertMaterial({ vertexColors: true }),
+      // No vertexColors here. It defines USE_COLOR, whose shader chunk runs
+      // `vColor *= color` against the geometry's color attribute — and a
+      // BoxGeometry has none, so the undefined attribute reads as (0,0,0) and
+      // zeroes the color before instanceColor is ever multiplied in. Leaving it
+      // off keeps USE_INSTANCING_COLOR alone, which is what setColorAt feeds.
+      new THREE.MeshLambertMaterial(),
       VOXEL_MAX_SOLID,
     );
     this.voxels.instanceColor = new THREE.InstancedBufferAttribute(
