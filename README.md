@@ -65,7 +65,7 @@
 
 ### 검증 상태
 
-- PC 자동 테스트: **130개 통과** (`node --test tests/*.test.mjs`)
+- PC 자동 테스트: **141개 통과** (`node --test tests/*.test.mjs`)
 - `main.js` 구문 검사와 모델 크기·SHA-256 검증 완료
 - 실제 Android에서 반드시 추가 확인할 항목:
   카메라 권한, 세로 화면 방향, 실내 조명의 세 손 모양 정확도, CPU 가림 프레임률,
@@ -133,7 +133,7 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 | 10 | 08-25 13:27 | **색이 검게 나오는 문제** | 스캔 모델이 거의 검게 렌더링됨 | 기본 재질이 금속 → unlit + sRGB 디코딩 |
 | 11 | 08-25 | **손 인식 가위바위보** | SCAN 즉시 포획이라 상호작용이 짧음 | Raw Camera + MediaPipe 손 인식, 승패별 포획·재대결·재배치 |
 
-자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 130개**
+자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 130개 → 141개**
 
 ---
 
@@ -449,7 +449,7 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
   (옵션) `anchors`, `local-floor`
 - **정적 호스팅**: GitHub Pages (백엔드 없음). three.js와 MediaPipe 실행 모듈은 CDN,
   손 모양 모델은 저장소의 고정 파일을 사용한다.
-- 테스트: Node.js `node:test` — **130개** (순수 로직·게임 상태·WebXR 경계·depth·손 인식 소비자)
+- 테스트: Node.js `node:test` — **141개** (순수 로직·게임 상태·WebXR 경계·depth·손 인식 소비자)
 
 ## 7. 실행 / 테스트 방법
 
@@ -486,7 +486,7 @@ WebXR depth 세션 활성화 문제로 분류한다.
 ```bash
 python -m http.server 8000
 # http://localhost:8000  (단, WebXR는 HTTPS 또는 실기기 필요)
-node --test tests/*.test.mjs   # 자동 테스트 130개
+node --test tests/*.test.mjs   # 자동 테스트 141개
 ```
 
 ## 8. 현재 상태 / 검증
@@ -502,7 +502,7 @@ node --test tests/*.test.mjs   # 자동 테스트 130개
 | 복셀 재구성 + 운영자 3D 뷰 | ✅ 구현 / 실기기 확인 필요 |
 | CPU depth 공유 | ✅ 같은 XRFrame당 한 번 조회하도록 구현·자동 테스트 |
 | 하츄핑 GLB 모델 교체 | ✅ 구현·자동 테스트 / 크기·바닥·색 왕복 실측 확인 |
-| 자동 테스트 | ✅ **130개 통과** |
+| 자동 테스트 | ✅ **141개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 
@@ -560,7 +560,7 @@ src/
   gesture-consensus.js 여러 카메라 프레임의 손 모양 합의
   raw-camera-frame-source.js / camera-texture-copier.js  WebXR 카메라 프레임 입력
   hand-gesture-recognizer.js  MediaPipe 손 모양 추론
-tests/                자동 테스트 (node:test) 130개
+tests/                자동 테스트 (node:test) 141개
 docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 ```
 
