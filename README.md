@@ -231,6 +231,7 @@ src/
   ui.js               HUD/버튼/메시지 (DOM)
   depth-math.js       깊이 역투영·복셀 순수 수식 (three 비의존, 테스트됨)
   cpu-occlusion-math.js CPU 메시의 유효 깊이·삼각형 연결 규칙 (three 비의존, 테스트됨)
+  cpu-depth-frame-source.js 같은 XRFrame의 CPU depth 조회 결과 공유 (three 비의존, 테스트됨)
   cpu-depth-occluder.js CPU 깊이 → 동적 깊이 전용 Three.js 메시
   depth-cloud.js      cpu 깊이 → 포인트클라우드 누적
   voxel-map.js        복셀 점유·노이즈제거 (three 비의존, 테스트됨)
