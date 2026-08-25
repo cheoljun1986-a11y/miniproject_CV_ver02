@@ -56,13 +56,16 @@ export class OperatorView {
       new THREE.BufferAttribute(new Float32Array(TRAIL_MAX_POINTS * 3), 3),
     );
     this.pathGeometry.setDrawRange(0, 0);
-    this.scene.add(new THREE.Line(
+    this.path = new THREE.Line(
       this.pathGeometry,
       new THREE.LineBasicMaterial({ color: 0x33ddff }),
-    ));
+    );
+    this.path.frustumCulled = false;
+    this.scene.add(this.path);
 
     this._matrix = new THREE.Matrix4();
     this._color = new THREE.Color();
+    this.voxelRevision = -1;
   }
 
   resize() {
@@ -73,20 +76,23 @@ export class OperatorView {
     this.camera.updateProjectionMatrix();
   }
 
-  render({ solidVoxels, ninjaPos, playerPos, playerPath }) {
+  render({ solidVoxels, voxelRevision, ninjaPos, playerPos, playerPath }) {
     this.resize();
 
-    const count = Math.min(solidVoxels.length, VOXEL_MAX_SOLID);
-    for (let i = 0; i < count; i += 1) {
-      const { position, colorT } = solidVoxels[i];
-      this._matrix.makeTranslation(position[0], position[1], position[2]);
-      this.voxels.setMatrixAt(i, this._matrix);
-      this._color.setRGB(0.2 + 0.8 * colorT, 0.5, 1 - 0.8 * colorT);
-      this.voxels.setColorAt(i, this._color);
+    if (voxelRevision !== this.voxelRevision) {
+      const count = Math.min(solidVoxels.length, VOXEL_MAX_SOLID);
+      for (let i = 0; i < count; i += 1) {
+        const { position, colorT } = solidVoxels[i];
+        this._matrix.makeTranslation(position[0], position[1], position[2]);
+        this.voxels.setMatrixAt(i, this._matrix);
+        this._color.setRGB(0.2 + 0.8 * colorT, 0.5, 1 - 0.8 * colorT);
+        this.voxels.setColorAt(i, this._color);
+      }
+      this.voxels.count = count;
+      this.voxels.instanceMatrix.needsUpdate = true;
+      if (this.voxels.instanceColor) this.voxels.instanceColor.needsUpdate = true;
+      this.voxelRevision = voxelRevision;
     }
-    this.voxels.count = count;
-    this.voxels.instanceMatrix.needsUpdate = true;
-    if (this.voxels.instanceColor) this.voxels.instanceColor.needsUpdate = true;
 
     if (ninjaPos) {
       this.ninja.visible = true;
@@ -111,7 +117,6 @@ export class OperatorView {
     }
     this.pathGeometry.setDrawRange(0, pathCount);
     this.pathGeometry.attributes.position.needsUpdate = true;
-    this.pathGeometry.computeBoundingSphere();
 
     this.controls.update();
     this.renderer.render(this.scene, this.camera);

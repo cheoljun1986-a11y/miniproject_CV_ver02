@@ -12,9 +12,12 @@ import {
   MAP_SECONDS,
   MAX_TRACKING_STEP,
   MIN_CANDIDATE_SPACING,
+  OPERATOR_RENDER_GAP_MS,
+  OPERATOR_STATUS_GAP_MS,
   TRAIL_MAX_POINTS,
   TRAIL_MIN_STEP_M,
   VOXEL_MAX_SOLID,
+  VOXEL_MAX_PENDING,
   VOXEL_SIZE_M,
   VOXEL_SOLID_MIN_HITS,
 } from './config.js';
@@ -55,6 +58,10 @@ let voxelMap = null;
 let playerTrail = null;
 let operatorView = null;
 let operatorVisible = false;
+let lastOperatorStatusTime = -Infinity;
+let lastOperatorRenderTime = -Infinity;
+let operatorVoxelRevision = -1;
+let operatorSolidVoxels = [];
 
 init();
 
@@ -133,6 +140,7 @@ async function init() {
       voxelSize: VOXEL_SIZE_M,
       solidMinHits: VOXEL_SOLID_MIN_HITS,
       maxSolid: VOXEL_MAX_SOLID,
+      maxPending: VOXEL_MAX_PENDING,
     });
     playerTrail = new PlayerTrail({
       minStep: TRAIL_MIN_STEP_M,
@@ -182,6 +190,10 @@ async function init() {
     depthCloud?.reset();
     voxelMap?.reset();
     playerTrail?.reset();
+    lastOperatorStatusTime = -Infinity;
+    lastOperatorRenderTime = -Infinity;
+    operatorVoxelRevision = -1;
+    operatorSolidVoxels = [];
     await xrSession.start();
     game.startSession();
   });
@@ -192,6 +204,10 @@ async function init() {
     depthCloud?.reset();
     voxelMap?.reset();
     playerTrail?.reset();
+    lastOperatorStatusTime = -Infinity;
+    lastOperatorRenderTime = -Infinity;
+    operatorVoxelRevision = -1;
+    operatorSolidVoxels = [];
     operatorVisible = false;
     ui.setOperatorVisible(false);
     game.endSession();
@@ -240,21 +256,34 @@ function render(time, frame) {
     if (viewerPose) playerTrail?.record(viewerPose.position);
 
     const ninjaPosition = game.getTargetPosition();
-    const playerPath = playerTrail?.getPoints() ?? [];
     const voxelCount = voxelMap?.getSolidCount() ?? 0;
-    ui.setOperatorStatus(formatOperatorStatus({
-      anchorState: game.getAnchorState(),
-      voxelCount,
-      ninjaPosition,
-      playerPosition: viewerPose?.position ?? null,
-      pathPointCount: playerPath.length,
-    }));
-    if (operatorVisible && operatorView) {
+    if (time - lastOperatorStatusTime >= OPERATOR_STATUS_GAP_MS) {
+      lastOperatorStatusTime = time;
+      ui.setOperatorStatus(formatOperatorStatus({
+        anchorState: game.getAnchorState(),
+        voxelCount,
+        ninjaPosition,
+        playerPosition: viewerPose?.position ?? null,
+        pathPointCount: playerTrail?.getCount() ?? 0,
+      }));
+    }
+    if (
+      operatorVisible
+      && operatorView
+      && time - lastOperatorRenderTime >= OPERATOR_RENDER_GAP_MS
+    ) {
+      lastOperatorRenderTime = time;
+      const voxelRevision = voxelMap.getRevision();
+      if (voxelRevision !== operatorVoxelRevision) {
+        operatorVoxelRevision = voxelRevision;
+        operatorSolidVoxels = voxelMap.getSolidVoxels();
+      }
       operatorView.render({
-        solidVoxels: voxelMap.getSolidVoxels(),
+        solidVoxels: operatorSolidVoxels,
+        voxelRevision,
         ninjaPos: ninjaPosition,
         playerPos: viewerPose?.position ?? null,
-        playerPath,
+        playerPath: playerTrail.getPoints(),
       });
     }
   } else if (GPU_OCCLUSION_MODE) {

@@ -22,6 +22,10 @@ export class PlayerTrail {
     return this.points.map((point) => [...point]);
   }
 
+  getCount() {
+    return this.points.length;
+  }
+
   reset() {
     this.points = [];
   }

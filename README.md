@@ -42,7 +42,7 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 - **three.js 0.180** (렌더링, WebXR 매니저, 내장 depth-sensing 오클루전)
 - WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, (옵션) `anchors`, `local-floor`
 - **정적 호스팅**: GitHub Pages (백엔드 없음). CDN(three.js)만 외부 의존.
-- 테스트: Node.js `node:test` (순수 로직 단위 테스트 42개)
+- 테스트: Node.js `node:test` (순수 로직·게임 상태·WebXR 경계·depth 소비자 통합 테스트 75개)
 
 ## 4. 진행 내역 (구현 완료)
 
@@ -60,7 +60,25 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 - 생성된 anchor의 `anchorSpace` pose를 매 frame 다시 읽어 Ninja 렌더 행렬, SCAN 탐지 좌표,
   운영자 표시 좌표를 함께 갱신한다. pose가 잠시 사라지면 마지막 위치를 유지해 점프를 막고,
   다시 추적되면 자동 복구한다. 브라우저가 anchor를 지원하지 않거나 생성이 거절되면 게임을
-  중단하지 않고 처음 계산한 local 좌표에 고정한다.
+  중단하지 않고 처음 계산한 local 좌표에 고정한다. HUD의 상태는 `고정 anchor 준비`,
+  `고정 anchor`, `고정 anchor (추적 일시 손실)`, `고정 local`로 구분한다.
+
+#### local-space와 XRAnchor의 차이
+
+- **local-space 좌표**는 AR 세션의 원점을 기준으로 저장한 숫자다. 기본 게임은 계속 실행할 수 있지만,
+  ARCore가 공간 이해를 보정할 때 특정 현실 표면을 위한 갱신 정보를 별도로 받지 못한다.
+- **XRAnchor**는 특정 현실 지점을 WebXR 추적 시스템에 등록한다. 앱은 매 frame `anchorSpace`의 최신
+  pose를 받아 ARCore의 보정 결과를 Ninja에 반영할 수 있다. 이번 구현은 공식
+  [WebXR Anchors 사양](https://immersive-web.github.io/anchors/)처럼 활성 frame에서 anchor를 만들고,
+  공식 [Hit Test with Anchors 예제](https://github.com/immersive-web/webxr-samples/blob/main/hit-test-anchors.html)처럼
+  최신 anchor pose를 계속 적용한다.
+
+#### 왜 운영자 복셀 지도만으로 Ninja를 고정할 수 없나?
+
+복셀 지도는 depth 점을 5cm 크기의 칸에 누적한 **시각화·분석 데이터**다. 방의 모양이나 장애물 후보는
+보여주지만, 그 칸을 WebXR 추적 시스템의 특정 현실 지점에 등록하지는 않는다. 따라서 점이 많아져도
+Ninja 좌표가 자동으로 보정되지 않는다. 이번 구조에서는 XRAnchor가 위치 고정을 담당하고, 복셀 지도는
+운영자 시각화와 향후 정적 충돌·숨을 장소 선택을 위한 자료로만 유지한다.
 
 ### 4-2. 스캔 점 시각화
 - 20초 스캔 동안 저장되는 후보 점마다 AR 씬에 마커를 찍어 실시간으로 보여준다.
@@ -111,7 +129,7 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 - 이 프로젝트의 컴퓨터비전 핵심. `?depth=cloud`로 켜면 `cpu-optimized` 깊이를 쓴다.
 - 매 프레임 깊이맵을 성긴 격자로 샘플 → 각 픽셀을 **뷰어 포즈 + 투영행렬로 월드 좌표에
   역투영**(수직거리 기준) → 5cm 복셀로 중복 제거하며 누적.
-- 이 누적 데이터는 아래 **운영자 뷰(4-5)에서 복셀로 시각화**된다. (초기엔 게임 화면에 원시
+- 이 누적 데이터는 아래 **운영자 뷰(4-6)에서 복셀로 시각화**된다. (초기엔 게임 화면에 원시
   점을 직접 그렸으나 화면이 지저분해, 지금은 **게임 화면에선 점을 그리지 않고 데이터만
   쌓는다**.) HUD에는 노이즈 기준을 통과한 실제 `복셀 N`을 표시한다.
 - 실측(초기 원시 점 렌더 시): 상단 벽=분홍, 하단 바닥=파랑으로 **높이 구조가 일관되게** 나와,
@@ -175,6 +193,12 @@ Ninja가 실제 손이나 물건 뒤에 있어도 계속 화면 위에 보였다
 만들지 않고 복셀 관측만 계속한다. 반대로 동적 가림 메시의 TypedArray와 GPU BufferAttribute는
 처음 만든 것을 재사용하며, 새 depth가 `250ms` 넘게 없으면 오래된 메시를 숨긴다.
 
+장시간 실행 시 한두 번만 관측된 depth noise가 메모리에 끝없이 남지 않도록 미확정 복셀은 최대
+`40,000`개로 제한하고 오래된 항목부터 교체한다. solid가 된 복셀은 미확정 카운트에서 제거하며,
+최대 `20,000` solid에 도달하면 추가 카운트를 쌓지 않는다. 운영자 상태는 5Hz, 운영자 3D 렌더는
+최대 10Hz로 제한한다. 화면이 닫혀 있으면 경로·복셀 배열을 복사하지 않고, 화면이 열려 있어도
+복셀 GPU instance buffer는 지도 revision이 바뀔 때만 다시 업로드한다.
+
 ## 6. 세 개의 depth 모드
 
 WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다.
@@ -201,18 +225,35 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
 2. **GPU 가림 비교**: 기본 URL → START AR → `depth usage unavailable`이면 이 기기의 브라우저가
    GPU 방식을 제공하지 않는 것이므로 CPU 가림 URL과 결과를 비교한다.
 3. **공간 복원 테스트**: `?depth=cloud` URL → START AR → 걸어다니며 방을 비추기(게임 화면은
-   점 없이 깔끔) → HUD `점 N`(복셀 수)이 늘어나는지 확인 → **`운영자 뷰`** 버튼으로 복원된
+   점 없이 깔끔) → HUD `복셀 N`이 늘어나는지 확인 → **`운영자 뷰`** 버튼으로 복원된
    복셀 공간·닌자 위치(빨강)·이동 경로(파랑)가 실제와 맞는지 확인.
 4. **게임 플레이**: 20초 스캔 → Ninja 자동 숨김 → 걸어서 탐색 → 중앙 조준 후 SCAN →
    DETECTED!. `다시 숨기기`로 반복.
 5. **추적 안정성**: 특정 위치에서 `기준점 저장` → 3~5m 이동/360° 회전 → 같은 자리로 복귀 →
    `복귀 오차 확인` → 위치/각도 오차 기록.
 
+### 배포 후 Galaxy S26 Ultra 완료 조건
+
+아래 항목은 코드·Node 자동 테스트로 실기기 성공을 대신할 수 없다. 배포된
+`?occlusion=cpu` 주소에서 직접 확인하고, 실패하면 HUD 전체와 화면을 캡처한다.
+
+1. `depth usage cpu-optimized`와 실제 `depth format`이 표시된다.
+2. Ninja를 숨기면 `고정 anchor`가 표시된다. `고정 local`이면 브라우저 미지원 또는 생성 실패다.
+3. 카메라를 들고 3~5m 이동하거나 방향을 바꿔도 Ninja가 같은 현실 위치에 유지된다.
+4. 운영자 화면에서 `복셀 N`과 플레이어 이동 경로가 계속 증가한다.
+5. 손이나 물건이 없을 때 Ninja의 머리와 몸 전체가 보인다.
+6. 손이나 책을 Ninja 앞에 놓으면 겹친 부분만 가려진다.
+7. 운영자 화면을 닫은 뒤에도 게임, anchor tracking, 복셀·경로 누적이 계속된다.
+
+추가로 벽·베개·헤드보드와 Ninja 깊이가 비슷한 배치에서도 캐릭터 전체가 잘리지 않는지 확인한다.
+`삼각형 0`이 계속되거나 depth usage가 unavailable이면 가림 품질 문제가 아니라 먼저 WebXR depth
+세션 활성화 문제로 분류한다.
+
 ### 로컬 실행
 ```bash
 python -m http.server 8000
 # http://localhost:8000  (단, WebXR는 HTTPS 또는 실기기 필요)
-node --test tests/*.test.mjs   # 단위 테스트 42개
+node --test tests/*.test.mjs   # 자동 테스트 75개
 ```
 
 ## 8. 현재 상태 / 검증
@@ -224,14 +265,22 @@ node --test tests/*.test.mjs   # 단위 테스트 42개
 | 오클루전(GPU) 배선 | ✅ 구현 / 갤럭시 Chrome에서 GPU depth unavailable 확인 |
 | 오클루전(CPU 동적 메시) | ✅ 구현·자동 테스트 / 동일 표면 과잉 가림 방지 5cm bias 적용 / 갤럭시 재확인 필요 |
 | 포인트클라우드 복원(cpu) | ✅ 동작, 역투영 정상 / 미터 정확도 실기기 확인 필요 |
-| 복셀 재구성 + 운영자 3D 뷰 | ✅ 구현 (게임 화면 점 제거, 복셀·닌자·경로 표시) / 실기기 표시·정확도 확인 필요 |
-| 단위 테스트 | ✅ 42개 통과 |
+| XRAnchor 세션 내 위치 고정 | ✅ 구현·자동 테스트 / 3~5m 이동 안정성은 갤럭시 확인 필요 |
+| 복셀 재구성 + 운영자 3D 뷰 | ✅ CPU 통합·cloud 진단 모드 구현 (복셀·닌자·anchor·경로) / 실기기 확인 필요 |
+| CPU depth 공유 | ✅ 같은 XRFrame/view당 한 번 조회하도록 구현·자동 테스트 |
+| 자동 테스트 | ✅ 75개 통과 |
 
 ## 9. 다음 단계
 
-- **복셀 기반 정적 오클루전 (Phase 2)**: 4-5에서 재구성한 solid 복셀을 실제 depth
+- **Persistent/Cloud Anchor**: 현재 XRAnchor는 같은 AR 세션 동안의 위치 고정이 목적이다. 앱이나
+  세션을 종료하면 local 기준과 일반 XRAnchor를 그대로 복원할 수 없다. 다음 실행에서도 같은 현실
+  위치를 찾으려면 브라우저·플랫폼이 저장하는 Persistent Anchor 또는 서버에서 여러 세션의 공간
+  특징을 연결하는 Cloud Anchor가 필요하다. 이는 별도 저장 권한, 지원 API, anchor 식별자 수명과
+  개인정보·네트워크 설계가 필요하므로 이번 범위에서는 구현하지 않았다.
+
+- **복셀 기반 정적 오클루전 (Phase 2)**: 4-6에서 재구성한 solid 복셀을 실제 depth
   버퍼/오클루전에 반영해, **베개·장난감·기둥 같은 정적 물체 뒤에 Ninja를 숨기고** 그 뒤로
-  가림. (동적/손 가림은 계속 4-3의 gpu 오클루전 모드가 담당)
+  가림. (동적/손 가림은 계속 기본 GPU 또는 4-4의 CPU 오클루전 모드가 담당)
 - **매끄러운 메시**(마칭큐브 등): 성능 확인 후 복셀 다음 단계로.
 - **MediaPipe 손동작 트리거**: 지금 SCAN 버튼을 `주먹→가위→주먹` 제스처로 대체.
 
@@ -240,7 +289,7 @@ node --test tests/*.test.mjs   # 단위 테스트 42개
 ```
 index.html            진입점 (모듈 로더 + HUD DOM)
 src/
-  main.js             엔트리·씬 구성·모드(오클루전/포인트클라우드) 배선·렌더 루프
+  main.js             엔트리·GPU/CPU/cloud 모드 조립·공유 depth·렌더 루프
   app-mode.js         URL 모드 선택과 depth usage 결정 (순수 로직)
   config.js           상수 (스캔 간격, 탐지 조건, 복셀 크기 등)
   xr-session.js       WebXR 세션·viewer pose·hit-test
@@ -253,12 +302,13 @@ src/
   cpu-occlusion-math.js CPU 메시의 유효 깊이·삼각형 연결 규칙 (three 비의존, 테스트됨)
   cpu-depth-frame-source.js 같은 XRFrame의 CPU depth 조회 결과 공유 (three 비의존, 테스트됨)
   depth-update-policy.js 오클루전/지도 독립 주기와 stale 판정 (three 비의존, 테스트됨)
+  surface-placement.js 표면 normal 방향·Ninja offset 계산 (three 비의존, 테스트됨)
   cpu-depth-occluder.js CPU 깊이 → 동적 깊이 전용 Three.js 메시
   depth-cloud.js      cpu 깊이 → 포인트클라우드 누적
   voxel-map.js        복셀 점유·노이즈제거 (three 비의존, 테스트됨)
   player-trail.js     플레이어 경로 버퍼 (three 비의존, 테스트됨)
   operator-view.js    운영자 오빗 3D 뷰 오버레이
-tests/                단위 테스트 (node:test) 42개
+tests/                자동 테스트 (node:test) 75개
 ```
 
 순수 로직(수식·게임규칙)은 three.js 없이 분리해 단위 테스트하고, 렌더링 의존부만 three 모듈로 둔다.
@@ -269,5 +319,9 @@ tests/                단위 테스트 (node:test) 42개
 - CPU 가림은 깊이 해상도와 약 15Hz 갱신률의 영향을 받으므로 빠른 손동작에서 가장자리가 늦게
   따라올 수 있다. 투명·반사 물체와 카메라에 아주 가까운 손은 ARCore 깊이 결손이 생길 수 있다.
 - 오클루전/역투영의 실기기 기하 정확도는 아직 검증 중이다.
-- Ninja 위치는 현재 `local` 좌표계 고정(anchor 미사용)이라, 오래 이동하면 미세 드리프트 가능.
+- 브라우저가 WebXR Anchors를 지원하거나 생성에 성공해야 `고정 anchor`가 된다. 미지원·거절 시
+  `고정 local` fallback이므로 장거리 이동에서 드리프트가 더 보일 수 있다.
+- 같은 세션의 XRAnchor도 ARCore 추적 품질의 영향을 받는다. 빠른 이동, 어두운 공간, 무늬 없는 벽,
+  카메라 가림이 지속되면 `추적 일시 손실`이 생길 수 있으며 마지막 pose를 유지한 뒤 자동 복구한다.
+- 앱 종료 후 같은 위치 복원은 이번 XRAnchor 범위가 아니며 Persistent/Cloud Anchor가 필요하다.
 - 아직 MediaPipe 손동작은 WebXR와 결합되지 않았고, SCAN 버튼이 그 자리를 대신한다.

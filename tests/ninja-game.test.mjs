@@ -215,6 +215,7 @@ test('creates an anchor from the final local pose on the next active XR frame', 
 
   game.update(1001, frame, null);
   await flushPromises();
+  assert.equal(game.getAnchorState(), 'anchor-lost');
   game.update(1002, frame, null);
 
   assert.equal(createCalls, 1);

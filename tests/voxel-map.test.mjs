@@ -10,6 +10,7 @@ test('a voxel becomes solid only after reaching the hit threshold', () => {
   assert.equal(map.observe([0.0, 0.0, 0.0]), true); // 3 -> solid
   assert.equal(map.observe([0.03, 0.0, 0.0]), false); // 4, already solid
   assert.equal(map.getSolidCount(), 1);
+  assert.equal(map.getPendingCount(), 0);
 });
 
 test('distinct cells are tracked separately and solids report centered positions', () => {
@@ -33,4 +34,46 @@ test('reset clears counts and solids', () => {
   map.observe([0, 0, 0]);
   map.reset();
   assert.equal(map.getSolidCount(), 0);
+  assert.equal(map.getPendingCount(), 0);
+});
+
+test('bounds one-off noise cells by evicting the oldest pending observation', () => {
+  const map = new VoxelMap({
+    voxelSize: 0.1,
+    solidMinHits: 3,
+    maxSolid: 10,
+    maxPending: 2,
+  });
+  map.observe([0, 0, 0]);
+  map.observe([1, 0, 0]);
+  map.observe([2, 0, 0]);
+
+  assert.equal(map.getPendingCount(), 2);
+});
+
+test('stops retaining pending counts after the solid map reaches capacity', () => {
+  const map = new VoxelMap({
+    voxelSize: 0.1,
+    solidMinHits: 1,
+    maxSolid: 1,
+    maxPending: 10,
+  });
+  map.observe([0, 0, 0]);
+  map.observe([1, 0, 0]);
+
+  assert.equal(map.getSolidCount(), 1);
+  assert.equal(map.getPendingCount(), 0);
+});
+
+test('increments the map revision only when visible solid voxels change', () => {
+  const map = new VoxelMap({ voxelSize: 0.1, solidMinHits: 2 });
+  assert.equal(map.getRevision(), 0);
+  map.observe([0, 0, 0]);
+  assert.equal(map.getRevision(), 0);
+  map.observe([0, 0, 0]);
+  assert.equal(map.getRevision(), 1);
+  map.observe([0, 0, 0]);
+  assert.equal(map.getRevision(), 1);
+  map.reset();
+  assert.equal(map.getRevision(), 2);
 });

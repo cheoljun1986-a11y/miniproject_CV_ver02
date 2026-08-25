@@ -297,7 +297,7 @@ export class NinjaGame {
           return;
         }
         target.anchor = anchor;
-        target.anchorState = 'anchor';
+        target.anchorState = 'anchor-lost';
         target.object.matrixAutoUpdate = false;
       })
       .catch(() => {

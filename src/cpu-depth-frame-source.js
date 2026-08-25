@@ -9,13 +9,21 @@ export class CpuDepthFrameSource {
   read(frame, referenceSpace) {
     if (this.hasCachedFrame && frame === this.cachedFrame) return this.snapshot;
 
-    const session = this.getSession();
+    let usage = null;
+    let format = null;
+    try {
+      const session = this.getSession();
+      usage = session?.depthUsage ?? null;
+      format = session?.depthDataFormat ?? null;
+    } catch {
+      // Optional depth-sensing getters can throw when the feature was denied.
+    }
     const snapshot = {
       frame,
       viewerPose: null,
       views: [],
-      usage: session?.depthUsage ?? null,
-      format: session?.depthDataFormat ?? null,
+      usage,
+      format,
     };
     this.hasCachedFrame = true;
     this.cachedFrame = frame;

@@ -81,6 +81,20 @@ test('returns an empty diagnostic snapshot when CPU depth is unavailable', () =>
   assert.equal(snapshot.format, null);
 });
 
+test('contains session diagnostic getter errors when depth sensing was not enabled', () => {
+  const session = {
+    get depthUsage() { throw new Error('depth sensing disabled'); },
+    get depthDataFormat() { throw new Error('depth sensing disabled'); },
+  };
+  const source = new CpuDepthFrameSource({ getSession: () => session });
+
+  const snapshot = source.read({}, {});
+
+  assert.equal(snapshot.usage, null);
+  assert.equal(snapshot.format, null);
+  assert.deepEqual(snapshot.views, []);
+});
+
 test('reset forgets the cached frame so a reused frame is read again', () => {
   let calls = 0;
   const view = {};

@@ -25,3 +25,11 @@ test('reset empties the trail', () => {
   trail.reset();
   assert.deepEqual(trail.getPoints(), []);
 });
+
+test('reports the path length without cloning the point array', () => {
+  const trail = new PlayerTrail({ minStep: 0.1 });
+  trail.record([0, 0, 0]);
+  trail.record([1, 0, 0]);
+
+  assert.equal(trail.getCount(), 2);
+});
