@@ -21,6 +21,7 @@ export function createVoxelDebugPanel({
   operatorView = null,
   onOperatorToggle = null,
   onStartGame = null,
+  occluder = null,
   documentRoot = document,
 }) {
   const panel = el('div', [
@@ -128,6 +129,13 @@ export function createVoxelDebugPanel({
   });
   let frustumsVisible = false;
 
+  // Turning this on makes the wireframe get eaten wherever a real object is
+  // nearer — that culling IS the evidence the occluder lines up with the room,
+  // so it is not something to "fix".
+  const occluderBtn = occluder
+    ? button('가림 메시', () => { occluder.setVisible(!occluder.isVisible()); refreshAll(); })
+    : null;
+
   if (onOperatorToggle) button('운영자 뷰', () => onOperatorToggle());
   // The game stays idle in this mode; start it on demand once there is an
   // occluder worth hiding behind.
@@ -188,6 +196,11 @@ export function createVoxelDebugPanel({
       ? `카메라 경로 (${controller.getKeyframePoses().length})`
       : '카메라 경로';
     colorBtn.textContent = `색상: ${controller.getStats().colorMode}`;
+    if (occluderBtn) {
+      const on = occluder.isVisible();
+      occluderBtn.style.background = on ? '#ffd66b' : 'rgba(255,255,255,.92)';
+      occluderBtn.textContent = on ? `가림 메시 (${occluder.getTriangleCount()}△)` : '가림 메시';
+    }
   }
   refreshAll();
 

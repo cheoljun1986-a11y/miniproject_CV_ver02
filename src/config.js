@@ -80,3 +80,12 @@ export const CHASE_RECENT_WINDOW_MS = 15000; // how long a visited cell stays pe
 export const CHASE_GRID_MAX_TILES = 6000;
 export const CHASE_PATH_MAX_POINTS = 256;
 export const CHASE_GRID_REBUILD_GAP_MS = 250;
+
+// Static voxel occluder (?occluder=voxel). Built once from the scan and left
+// alone, unlike the per-frame depth meshes above.
+export const VOXEL_OCCLUDER_MIN_OBSERVATIONS = 3;
+// Depth slack lives in the rasteriser rather than in world space: a fixed
+// world offset is only correct from one direction, polygonOffset is correct
+// from every angle and costs nothing.
+export const VOXEL_OCCLUDER_POLYGON_OFFSET_FACTOR = 1;
+export const VOXEL_OCCLUDER_POLYGON_OFFSET_UNITS = 1;

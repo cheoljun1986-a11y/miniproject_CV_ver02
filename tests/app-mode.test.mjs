@@ -5,9 +5,11 @@ import {
   APP_MODES,
   autoStartsGame,
   depthUsageForMode,
+  depthUsageForSession,
   resolveAppMode,
   usesDepthCloud,
   usesSpaceMapping,
+  usesVoxelOccluder,
 } from '../src/app-mode.js';
 
 test('default URL keeps GPU occlusion', () => {
@@ -63,4 +65,22 @@ test('only the voxel diagnostic keeps the game idle at session start', () => {
   assert.equal(autoStartsGame(APP_MODES.CPU_OCCLUSION), true);
   assert.equal(autoStartsGame(APP_MODES.CLOUD), true);
   assert.equal(autoStartsGame(APP_MODES.VOXEL_DEBUG), false);
+});
+
+test('the voxel occluder is an axis of its own, not a mode', () => {
+  assert.equal(usesVoxelOccluder('?occluder=voxel'), true);
+  assert.equal(usesVoxelOccluder(''), false);
+  assert.equal(usesVoxelOccluder('?occluder=cpu'), false);
+  // Composes with every depth pipeline instead of competing with them.
+  assert.equal(resolveAppMode('?occluder=voxel'), 'gpu-occlusion');
+  assert.equal(resolveAppMode('?occlusion=cpu&occluder=voxel'), 'cpu-occlusion');
+});
+
+// One session, one depth usage: the occluder needs CPU-readable depth, so
+// asking for it overrides the GPU preference the default mode would pick.
+test('the voxel occluder forces CPU-readable depth', () => {
+  assert.equal(depthUsageForSession(APP_MODES.GPU_OCCLUSION, false), 'gpu-optimized');
+  assert.equal(depthUsageForSession(APP_MODES.GPU_OCCLUSION, true), 'cpu-optimized');
+  assert.equal(depthUsageForSession(APP_MODES.CPU_OCCLUSION, true), 'cpu-optimized');
+  assert.equal(depthUsageForSession(APP_MODES.VOXEL_DEBUG, false), 'cpu-optimized');
 });

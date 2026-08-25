@@ -4,10 +4,11 @@ import { ARButton } from 'three/addons/webxr/ARButton.js';
 import {
   APP_MODES,
   autoStartsGame,
-  depthUsageForMode,
+  depthUsageForSession,
   resolveAppMode,
   usesDepthCloud,
   usesSpaceMapping,
+  usesVoxelOccluder,
 } from './app-mode.js';
 import {
   HIDDEN_MODEL_HEIGHT_M,
@@ -22,6 +23,7 @@ import {
   TRAIL_MAX_POINTS,
   TRAIL_MIN_STEP_M,
   VOXEL_DEBUG_MAX_INSTANCES,
+  VOXEL_OCCLUDER_MIN_OBSERVATIONS,
   VOXEL_MAX_SOLID,
   VOXEL_MAX_PENDING,
   VOXEL_SIZE_M,
@@ -68,6 +70,7 @@ import {
 import { VoxelDebugController } from './voxel-debug-controller.js';
 import { createVoxelDebugPanel } from './voxel-debug-panel.js';
 import { VoxelMap } from './voxel-map.js';
+import { VoxelOccluder } from './voxel-occluder.js';
 import { VoxelOverlay } from './voxel-overlay.js';
 import { XRSessionController } from './xr-session.js';
 
@@ -78,7 +81,11 @@ const CLOUD_MODE = APP_MODE === APP_MODES.CLOUD;
 const CPU_OCCLUSION_MODE = APP_MODE === APP_MODES.CPU_OCCLUSION;
 const GPU_OCCLUSION_MODE = APP_MODE === APP_MODES.GPU_OCCLUSION;
 const VOXEL_DEBUG_MODE = APP_MODE === APP_MODES.VOXEL_DEBUG;
-const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE);
+// Orthogonal to the depth pipeline: the static occluder composes with any mode
+// but needs the keyframe scan, hence the space-mapping wiring.
+const VOXEL_OCCLUDER_ON = usesVoxelOccluder(location.search);
+const KEYFRAME_SCAN_MODE = VOXEL_DEBUG_MODE || VOXEL_OCCLUDER_ON;
+const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE) || VOXEL_OCCLUDER_ON;
 const DEPTH_CLOUD_MODE = usesDepthCloud(APP_MODE);
 
 const ui = createUI();
@@ -116,6 +123,7 @@ let operatorSolidVoxels = [];
 let voxelDebug = null;
 let voxelOverlay = null;
 let voxelPanel = null;
+let voxelOccluder = null;
 
 init();
 
@@ -247,11 +255,18 @@ async function init() {
         depthSource,
       });
     }
-    if (VOXEL_DEBUG_MODE) {
+    if (KEYFRAME_SCAN_MODE) {
       // Keyframe-gated capture with per-frame dedup, replacing DepthCloud's
       // 200ms timer which lets a single frame promote a voxel on its own.
       voxelDebug = new VoxelDebugController({ depthSource });
+    }
+    if (VOXEL_DEBUG_MODE) {
       voxelOverlay = new VoxelOverlay({ scene });
+    }
+    if (KEYFRAME_SCAN_MODE) {
+      // Built in the diagnostic too, so the wireframe can be checked against
+      // it, but only shown automatically when it is the point of the session.
+      voxelOccluder = new VoxelOccluder({ scene });
     }
     if (CPU_OCCLUSION_MODE) {
       cpuDepthOccluder = new CpuDepthOccluder({ scene, depthSource });
@@ -283,6 +298,7 @@ async function init() {
           ui.setOperatorVisible(operatorVisible);
         },
         onStartGame: () => game.startSession(),
+        occluder: voxelOccluder,
       });
       // Nothing on the legacy metrics card applies while the game is idle, and
       // the panel already reports everything else.
@@ -296,7 +312,7 @@ async function init() {
     // gpu-optimized feeds three's built-in mesh. CPU modes let this app read
     // samples for either point-cloud reconstruction or our dynamic occluder.
     depthSensing: {
-      usagePreference: [depthUsageForMode(APP_MODE)],
+      usagePreference: [depthUsageForSession(APP_MODE, VOXEL_OCCLUDER_ON)],
       dataFormatPreference: ['luminance-alpha', 'float32'],
     },
     domOverlay: { root: document.body },
@@ -317,6 +333,7 @@ async function init() {
     operatorSolidVoxels = [];
     voxelDebug?.reset();
     voxelOverlay?.clear();
+    voxelOccluder?.reset();
     voxelDebug?.startScan(performance.now());
     await xrSession.start();
     if (autoStartsGame(APP_MODE)) game.startSession();
@@ -335,6 +352,7 @@ async function init() {
     operatorSolidVoxels = [];
     voxelDebug?.reset();
     voxelOverlay?.clear();
+    voxelOccluder?.reset();
     operatorVisible = false;
     ui.setOperatorVisible(false);
     if (autoStartsGame(APP_MODE)) game.endSession();
@@ -512,10 +530,12 @@ function render(time, frame) {
     if (CPU_OCCLUSION_MODE) {
       cpuDepthOccluder?.update(frame, localSpace, time);
     }
-    if (VOXEL_DEBUG_MODE) {
+    if (KEYFRAME_SCAN_MODE) {
       voxelDebug.update(frame, localSpace, time, viewerPose);
       voxelDebug.rebuildIfDirty();
-    } else {
+      maybeBuildVoxelOccluder();
+    }
+    if (!KEYFRAME_SCAN_MODE) {
       depthCloud?.update(frame, localSpace, time);
     }
     if (viewerPose) playerTrail?.record(viewerPose.position);
@@ -597,6 +617,24 @@ function render(time, frame) {
   }
   if (!VOXEL_DEBUG_MODE) updateMetrics(viewerPose);
   renderer.render(scene, camera);
+}
+
+// The occluder is static: built when the scan settles and left alone. Only a
+// slider in the diagnostic can change the cell set afterwards, which the
+// revision gate picks up. Confidence threshold is deliberately higher than the
+// display default — a single-observation voxel writing depth would hide the
+// character behind noise.
+function maybeBuildVoxelOccluder() {
+  if (!voxelOccluder || !voxelDebug) return;
+  if (voxelDebug.isScanning(performance.now())) return;
+
+  const cells = voxelDebug.getRenderCells()
+    .filter((c) => c.observationCount >= VOXEL_OCCLUDER_MIN_OBSERVATIONS);
+  voxelOccluder.setVoxelSize(voxelDebug.getParams().voxelSize);
+  voxelOccluder.build(cells, voxelDebug.getRevision());
+  // In game mode it should start occluding as soon as it exists; in the
+  // diagnostic the panel owns the toggle so the wireframe stays inspectable.
+  if (!VOXEL_DEBUG_MODE) voxelOccluder.setVisible(true);
 }
 
 function updateMetrics(viewerPose) {
