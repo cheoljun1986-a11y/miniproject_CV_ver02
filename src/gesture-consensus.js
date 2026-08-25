@@ -25,11 +25,6 @@ export class GestureConsensus {
       (count, sample) => count + Number(sample.move === move),
       0,
     );
-    this.progress = {
-      move,
-      matches,
-      requiredMatches: this.requiredMatches,
-    };
     if (matches < this.requiredMatches) return null;
 
     this.emitted = true;
@@ -39,10 +34,5 @@ export class GestureConsensus {
   reset() {
     this.samples = [];
     this.emitted = false;
-    this.progress = null;
-  }
-
-  getProgress() {
-    return this.progress ? { ...this.progress } : null;
   }
 }

@@ -184,6 +184,11 @@ async function init() {
     console.error('Hidden model unavailable, using the built-in ninja:', error);
   }
 
+  if (!MANUAL_INPUT_MODE) {
+    ui.setStatus('손 인식 모델 불러오는 중…');
+    await rpsRuntime.initialize();
+  }
+
   ui.setStatus(CLOUD_MODE
     ? 'WebXR AR 지원됨 (공간 복원 모드) — START AR을 누르세요'
     : CPU_OCCLUSION_MODE

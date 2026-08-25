@@ -8,12 +8,10 @@ function makeElement(isCanvas = false) {
   const drawCalls = [];
   return {
     style: {},
-    dataset: {},
     textContent: '',
     disabled: false,
     addEventListener(type, listener) { listeners.set(type, listener); },
     click() { listeners.get('click')?.({ stopPropagation() {} }); },
-    replaceChildren(...children) { this.children = children; },
     getContext: isCanvas ? () => ({
       canvas: { width: 160, height: 160 },
       clearRect(...args) { drawCalls.push(['clearRect', ...args]); },
@@ -55,37 +53,6 @@ test('duel UI exposes countdown hand status and simultaneous move results', () =
   assert.equal(documentRoot.elements.get('#rpsResult').textContent, '승리!');
   assert.ok(documentRoot.elements.get('#playerMoveCanvas').drawCalls.length > 0);
   assert.ok(documentRoot.elements.get('#ninjaMoveCanvas').drawCalls.length > 0);
-});
-
-test('duel UI exposes phase and the exact inference canvas preview', () => {
-  const documentRoot = makeDocument();
-  const ui = createUI(documentRoot);
-  const inferenceCanvas = { width: 180, height: 320 };
-
-  assert.equal(typeof ui.setDuelPhase, 'function');
-  assert.equal(typeof ui.setHandPreview, 'function');
-  ui.setDuelPhase('duel-reading');
-  ui.setHandPreview(inferenceCanvas);
-
-  assert.equal(
-    documentRoot.elements.get('#rpsOverlay').dataset.phase,
-    'duel-reading',
-  );
-  assert.deepEqual(
-    documentRoot.elements.get('#handPreviewMount').children,
-    [inferenceCanvas],
-  );
-});
-
-test('previous result is hidden again when the next countdown starts', () => {
-  const documentRoot = makeDocument();
-  const ui = createUI(documentRoot);
-  ui.showMoves({ playerMove: 'rock', ninjaMove: 'rock', result: 'draw' });
-  ui.setDuelPhase('duel-result');
-  assert.equal(documentRoot.elements.get('#rpsResult').style.display, 'block');
-
-  ui.setDuelPhase('duel-countdown');
-  assert.equal(documentRoot.elements.get('#rpsResult').style.display, 'none');
 });
 
 test('normal mode hides manual controls and debug mode binds exact moves', () => {

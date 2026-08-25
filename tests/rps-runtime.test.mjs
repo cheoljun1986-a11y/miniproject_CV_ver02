@@ -18,8 +18,6 @@ function makeHarness({ manualMode = false } = {}) {
     setDuelVisible(value) { this.visible = value; },
     setCountdown(value) { this.countdown = value; },
     setHandStatus(value) { this.handStatus = value; },
-    setDuelPhase(value) { this.duelPhase = value; },
-    setHandPreview(value) { this.handPreview = value; },
     showMoves(value) { reveals.push(value); },
     showDuelError(value) { errors.push(value); },
   };
@@ -33,14 +31,11 @@ function makeHarness({ manualMode = false } = {}) {
     recognize() { return 'paper'; },
     resetRound() { resets += 1; },
     getStatus() { return this.status ?? { state: 'ready', detail: null }; },
-    getObservation() { return null; },
   };
-  const inferenceCanvas = { name: 'inference-preview' };
   const cameraSource = {
     start() { return true; },
     capture() { captures += 1; return { frame: captures }; },
     reset() {},
-    getCanvas() { return inferenceCanvas; },
     getStatus() { return { state: 'ready', detail: null }; },
   };
   const runtime = new RpsRuntime({
@@ -96,39 +91,6 @@ test('camera mode copies and recognizes only during the reading phase', () => {
     result: 'win',
   });
   assert.ok(h.getResets() > 0);
-});
-
-test('session startup begins model loading without blocking AR camera startup', () => {
-  const h = makeHarness();
-  let finishLoading;
-  h.recognizer.status = { state: 'idle', detail: null };
-  h.recognizer.initialize = () => new Promise((resolve) => {
-    finishLoading = resolve;
-  });
-
-  assert.equal(h.runtime.startSession({}, {}), true);
-  assert.equal(h.ui.handPreview.name, 'inference-preview');
-  assert.match(h.ui.handStatus, /모델.*준비/);
-  finishLoading(true);
-});
-
-test('reading phase shows the current gesture candidate and agreement progress', () => {
-  const h = makeHarness();
-  h.recognizer.recognize = () => null;
-  h.recognizer.getObservation = () => ({
-    detected: true,
-    move: 'rock',
-    confidence: 0.81,
-    matches: 2,
-    requiredMatches: 3,
-  });
-  h.runtime.startSession({}, {});
-  h.runtime.startDuel(0);
-  h.runtime.update(10, {}, {});
-
-  assert.match(h.ui.handStatus, /바위/);
-  assert.match(h.ui.handStatus, /2\/3/);
-  assert.match(h.ui.handStatus, /81%/);
 });
 
 test('camera capability failure is visible and never enables manual fallback', () => {

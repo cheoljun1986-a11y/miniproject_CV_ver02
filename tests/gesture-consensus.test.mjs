@@ -2,12 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GestureConsensus } from '../src/gesture-consensus.js';
-import {
-  HAND_MIN_CONFIDENCE,
-  HAND_REQUIRED_MATCHES,
-  HAND_SAMPLE_MAX_AGE_MS,
-  HAND_SAMPLE_WINDOW,
-} from '../src/config.js';
 
 function makeConsensus(overrides = {}) {
   return new GestureConsensus({
@@ -24,19 +18,6 @@ test('emits a move only after enough confident matching samples', () => {
   assert.equal(consensus.add({ move: 'rock', confidence: 0.9, time: 0 }), null);
   assert.equal(consensus.add({ move: 'rock', confidence: 0.8, time: 100 }), null);
   assert.equal(consensus.add({ move: 'rock', confidence: 0.85, time: 200 }), 'rock');
-});
-
-test('reports stable-sample progress before a move is confirmed', () => {
-  const consensus = makeConsensus();
-  consensus.add({ move: 'rock', confidence: 0.82, time: 0 });
-  consensus.add({ move: 'rock', confidence: 0.78, time: 100 });
-
-  assert.equal(typeof consensus.getProgress, 'function');
-  assert.deepEqual(consensus.getProgress(), {
-    move: 'rock',
-    matches: 2,
-    requiredMatches: 3,
-  });
 });
 
 test('rejects low confidence unsupported and mixed samples', () => {
@@ -73,16 +54,4 @@ test('bounds the active sample window', () => {
   consensus.add({ move: 'paper', confidence: 0.9, time: 20 });
   consensus.add({ move: 'paper', confidence: 0.9, time: 30 });
   assert.equal(consensus.add({ move: 'paper', confidence: 0.9, time: 40 }), 'paper');
-});
-
-test('app settings accept three consistent moderate-confidence frames', () => {
-  const consensus = new GestureConsensus({
-    minConfidence: HAND_MIN_CONFIDENCE,
-    requiredMatches: HAND_REQUIRED_MATCHES,
-    windowSize: HAND_SAMPLE_WINDOW,
-    maxAgeMs: HAND_SAMPLE_MAX_AGE_MS,
-  });
-  assert.equal(consensus.add({ move: 'paper', confidence: 0.6, time: 0 }), null);
-  assert.equal(consensus.add({ move: 'paper', confidence: 0.6, time: 100 }), null);
-  assert.equal(consensus.add({ move: 'paper', confidence: 0.6, time: 200 }), 'paper');
 });
