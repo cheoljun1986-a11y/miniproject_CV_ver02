@@ -41,6 +41,25 @@ export const TRAIL_MAX_POINTS = 300;
 export const OPERATOR_STATUS_GAP_MS = 200;
 export const OPERATOR_RENDER_GAP_MS = 100;
 
+// Keyframe voxel diagnostic (?voxel=debug mode). Unlike the cloud path above,
+// capture is gated on camera motion rather than a wall clock, and every filter
+// threshold below is a starting value the on-device sliders can re-tune without
+// a rescan.
+export const VOXEL_SCAN_SECONDS = 20;
+export const VOXEL_KEYFRAME_MIN_TRANSLATION_M = 0.20;
+export const VOXEL_KEYFRAME_MIN_ROTATION_DEG = 15;
+// Raised from 15 after on-device scans capped out at 6.6s and 9.5s of the 20s
+// window. More keyframes buy both room coverage and viewpoint overlap, which is
+// what lifts cells out of the single-observation bucket.
+export const VOXEL_KEYFRAME_MAX = 40;
+export const VOXEL_KEYFRAME_MIN_GAP_MS = 250; // frame-budget guard, not a pose gate
+export const VOXEL_KEYFRAME_MAX_SAMPLES = 40000; // 160x120 native fits at stride 1
+export const VOXEL_DEBUG_MAX_CELLS = 200000;
+export const VOXEL_DEBUG_MAX_INSTANCES = 120000; // a silent cap would corrupt the diagnosis
+export const VOXEL_OVERLAY_MAX_INSTANCES = 6000;
+export const VOXEL_OVERLAY_RADIUS_M = 4.0;
+export const VOXEL_OVERLAY_REBUILD_STEP_M = 0.3;
+export const VOXEL_REBUILD_DEBOUNCE_MS = 150;
 // Chase mode (?mode=chase). Hachuping runs a legal route over the scanned
 // space and the player has to hold SCAN while staying close to catch it.
 export const CHASE_CELL_SIZE_M = 0.20;      // top-down grid resolution
@@ -61,3 +80,16 @@ export const CHASE_RECENT_WINDOW_MS = 15000; // how long a visited cell stays pe
 export const CHASE_GRID_MAX_TILES = 6000;
 export const CHASE_PATH_MAX_POINTS = 256;
 export const CHASE_GRID_REBUILD_GAP_MS = 250;
+
+// Static voxel occluder (?occluder=voxel). Built once from the scan and left
+// alone, unlike the per-frame depth meshes above.
+export const VOXEL_OCCLUDER_MIN_OBSERVATIONS = 3;
+// Depth slack lives in the rasteriser rather than in world space: a fixed
+// world offset is only correct from one direction, polygonOffset is correct
+// from every angle and costs nothing.
+export const VOXEL_OCCLUDER_POLYGON_OFFSET_FACTOR = 1;
+export const VOXEL_OCCLUDER_POLYGON_OFFSET_UNITS = 1;
+// Terrain is built from confirmed cells only: a voxel seen once is as likely
+// to be depth noise as a surface, and standing Hachuping on noise is worse
+// than leaving a gap in the map.
+export const VOXEL_TRAVERSAL_MIN_OBSERVATIONS = 3;

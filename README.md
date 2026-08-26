@@ -6,6 +6,8 @@
 - 공개 데모: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/>
 - CPU 동적 가림 + 통합 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?occlusion=cpu>
 - 공간 복원 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?depth=cloud>
+- 하츄핑 도망 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/v4-chase.html>
+- 키프레임 복셀 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?voxel=debug>
 
 > **이 문서는 발표 자료로 쓸 수 있도록 시계열로 정리했다.**
 > 3장 타임라인 표가 목차, 4장의 각 단계가 슬라이드 한 장에 대응한다.
@@ -64,8 +66,10 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 | 8 | 08-25 06:46 ~ 11:21 | 앵커 + 표면 분리 + depth 공유 | 위치 드리프트·표면 파묻힘·중복 조회·메모리 증가 | XRAnchor, normal 오프셋, frame 캐시, 상한 |
 | 9 | 08-25 11:37 | 하츄핑 3D 모델로 교체 | 코드로 만든 닌자 대신 스캔 모델 사용 | GLB 로드 + 크기/바닥 정규화 + 인스턴스 복제 |
 | 10 | 08-25 13:27 | **색이 검게 나오는 문제** | 스캔 모델이 거의 검게 렌더링됨 | 기본 재질이 금속 → unlit + sRGB 디코딩 |
+| 11 | 08-25 10:23 ~ 17:16 | 하츄핑 도망 모드 + 지도뷰 (`private/jaehoon`) | 숨기만 하는 대상은 정적 — 스캔한 공간 위를 실제로 다니게 하려면 "설 수 있는 곳"이 필요 | 복셀 → 20cm 통행 격자(슬랩·flood fill) + 경로 탐색 + 잡기 게이지 |
+| 12 | 08-26 00:20 ~ 01:11 | **키프레임 복셀 복원 + 진단 모드** (`private/baencho`) | 복셀 "3회 관측" 규칙이 시점이 아니라 샘플을 세어 근거리에서 무력화 | 키프레임 단위 중복 제거, 원본 보존·재필터, 정적 복셀 occluder 실험 |
 
-자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개**
+자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 152개 → 251개**
 
 ---
 
@@ -358,20 +362,106 @@ vertex 0: 원본 GLB 바이트 191 135 138
 
 ---
 
-## 5. 세 개의 depth 모드
+### 4-11. [11단계] 하츄핑 도망 모드 + 지도뷰 (`private/jaehoon`)
+
+**상황** — 지금까지 하츄핑은 한 곳에 숨어 있기만 했다. 복원한 공간을 실제로 *쓰는*
+게임을 만들려면, 하츄핑이 **그 공간의 지형을 따라 도망다니고** 플레이어가 쫓아가
+잡는 모드가 필요했다. 새 페이지 `v4-chase.html`로 얹었다(`?occlusion=cpu`가 자동으로 붙는다).
+
+**핵심 문제** — 복셀 지도는 "여기 뭔가 있다"만 알려준다. 움직이려면 **"여기 설 수 있는가,
+여기서 저기로 갈 수 있는가"** 를 알아야 한다.
+
+**해결**
+
+- **통행 격자(`traversal-grid.js`)** — 복셀을 위에서 내려다본 **20cm 바둑판**으로 다시 정리하고,
+  각 칸의 높이를 10cm 두께 슬랩 64겹으로 기록한다. 한 칸이 바닥·탁자 위처럼 여러 높이를
+  가질 수 있어 하츄핑이 가구 위로 오를 수 있다. 어떤 슬랩 위 50cm(몸 높이)가 비면 설 수 있다.
+  복셀 하나가 확정될 때마다 그 칸만 갱신한다(전체 재구축 대비 **110배 빠름** 측정).
+- **천장 문제** — 천장은 기하학적으로 탁자와 같다(얇은 층 + 위가 미관측). 1차 실기기 테스트에서
+  하츄핑이 천장으로 올라가, **바닥 추정(8칸 이상이 공유하는 가장 낮은 슬랩) + 1.3m 상한**을 넣었다.
+- **벽 윗면 문제** — 2m 벽의 윗면도 "설 수 있음"으로 판정되므로, 하츄핑의 현재 위치에서
+  **flood fill로 실제 닿을 수 있는 칸만** 남긴다.
+- **도망·잡기(`chase-path.js`, `chase-runner.js`, `capture-gauge.js`)** — 통행 가능한 칸 위에서
+  경로를 짜 이동하고, 플레이어가 가까이 붙어 SCAN을 **누르고 있어야** 게이지가 차서 잡힌다.
+- **부수 작업** — v3 지도뷰(`v3-mapview.html`), 카메라 위에 감지된 평면·앵커 오버레이,
+  WebXR 기능 탐색 페이지, 인수인계 문서 2종(`chase-mode-handoff.md`,
+  `webxr_hide_seek_development_handoff.md`).
+
+**결과** — 갤럭시 S25 1차 실기기 플레이 테스트와 그에 따른 수정까지 완료. 테스트 89 → 152개.
+
+---
+
+### 4-12. [12단계] 키프레임 복셀 복원 + 진단 모드 (`private/baencho`)
+
+**상황** — 도망 모드가 복셀 지도 위에서 돌기 시작하자, 그 지도가 **얼마나 믿을 만한지**가
+게임 품질을 결정하게 됐다. 복원 결과를 실기기에서 눈으로 검증할 수단이 필요했다.
+
+**진단 — 기존 누적기가 시점이 아니라 샘플을 세고 있었다**
+
+`VoxelMap`의 "같은 칸을 3번 이상 관측하면 solid" 규칙은 **서로 다른 시점 3개**를 뜻해야 한다.
+그런데 `depth-cloud.js`가 200ms마다 뿌리는 40×30 격자는 1m 거리에서 샘플 간격이 ~2.9cm인데
+복셀 한 변은 5cm다. **한 프레임의 광선 여러 개가 같은 칸에 떨어져 임계값이 한 장으로 충족**된다.
+간격은 거리에 비례하므로(4m에서 11.6cm) 가까운 것은 즉시 통과하고 먼 것만 걸러지는
+**거리 의존 편향**이 생긴다. 화면에서는 "원거리 복원이 깨졌다"처럼 보이지만 필터의 결함이다.
+
+**해결 — 별도 파이프라인 `?voxel=debug`** (기존 모드는 건드리지 않음)
+
+- **키프레임만 캡처** — 직전 대비 **20cm 이동 또는 15° 회전**일 때만(최대 40장). 포즈 판정은
+  매 프레임, 쿨다운은 캡처에만 걸어 임계값이 조용히 넓어지지 않게 한다.
+- **프레임 단위 중복 제거(`voxel-grid.js`)** — 한 키프레임은 한 칸에 **최대 1표**. 이제 관측 횟수가
+  "동의한 시점의 수"를 뜻한다.
+- **이상치 2단계(`depth-grid-filter.js`)** — 유효 범위(0.3~5m) + 이웃 깊이 불연속 검사로
+  물체 경계의 flying pixel 제거. 역투영은 ARCore가 광선 길이가 아니라 **광축 수직 거리**를
+  주는 점을 반영한다.
+- **원본 보존·재필터(`keyframe-store.js`)** — 스캔 중에는 깊이 격자와 포즈를 그대로 쌓고 복셀은
+  시각화 시점에 계산한다. **슬라이더를 움직이면 재스캔 없이 같은 데이터로 재필터**되므로
+  파라미터 효과를 같은 스캔 위에서 비교할 수 있다. JSON 내보내기/불러오기로 PC에서 반복 실험
+  (`viewer.html`에 JSON을 드롭하면 폰 없이 같은 재필터·색상 모드·occluder 메시를 볼 수 있다).
+- **시각화** — 관측 횟수(1=빨강/2=노랑/3+=초록)·높이·클러스터 색상 모드, 키프레임 카메라
+  프러스텀(포즈 누적이 매끄러운 호인지), AR 화면 위 복셀 wireframe, 바닥 평면 추정.
+- **정적 복셀 occluder 실험(`?occluder=voxel`)** — 9장의 "Phase 2"였던 것. 확정 복셀을 면 병합
+  깊이 전용 메시로 만들어 캐릭터보다 먼저 그리면 z-test가 뒤쪽 픽셀을 버린다. 맞닿은 면 제거로
+  삼각형 58~75% 감소, polygonOffset으로 발 잘림 방지. **실기기에서 체감 효과가 뚜렷하지 않아
+  기본값은 꺼져 있고** URL 파라미터로만 켠다.
+- **도망 모드 연결** — 키프레임 모드에서는 3회 이상 관측된 복셀만 통행 격자에 공급한다.
+  같은 스캔에서 "관측됐지만 설 곳 없는 칸"이 57 → 12로 줄었다(허공 노이즈가 걸러진 결과).
+  단, 이 경로는 `?voxel=debug`/`?occluder=voxel`에서만 쓰이며 기본 도망 모드는 기존 경로 그대로다.
+
+**실기기 결과 (갤럭시)** — 1차: 키프레임 28장/18초 → 복셀 19,330개, 바닥과 0.70m 위 책상 높이에
+히스토그램 봉우리, 카메라 높이 1.42m로 손에 든 폰과 일치. 2차: 거실 3.7분 → 복셀 61,990개(0.05m),
+임계값 1→2→4 전환 시 61,990 → 21,265 → 6,145로 즉각 재필터, 검은 물체 주변의 시선 방향 번짐
+아티팩트가 임계 4에서 사라짐. 재구성 249~717ms.
+
+**되지 않은 것** — 바닥을 지우고 3D 연결 성분으로 물체를 나누는 기하 분할. 복원 결과가 부피가
+아니라 표면 껍질이고 실내 가구가 서로 닿아 있어 84~96%가 한 덩어리로 남는다. 도망 모드가
+물체를 나누는 대신 "설 수 있는가"만 묻는 쪽으로 간 것이 옳았다는 근거가 됐다.
+
+**부수 수정** — 운영자 뷰 `InstancedMesh` 재질의 `vertexColors: true`를 제거. `BoxGeometry`에 색
+속성이 없어 셰이더가 0을 곱해 **복셀과 도망 모드 통행 타일이 검게** 그려지던 버그로, 기본 모드에도
+적용되는 유일한 동작 변경이다. 테스트 152 → 251개.
+
+---
+
+## 5. depth 모드
 
 WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다.
 
-| | 기본 URL | `?occlusion=cpu` | `?depth=cloud` |
-|---|---|---|---|
-| depth usage | `gpu-optimized` | `cpu-optimized` | `cpu-optimized` |
-| 하는 일 | three.js 내장 가림 | 동적 메시 가림 + 복셀 지도 | 복셀 공간 복원 진단 |
-| 동적 손 가림 | 브라우저 지원 시 가능 | 가능, 실기기 검증 필요 | 불가(과거 점을 누적) |
-| 운영자 뷰 | 없음 | 복셀·Ninja·anchor·이동 경로 | 같은 공간지도 진단 뷰 |
-| HUD 표시 | `가림 GPU` 또는 unavailable | `가림 CPU · 삼각형 N · 복셀 N` | `복셀 N` |
-| 갤럭시 현재 결과 | GPU depth unavailable | 새 검증 대상 | CPU depth 정상 확인 |
+| | 기본 URL | `?occlusion=cpu` | `?depth=cloud` | `?voxel=debug` |
+|---|---|---|---|---|
+| depth usage | `gpu-optimized` | `cpu-optimized` | `cpu-optimized` | `cpu-optimized` |
+| 하는 일 | three.js 내장 가림 | 동적 메시 가림 + 복셀 지도 | 복셀 공간 복원 진단 | 키프레임 복셀 진단 |
+| 동적 손 가림 | 브라우저 지원 시 가능 | 가능, 실기기 검증 필요 | 불가(과거 점을 누적) | 불가(가림 전부 끔) |
+| 운영자 뷰 | 없음 | 복셀·Ninja·anchor·이동 경로 | 같은 공간지도 진단 뷰 | 복셀·키프레임 프러스텀 |
+| HUD 표시 | `가림 GPU` 또는 unavailable | `가림 CPU · 삼각형 N · 복셀 N` | `복셀 N` | 키프레임·히스토그램·폐기 통계 |
+| 갤럭시 현재 결과 | GPU depth unavailable | 새 검증 대상 | CPU depth 정상 확인 | 1·2차 실기기 진단 완료 |
 
 `?depth=cloud&occlusion=cpu`처럼 두 값을 동시에 넣으면 통합 CPU 게임 모드를 우선한다.
+`?voxel=debug`는 그보다도 우선한다 — 가림이 살아 있으면 복셀 wireframe이 실물 뒤에서
+깊이 테스트로 잘려나가, 정작 확인해야 할 "책상 반대편이 복셀화됐는가"를 볼 수 없다.
+
+- `v4-chase.html` — 도망 모드 페이지. `?occlusion=cpu`를 자동으로 붙인다.
+- `?occluder=voxel` — 정적 복셀 occluder(실험). depth 파이프라인과 별개 축이라 별도 파라미터이며,
+  CPU 깊이가 필요하므로 실질 조합은 `?occlusion=cpu&occluder=voxel`이다.
 
 ## 6. 기술 스택
 
@@ -379,7 +469,7 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
 - **three.js 0.180** (렌더링, WebXR 매니저, 내장 depth-sensing 오클루전, GLTFLoader)
 - WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, (옵션) `anchors`, `local-floor`
 - **정적 호스팅**: GitHub Pages (백엔드 없음). CDN(three.js)만 외부 의존.
-- 테스트: Node.js `node:test` — **89개** (순수 로직·게임 상태·WebXR 경계·depth 소비자)
+- 테스트: Node.js `node:test` — **251개** (순수 로직·게임 상태·WebXR 경계·depth 소비자·통행 격자·복셀 진단)
 
 ## 7. 실행 / 테스트 방법
 
@@ -416,7 +506,7 @@ WebXR depth 세션 활성화 문제로 분류한다.
 ```bash
 python -m http.server 8000
 # http://localhost:8000  (단, WebXR는 HTTPS 또는 실기기 필요)
-node --test tests/*.test.mjs   # 자동 테스트 89개
+node --test tests/*.test.mjs   # 자동 테스트 251개
 ```
 
 ## 8. 현재 상태 / 검증
@@ -432,7 +522,10 @@ node --test tests/*.test.mjs   # 자동 테스트 89개
 | 복셀 재구성 + 운영자 3D 뷰 | ✅ 구현 / 실기기 확인 필요 |
 | CPU depth 공유 | ✅ 같은 XRFrame당 한 번 조회하도록 구현·자동 테스트 |
 | 하츄핑 GLB 모델 교체 | ✅ 구현·자동 테스트 / 크기·바닥·색 왕복 실측 확인 |
-| 자동 테스트 | ✅ **89개 통과** |
+| 도망 모드 (통행 격자·경로·잡기) | ✅ 구현·자동 테스트 / 갤럭시 S25 1차 플레이 테스트 반영 |
+| 키프레임 복셀 진단 모드 | ✅ 구현·자동 테스트 / 갤럭시 1·2차 진단 완료 |
+| 정적 복셀 occluder | ⚠️ 실험 (`?occluder=voxel`) / 체감 효과 미미, 기본 꺼짐 |
+| 자동 테스트 | ✅ **251개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 
@@ -450,8 +543,11 @@ node --test tests/*.test.mjs   # 자동 테스트 89개
 
 ### 다음 단계
 
-- **복셀 기반 정적 오클루전 (Phase 2)**: 재구성한 solid 복셀을 깊이 버퍼에 반영해
-  베개·장난감·기둥 같은 **정적 물체 뒤에** Ninja를 숨긴다.
+- **키프레임 복원을 기본 모드에 적용**: 12단계에서 확인한 "샘플을 세는" 결함은 진단 모드에서만
+  고쳐져 있다. 기본 `VoxelMap`/도망 모드 지형 공급 경로에도 프레임 단위 중복 제거를 넣는다.
+- **복셀 기반 정적 오클루전 (Phase 2)**: `?occluder=voxel`로 실험 구현은 됐으나 체감 효과가
+  뚜렷하지 않았다. 메시가 방과 정렬됐는지 확인할 반투명 진단 표시부터 만들고 재검증한다.
+- **재구성 속도**: 0.04m 복셀에서 717ms로 슬라이더가 버벅인다. 바뀐 부분만 갱신하거나 하한을 올린다.
 - **Persistent/Cloud Anchor**: 현재 XRAnchor는 같은 세션 동안의 고정이 목적이다.
   세션 종료 후 같은 현실 위치를 복원하려면 Persistent 또는 Cloud Anchor가 필요하다.
   별도 저장 권한·API·식별자 수명·개인정보 설계가 필요해 이번 범위에서 제외했다.
@@ -463,7 +559,11 @@ node --test tests/*.test.mjs   # 자동 테스트 89개
 
 ```
 index.html            진입점 (모듈 로더 + HUD DOM)
+v4-chase.html         도망 모드 페이지 (?occlusion=cpu 자동 부착)
+v3-mapview.html       지도뷰 페이지
 hcp.glb               숨는 대상 3D 스캔 모델 (하츄핑, 3.7MB)
+chase-mode-handoff.md / webxr_hide_seek_development_handoff.md  인수인계 문서 (11단계)
+viewer.html           PC용 복셀 복원 뷰어 — ?voxel=debug에서 내보낸 스캔 JSON을 드롭해 재필터·확인
 src/
   main.js             엔트리·GPU/CPU/cloud 모드 조립·공유 depth·렌더 루프
   app-mode.js         URL 모드 선택과 depth usage 결정 (순수 로직)
@@ -486,7 +586,26 @@ src/
   voxel-map.js        복셀 점유·노이즈제거·상한 관리 (three 비의존, 테스트됨)
   player-trail.js     플레이어 경로 버퍼 (three 비의존, 테스트됨)
   operator-view.js    운영자 오빗 3D 뷰 오버레이
-tests/                자동 테스트 (node:test) 89개
+  --- 도망 모드 (11단계) ---
+  traversal-grid.js   복셀 → 20cm 통행 격자·슬랩·바닥 추정·flood fill (three 비의존, 테스트됨)
+  chase-path.js       통행 격자 위 경로 탐색 (three 비의존, 테스트됨)
+  chase-runner.js     하츄핑 이동·도망 상태 (three 비의존, 테스트됨)
+  capture-gauge.js    잡기 게이지
+  --- 키프레임 복셀 진단 (12단계) ---
+  keyframe-gate.js    포즈 델타 키프레임 선정 (three 비의존, 테스트됨)
+  keyframe-capture.js XRCPUDepthInformation → 스냅샷
+  keyframe-store.js   스냅샷 보존·재구성·JSON 코덱 (three 비의존, 테스트됨)
+  depth-grid-filter.js 범위 클립·4이웃 그래디언트 (three 비의존, 테스트됨)
+  voxel-grid.js       프레임 중복제거·관측횟수·누적평균·확정 셀 추출 (three 비의존, 테스트됨)
+  voxel-floor.js      Y 히스토그램 바닥 평면 추정 (three 비의존, 테스트됨)
+  voxel-color-modes.js 관측횟수/높이/클러스터 색상 (three 비의존, 테스트됨)
+  voxel-debug-params.js 슬라이더 스키마·clamp (three 비의존, 테스트됨)
+  voxel-debug-controller.js 스캔 수명주기·재구성 글루 (테스트됨)
+  voxel-overlay.js    AR 화면 복셀 wireframe
+  voxel-debug-panel.js 런타임 생성 슬라이더 패널
+  voxel-occluder-mesh.js 확정 복셀 → 면 병합 지오메트리 (three 비의존, 테스트됨)
+  voxel-occluder.js   깊이 전용 정적 occluder 메시 (테스트됨)
+tests/                자동 테스트 (node:test) 251개
 docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 ```
 

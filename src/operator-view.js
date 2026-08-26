@@ -9,13 +9,40 @@ import {
   VOXEL_MAX_SOLID,
   VOXEL_SIZE_M,
 } from './config.js';
+import { cellMeanPosition } from './voxel-grid.js';
+import { voxelColorRGB } from './voxel-color-modes.js';
+
+const MAX_FRUSTUMS = 32;
+const FRUSTUM_DEPTH_M = 0.25;
+const FRUSTUM_SPREAD = 0.18;
+// Apex plus the four corners of a small near rect, in view space (-Z forward).
+const FRUSTUM_CORNERS = [
+  [0, 0, 0],
+  [-FRUSTUM_SPREAD, -FRUSTUM_SPREAD * 0.75, -FRUSTUM_DEPTH_M],
+  [FRUSTUM_SPREAD, -FRUSTUM_SPREAD * 0.75, -FRUSTUM_DEPTH_M],
+  [FRUSTUM_SPREAD, FRUSTUM_SPREAD * 0.75, -FRUSTUM_DEPTH_M],
+  [-FRUSTUM_SPREAD, FRUSTUM_SPREAD * 0.75, -FRUSTUM_DEPTH_M],
+];
+const FRUSTUM_EDGES = [
+  [FRUSTUM_CORNERS[0], FRUSTUM_CORNERS[1]],
+  [FRUSTUM_CORNERS[0], FRUSTUM_CORNERS[2]],
+  [FRUSTUM_CORNERS[0], FRUSTUM_CORNERS[3]],
+  [FRUSTUM_CORNERS[0], FRUSTUM_CORNERS[4]],
+  [FRUSTUM_CORNERS[1], FRUSTUM_CORNERS[2]],
+  [FRUSTUM_CORNERS[2], FRUSTUM_CORNERS[3]],
+  [FRUSTUM_CORNERS[3], FRUSTUM_CORNERS[4]],
+  [FRUSTUM_CORNERS[4], FRUSTUM_CORNERS[1]],
+];
+const FRUSTUM_VERTS = FRUSTUM_EDGES.length * 2;
 
 // A second, non-XR 3D scene rendered onto an overlay canvas: a god's-eye view
 // of the reconstructed voxel space, the hidden Ninja, and the player's path.
 // Independent WebGL context; renders only while the overlay is visible.
 export class OperatorView {
-  constructor({ canvas }) {
+  constructor({ canvas, voxelSize = VOXEL_SIZE_M, maxVoxels = VOXEL_MAX_SOLID }) {
     this.canvas = canvas;
+    this.voxelSize = voxelSize;
+    this.maxVoxels = maxVoxels;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 
@@ -31,12 +58,17 @@ export class OperatorView {
     this.controls.enableDamping = true;
 
     this.voxels = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(VOXEL_SIZE_M, VOXEL_SIZE_M, VOXEL_SIZE_M),
-      new THREE.MeshLambertMaterial({ vertexColors: true }),
-      VOXEL_MAX_SOLID,
+      new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize),
+      // No vertexColors here. It defines USE_COLOR, whose shader chunk runs
+      // `vColor *= color` against the geometry's color attribute — and a
+      // BoxGeometry has none, so the undefined attribute reads as (0,0,0) and
+      // zeroes the color before instanceColor is ever multiplied in. Leaving it
+      // off keeps USE_INSTANCING_COLOR alone, which is what setColorAt feeds.
+      new THREE.MeshLambertMaterial(),
+      maxVoxels,
     );
     this.voxels.instanceColor = new THREE.InstancedBufferAttribute(
-      new Float32Array(VOXEL_MAX_SOLID * 3),
+      new Float32Array(maxVoxels * 3),
       3,
     );
     this.voxels.count = 0;
@@ -47,7 +79,11 @@ export class OperatorView {
     // Anything never observed simply has no tile.
     this.tiles = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 0.02, 1),
-      new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }),
+      // No vertexColors — same trap as the voxel mesh above. It defines
+      // USE_COLOR, whose shader chunk runs `vColor *= color` against a colour
+      // attribute this BoxGeometry does not have, so the tiles drew black and
+      // the green/amber/red walkability coding was invisible on device.
+      new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55 }),
       CHASE_GRID_MAX_TILES,
     );
     this.tiles.instanceColor = new THREE.InstancedBufferAttribute(
@@ -107,9 +143,107 @@ export class OperatorView {
     this.path.frustumCulled = false;
     this.scene.add(this.path);
 
+    // Keyframe camera frustums: one preallocated LineSegments, 8 segments each,
+    // so pose accumulation is legible as a shape rather than a number.
+    this.frustumGeometry = new THREE.BufferGeometry();
+    this.frustumGeometry.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array(MAX_FRUSTUMS * FRUSTUM_VERTS * 3), 3),
+    );
+    this.frustumGeometry.setAttribute(
+      'color',
+      new THREE.BufferAttribute(new Float32Array(MAX_FRUSTUMS * FRUSTUM_VERTS * 3), 3),
+    );
+    this.frustumGeometry.setDrawRange(0, 0);
+    this.frustums = new THREE.LineSegments(
+      this.frustumGeometry,
+      new THREE.LineBasicMaterial({ vertexColors: true }),
+    );
+    this.frustums.frustumCulled = false;
+    this.frustums.visible = false;
+    this.scene.add(this.frustums);
+
     this._matrix = new THREE.Matrix4();
     this._color = new THREE.Color();
+    this._vec = new THREE.Vector3();
+    this._frustumMatrix = new THREE.Matrix4();
     this.voxelRevision = -1;
+    this.cellRevision = -1;
+    this.drawnVoxelCount = 0;
+  }
+
+  // Swaps the instanced box size when the voxel-size slider moves. instanceMatrix
+  // and instanceColor survive a geometry swap; the old geometry must be disposed
+  // or a single slider drag leaks a GPU buffer per step.
+  setVoxelSize(size) {
+    if (size === this.voxelSize) return;
+    this.voxelSize = size;
+    const previous = this.voxels.geometry;
+    this.voxels.geometry = new THREE.BoxGeometry(size, size, size);
+    previous.dispose();
+    this.cellRevision = -1;
+  }
+
+  // Debug path: VoxelCell records rather than the legacy {position, colorT}.
+  // Returns how many were actually drawn so truncation is never invisible.
+  setVoxelCells(cells, revision, colorMode, { minY = -1, spanY = 3 } = {}) {
+    if (revision === this.cellRevision) return this.drawnVoxelCount;
+    this.cellRevision = revision;
+    this.voxelRevision = -1; // legacy path must rebuild if it ever runs again
+
+    const count = Math.min(cells.length, this.maxVoxels);
+    for (let i = 0; i < count; i += 1) {
+      const cell = cells[i];
+      const [x, y, z] = cellMeanPosition(cell);
+      this._matrix.makeTranslation(x, y, z);
+      this.voxels.setMatrixAt(i, this._matrix);
+      const [r, g, b] = voxelColorRGB(cell, colorMode, { y, minY, spanY });
+      this._color.setRGB(r, g, b);
+      this.voxels.setColorAt(i, this._color);
+    }
+    this.voxels.count = count;
+    this.voxels.instanceMatrix.needsUpdate = true;
+    if (this.voxels.instanceColor) this.voxels.instanceColor.needsUpdate = true;
+    this.drawnVoxelCount = count;
+    return count;
+  }
+
+  setKeyframePoses(poses) {
+    const count = Math.min(poses.length, MAX_FRUSTUMS);
+    const positions = this.frustumGeometry.attributes.position.array;
+    const colors = this.frustumGeometry.attributes.color.array;
+    let offset = 0;
+
+    for (let i = 0; i < count; i += 1) {
+      this._frustumMatrix.fromArray(poses[i].viewMatrix);
+      // Index ramp: the first keyframe is dark, the last is bright, so the
+      // capture order reads directly off the picture.
+      const t = count > 1 ? i / (count - 1) : 1;
+      const r = 0.25 + 0.75 * t;
+      const g = 0.5 + 0.4 * t;
+      const b = 0.35 + 0.2 * (1 - t);
+
+      for (const [from, to] of FRUSTUM_EDGES) {
+        for (const corner of [from, to]) {
+          this._vec.set(corner[0], corner[1], corner[2]).applyMatrix4(this._frustumMatrix);
+          positions[offset] = this._vec.x;
+          positions[offset + 1] = this._vec.y;
+          positions[offset + 2] = this._vec.z;
+          colors[offset] = r;
+          colors[offset + 1] = g;
+          colors[offset + 2] = b;
+          offset += 3;
+        }
+      }
+    }
+
+    this.frustumGeometry.setDrawRange(0, count * FRUSTUM_VERTS);
+    this.frustumGeometry.attributes.position.needsUpdate = true;
+    this.frustumGeometry.attributes.color.needsUpdate = true;
+  }
+
+  setKeyframePosesVisible(visible) {
+    this.frustums.visible = visible;
   }
 
   resize() {
@@ -172,7 +306,9 @@ export class OperatorView {
       this.hachuping.visible = false;
     }
 
-    if (voxelRevision !== this.voxelRevision) {
+    // solidVoxels is null in ?voxel=debug, where setVoxelCells() owns the
+    // instanced mesh instead of this legacy path.
+    if (solidVoxels && voxelRevision !== this.voxelRevision) {
       const count = Math.min(solidVoxels.length, VOXEL_MAX_SOLID);
       for (let i = 0; i < count; i += 1) {
         const { position, colorT } = solidVoxels[i];
