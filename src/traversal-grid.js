@@ -163,14 +163,6 @@ export class TraversalGrid {
   // Recomputed only when a new low slab appears, and every cached level list is
   // invalidated when the answer moves, because the standable ceiling moves too.
   resolveFloorSlab() {
-    // A fitted floor plane is the authority when present: the histogram below is
-    // exactly what mislabels a tabletop as the floor, which the plane fixes.
-    if (this.floorPlane && this.floorPlaneRefY !== null) {
-      const slab = Math.max(0, Math.min(this.slabCount - 1, this.slabOf(this.floorPlaneRefY)));
-      if (slab !== this.floorSlab) { this.floorSlab = slab; this.standGen += 1; }
-      this.floorDirty = false;
-      return this.floorSlab;
-    }
     if (!this.floorDirty) return this.floorSlab;
     this.floorDirty = false;
     // Absolute floor of 8 cells was tuned for hit counting. A fused map emits
@@ -290,38 +282,38 @@ export class TraversalGrid {
     cell.levels = null;
   }
 
-  // Adopt a fitted floor plane (or null to clear). Two effects:
-  //   1. Height correction — resolveFloorSlab uses the plane, not the histogram.
-  //   2. Bounded sparse fill — cells within fillRadius of an observed floor cell
-  //      gain a floor voxel at the plane height, UNLESS something solid blocks
-  //      the body column just above (furniture / wall) or they sit beyond the
-  //      radius (a real hole or unscanned void, left untouched).
+  // Adopt a fitted floor plane (or null to clear) and fill sparse-scan gaps in
+  // the floor. The plane's job is to CONFIRM a coherent, near-horizontal floor
+  // exists — its absolute height is deliberately not trusted, because a scan's
+  // densest surface can be a desk (floats the character) and its lowest points
+  // can be sub-floor noise (sinks it). The fill therefore bridges gaps at the
+  // height the OBSERVATIONS already agree on (the histogram floor slab), which
+  // is the height the game ran at before this feature.
+  //
+  // A cell within fillRadius of an observed floor cell gains a floor voxel at
+  // that slab UNLESS it already stands somewhere, something solid blocks the
+  // body column just above it, or it lies beyond the radius (a real hole or
+  // unscanned void, left untouched).
   applyFloorPlane(plane, { fillRadius = 2, bodyHeightSlabs = this.headroomSlabs } = {}) {
     this.floorPlane = plane || null;
+    this.floorPlaneRefY = null;
     if (!plane) {
-      this.floorPlaneRefY = null;
       this.floorDirty = true;
       this.standGen += 1;
       this.revision += 1;
       return;
     }
 
-    // Floor reference height = the plane at the observed centroid.
-    let sx = 0; let sz = 0; let nc = 0;
-    for (const cell of this.cells.values()) {
-      sx += this.centerX(cell.cx); sz += this.centerZ(cell.cz); nc += 1;
-    }
-    this.floorPlaneRefY = plane.heightAt(nc ? sx / nc : 0, nc ? sz / nc : 0);
+    const floorSlab = this.resolveFloorSlab();
+    if (floorSlab === null) return;
 
-    const planeSlabAt = (cx, cz) => this.slabOf(plane.heightAt(this.centerX(cx), this.centerZ(cz)));
-
-    // Seeds: observed cells that carry a floor voxel in the plane's slab.
+    // Seeds: observed cells that carry a floor voxel at the floor slab.
     const seeds = [];
     for (const cell of this.cells.values()) {
-      if (this.hasSlab(cell, planeSlabAt(cell.cx, cell.cz))) seeds.push([cell.cx, cell.cz]);
+      if (this.hasSlab(cell, floorSlab)) seeds.push([cell.cx, cell.cz]);
     }
 
-    // Bounded dilation of the observed floor.
+    // Bounded dilation of the observed floor, at the observed floor height.
     const done = new Set();
     for (const [scx, scz] of seeds) {
       for (let dz = -fillRadius; dz <= fillRadius; dz += 1) {
@@ -330,14 +322,16 @@ export class TraversalGrid {
           const key = cellKey(cx, cz);
           if (done.has(key)) continue;
           done.add(key);
-          const slab = planeSlabAt(cx, cz);
-          if (slab < 0 || slab >= this.slabCount) continue;
           const cell = this.cells.get(key);
           if (cell) {
-            if (this.hasSlab(cell, slab)) continue; // already floor here
-            if (this.solidInBand(cell, slab + 1, bodyHeightSlabs)) continue; // under something
+            if (this.hasSlab(cell, floorSlab)) continue; // already floor here
+            if (this.solidInBand(cell, floorSlab + 1, bodyHeightSlabs)) continue; // under something
+            // Only bridge genuine gaps. A cell that already offers somewhere to
+            // stand (e.g. a shelf) keeps it; adding a floor beneath it would
+            // sink Hachuping through a surface it should rest on.
+            if (this.isWalkable(cx, cz)) continue;
           }
-          this.addSyntheticFloor(cx, cz, slab);
+          this.addSyntheticFloor(cx, cz, floorSlab);
         }
       }
     }

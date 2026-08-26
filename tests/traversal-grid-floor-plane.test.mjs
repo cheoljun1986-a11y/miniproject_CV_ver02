@@ -27,19 +27,16 @@ function feetY(grid, surfaceY) {
   return grid.slabTopY(grid.slabOf(surfaceY));
 }
 
-test('applyFloorPlane corrects the floor reference the histogram gets wrong', () => {
+test('applyFloorPlane does not move the floor height (no sink/float)', () => {
   const grid = makeGrid();
-  // Sparse real floor (16 cells) at y = -1.0 ...
-  for (let i = 0; i < 4; i += 1) for (let j = 0; j < 4; j += 1) grid.observe([i * CELL + 0.05, -1.0, j * CELL + 0.05]);
-  // ... under a denser tabletop (64 cells) at y = -0.4 that dominates the histogram.
-  for (let i = 0; i < 8; i += 1) for (let j = 0; j < 8; j += 1) grid.observe([i * CELL + 0.05, -0.4, j * CELL + 0.05]);
+  for (let i = 0; i < 6; i += 1) for (let j = 0; j < 6; j += 1) grid.observe([i * CELL + 0.05, -1.0, j * CELL + 0.05]);
 
   const before = grid.slabTopY(grid.resolveFloorSlab());
-  assert.ok(Math.abs(before - feetY(grid, -0.4)) < 1e-9, 'histogram picks the tabletop as floor');
-
-  grid.applyFloorPlane(flatPlane(-1.0));
+  // Even a plane placed well below the observed floor must not lower the floor:
+  // trusting a plane's absolute height is what sank the character.
+  grid.applyFloorPlane(flatPlane(-1.6));
   const after = grid.slabTopY(grid.resolveFloorSlab());
-  assert.ok(Math.abs(after - feetY(grid, -1.0)) < 1e-9, 'plane corrects the floor to the real floor');
+  assert.ok(Math.abs(after - before) < 1e-9, 'the floor height stays with the observations');
 });
 
 test('fills sparse floor gaps within the fill radius', () => {

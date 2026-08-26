@@ -99,11 +99,14 @@ export const CHASE_GRID_MAX_TILES = 6000;
 export const CHASE_PATH_MAX_POINTS = 256;
 export const CHASE_GRID_REBUILD_GAP_MS = 250;
 
-// RANSAC floor plane (?floor=ransac). Fitted once when the map is frozen, then
-// used to correct the floor height and fill sparse-scan gaps in the chase grid.
-// Values validated offline against four on-device scans (results/*.json): the
-// fit lands on a near-flat floor ~0.9-1.4 m below head height and lifts walkable
-// cells ~50-90% with no ceiling/tabletop misfits.
+// RANSAC floor plane (?floor=ransac). Fitted once when the map is frozen to
+// CONFIRM a coherent, near-horizontal floor exists, then used to fill sparse-scan
+// gaps in the chase grid AT THE OBSERVED FLOOR HEIGHT. The plane's absolute
+// height is deliberately not trusted: a scan's densest surface can be a desk
+// (which floated the character) and its lowest points can be sub-floor noise
+// (which sank it), so the fill sits at the height the observations already agree
+// on. Validated offline against four on-device scans (results/*.json): floor
+// height unchanged from the pre-feature baseline, walkable cells +30-45%.
 export const FLOOR_RANSAC_ITERATIONS = 200;
 export const FLOOR_RANSAC_DISTANCE_M = 0.06;      // inlier band ≈ one voxel
 export const FLOOR_RANSAC_MAX_TILT_DEG = 10;      // reject walls / steep surfaces
