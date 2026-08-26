@@ -114,27 +114,6 @@ export function setNinjaOpacity(root, opacity) {
     }
   });
 }
-// Draw the model straight through real-world geometry at reduced opacity.
-//
-// Occlusion is a depth-buffer trick: a real surface writes depth and anything
-// behind it is discarded per pixel, so there is no "half hidden" state to fade
-// — the character is either drawn or it is not. Turning depth testing off for
-// its materials makes the whole model render on top of everything, and pairing
-// that with a low opacity reads as a ghost showing through the obstacle.
-//
-// Used when the terrain says Hachuping is behind something: the 20cm grid is
-// coarse enough that one noisy cell hides a 20cm character completely, and a
-// target that vanishes entirely is worse than one you can still faintly see.
-export function setNinjaGhost(root, ghosted, opacity = 0.5) {
-  root.traverse((child) => {
-    if (!child.material?.transparent) return;
-    child.material.depthTest = !ghosted;
-    child.material.opacity = ghosted ? opacity : 1;
-    child.material.depthWrite = !ghosted;
-    child.material.needsUpdate = true;
-  });
-}
-
 export function revealNinja(root) {
   setNinjaOpacity(root, 1);
   const halo = new THREE.Mesh(

@@ -40,7 +40,7 @@ import {
   CAPTURE_RADIUS_M, CaptureGauge, angleToTargetDeg, directionInViewSpace,
   makeArrowGate, screenAngleFromViewDirection,
 } from './capture-gauge.js';
-import { visibleFraction } from './line-of-sight.js';
+import { liveVisibleFraction } from './live-visibility.js';
 import { ChaseLog } from './chase-log.js';
 import { gridCandidatePool } from './grid-candidates.js';
 import { MapAnchor } from './map-anchor.js';
@@ -145,8 +145,6 @@ let chaseArrowGate = null;
 // changing under Hachuping's feet and errors from accumulating into the map.
 let mapBuilding = false;
 let mapFrozen = false;
-// How solid the character looks while terrain says it is behind something.
-const GHOST_OPACITY = 0.5;
 // The nail the map hangs on. Created at the origin when building starts; every
 // stored coordinate (grid cells, Hachuping) lives in ITS frame, and rendering
 // converts back out. When ARCore corrects its drift the map follows the nail.
@@ -339,7 +337,12 @@ async function init() {
       // it, but only shown automatically when it is the point of the session.
       voxelOccluder = new VoxelOccluder({ scene });
     }
-    if (CPU_OCCLUSION_MODE) {
+    // Not on the chase page. There the only solid virtual object is Hachuping,
+    // whose occlusion is a measured opacity (live-visibility.js) — per-pixel
+    // cutting by this mesh is exactly the noise-vulnerable path being replaced.
+    // The depth FEED stays on regardless: the voxel map and the visibility
+    // measurement both read it.
+    if (CPU_OCCLUSION_MODE && !ui.hasChaseControls()) {
       cpuDepthOccluder = new CpuDepthOccluder({ scene, depthSource });
     }
     try {
@@ -557,7 +560,6 @@ function stopChase(message) {
   chaseLog?.push(performance.now(), 'stop');
   chaseRunner.stop();
   game.setExternalControl(false);
-  game.setTargetGhost(false);
   game.setTargetOpacity(NINJA_CAMOUFLAGE_OPACITY);
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
@@ -609,7 +611,7 @@ function startChase() {
   return true;
 }
 
-function updateChase(time, viewerPose) {
+function updateChase(time, frame, localSpace, viewerPose) {
   if (!chaseActive || !chaseRunner?.isActive()) return;
 
   const dt = lastChaseTime === null
@@ -651,16 +653,23 @@ function updateChase(time, viewerPose) {
   const dz = renderPos[2] - viewerPose.position[2];
   const distance = Math.hypot(dx, dy, dz);
   const angleDeg = angleToTargetDeg(forward, viewerPose.position, renderPos);
-  // How much of Hachuping the scanned terrain actually leaves visible. Graded
-  // rather than yes/no: half a character behind a chair leg still counts, it
-  // just fills slower.
-  const visibility = visibleFraction(chaseGrid, playerMap, state.position, {
-    bodyHeightM: HIDDEN_MODEL_HEIGHT_M,
-  });
+  // How much of Hachuping the player can see, measured against the LIVE depth
+  // image — camera position and rendered position, the same space the depth
+  // views live in, so map drift cannot fake cover. null (off screen, no depth)
+  // leaves the gauge treating the target as visible: no data never punishes.
+  const visibility = liveVisibleFraction(
+    depthSource?.read(frame, localSpace),
+    viewerPose.position,
+    renderPos,
+    { bodyHeightM: HIDDEN_MODEL_HEIGHT_M },
+  );
   const capture = captureGauge.update(dt, { distance, angleDeg, visibility });
-  // Behind terrain: show a ghost through the obstacle rather than nothing. The
-  // grid is 20cm and so is Hachuping, so one noisy cell can hide it outright.
-  game.setTargetGhost(!capture.visible, GHOST_OPACITY);
+  // One scalar for both meanings of "how covered": the gauge fills at
+  // visibleScale, and the model fades to it. Fully hidden bottoms out at the
+  // gauge's hidden-fill floor (0.25) instead of vanishing — the player keeps a
+  // faint silhouette, and whatever is really in front stays visible through
+  // it, which is also the debugging view for "what covered it?".
+  game.setTargetOpacity(capture.visibleScale);
 
   ui.setChaseGauge(capture.value);
   ui.setChaseHint(`${captureGauge.hint()}  ·  ${distance.toFixed(1)}m`);
@@ -737,7 +746,7 @@ function render(time, frame) {
     }
     if (viewerPose) playerTrail?.record(viewerPose.position);
     if (cameraAccess === null) cameraAccess = probeCameraAccess(frame, localSpace);
-    updateChase(time, viewerPose);
+    updateChase(time, frame, localSpace, viewerPose);
     if (operatorVisible) buildChaseTiles(time);
     maybeBackupGameMap(time);
 
@@ -999,7 +1008,6 @@ function respawnHachuping() {
   captureGauge.reset();
   chaseArrowGate = makeArrowGate();
   lastChaseTime = null;
-  game.setTargetGhost(false);
   game.setExternalControl(true);
   game.setTargetOpacity(1);
   ui.setChaseGauge(0);

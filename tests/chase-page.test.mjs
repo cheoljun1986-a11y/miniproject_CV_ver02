@@ -399,22 +399,33 @@ test('the landing page points at the chase page and describes its real flow', as
   assert.match(body, /검거/);
 });
 
-// ── occluded targets ghost through instead of vanishing ──────
-test('main.js ghosts the model when the terrain says it is hidden', async () => {
+// ── occlusion is a measured opacity, not a per-pixel cut ─────
+// The full-screen depth mesh cut a 20cm body out of the frame whenever one
+// noisy cell landed on it. The chase judges the body as one object instead:
+// live depth at seven silhouette points -> a visibility scale that drives
+// BOTH the gauge speed and the model's opacity.
+test('main.js fades the model by the same scale that fills the gauge', async () => {
   const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
-  assert.match(src, /setTargetGhost\(!capture\.visible, GHOST_OPACITY\)/);
-  // And it must go solid again when the round ends or the target moves.
-  assert.match(src, /setTargetGhost\(false\)/);
+  assert.match(src, /setTargetOpacity\(capture\.visibleScale\)/);
+  // The binary ghost path is gone with the mesh that motivated it.
+  assert.doesNotMatch(src, /setTargetGhost/);
 });
 
-test('the ghost draws through real geometry, which is the whole point', async () => {
-  const src = await readFile(new URL('../src/ninja-model.js', import.meta.url), 'utf8');
-  const fn = src.slice(src.indexOf('export function setNinjaGhost'));
-  const body = fn.slice(0, fn.indexOf('\n}\n'));
-  // Occlusion is a depth-buffer effect; only disabling depthTest lets the
-  // hidden model show at all.
-  assert.match(body, /depthTest = !ghosted/);
-  assert.match(body, /opacity = ghosted \? opacity : 1/);
+test('visibility is measured in render space against the live depth image', async () => {
+  const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  const call = src.slice(src.indexOf('liveVisibleFraction('));
+  const args = call.slice(0, call.indexOf(';'));
+  // Camera position and rendered position — the space the depth views live in.
+  // Comparing map-space points against live depth would re-import map drift.
+  assert.match(args, /viewerPose\.position/);
+  assert.match(args, /renderPos/);
+});
+
+test('the chase page builds no full-screen occlusion mesh', async () => {
+  const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  // The mesh construction must be gated off the chase page; the depth feed
+  // itself stays on for the voxel map and the visibility measurement.
+  assert.match(src, /CPU_OCCLUSION_MODE && !ui\.hasChaseControls\(\)/);
 });
 
 test('the on-screen range instruction follows the capture radius constant', async () => {

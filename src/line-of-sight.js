@@ -38,22 +38,19 @@ export function segmentBlocked(grid, from, to, {
   return false;
 }
 
-// How much of a body at `to` the camera at `from` can actually see, 0..1.
-//
-// A single ray to the centre is the wrong question. A chair leg crossing the
-// middle would zero out a character that is plainly visible, and a lucky gap
-// would fully expose one that is behind a cupboard. Sampling several points
-// spread across the body answers what the player sees instead.
+// The seven points that stand in for a whole body when asking "how much of it
+// can the camera see". A single ray to the centre is the wrong question: a
+// chair leg crossing the middle would zero out a character that is plainly
+// visible, and a lucky gap would fully expose one behind a cupboard.
 //
 // Samples sit on the vertical axis and on the horizontal axis perpendicular to
 // the view direction, which is the silhouette the camera actually faces.
-export function visibleFraction(grid, from, to, {
+// Shared by the map-grid test below and the live-depth test in
+// live-visibility.js so both judge the same silhouette.
+export function bodySampleOffsets(from, to, {
   bodyHeightM = 0.34,
   bodyRadiusM = 0.10,
-  ...segmentOptions
 } = {}) {
-  if (!grid || !from || !to) return 1;
-
   const dx = to[0] - from[0];
   const dz = to[2] - from[2];
   const planar = Math.hypot(dx, dz);
@@ -62,7 +59,7 @@ export function visibleFraction(grid, from, to, {
   const sz = planar > 1e-6 ? dx / planar : 0;
 
   const half = bodyHeightM / 2;
-  const offsets = [
+  return [
     [0, 0, 0],                                  // centre of mass
     [0, half * 0.8, 0],                         // head
     [0, -half * 0.8, 0],                        // feet
@@ -71,7 +68,18 @@ export function visibleFraction(grid, from, to, {
     [sx * bodyRadiusM * 0.7, half * 0.5, sz * bodyRadiusM * 0.7],
     [-sx * bodyRadiusM * 0.7, half * 0.5, -sz * bodyRadiusM * 0.7],
   ];
+}
 
+// How much of a body at `to` the camera at `from` can actually see, 0..1,
+// judged against the frozen traversal grid.
+export function visibleFraction(grid, from, to, {
+  bodyHeightM = 0.34,
+  bodyRadiusM = 0.10,
+  ...segmentOptions
+} = {}) {
+  if (!grid || !from || !to) return 1;
+
+  const offsets = bodySampleOffsets(from, to, { bodyHeightM, bodyRadiusM });
   let clear = 0;
   for (const [ox, oy, oz] of offsets) {
     const point = [to[0] + ox, to[1] + oy, to[2] + oz];
