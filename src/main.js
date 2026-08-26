@@ -100,6 +100,9 @@ let mapper;
 let xrSession;
 let game;
 let depthSource = null;
+// null until the first frame answers it: does XRView carry a camera, i.e. did
+// the browser actually grant camera-access for this session?
+let cameraAccess = null;
 let depthCloud = null;
 let occluder = null; // depth-sensing occlusion mesh (real world hides the ninja)
 let cpuDepthOccluder = null;
@@ -317,7 +320,10 @@ async function init() {
 
   const arButton = ARButton.createButton(renderer, {
     requiredFeatures: ['hit-test'],
-    optionalFeatures: ['anchors', 'dom-overlay', 'local-floor', 'depth-sensing'],
+    // camera-access is requested only to find out whether this browser grants
+    // it; nothing reads camera images yet. Optional, so a refusal cannot stop
+    // the session from starting.
+    optionalFeatures: ['anchors', 'dom-overlay', 'local-floor', 'depth-sensing', 'camera-access'],
     // gpu-optimized feeds three's built-in mesh. CPU modes let this app read
     // samples for either point-cloud reconstruction or our dynamic occluder.
     depthSensing: {
@@ -340,6 +346,7 @@ async function init() {
     lastOperatorRenderTime = -Infinity;
     operatorVoxelRevision = -1;
     operatorSolidVoxels = [];
+    cameraAccess = null;
     voxelDebug?.reset();
     voxelOverlay?.clear();
     voxelOccluder?.reset();
@@ -360,6 +367,7 @@ async function init() {
     lastOperatorRenderTime = -Infinity;
     operatorVoxelRevision = -1;
     operatorSolidVoxels = [];
+    cameraAccess = null;
     voxelDebug?.reset();
     voxelOverlay?.clear();
     voxelOccluder?.reset();
@@ -550,6 +558,7 @@ function render(time, frame) {
       depthCloud?.update(frame, localSpace, time);
     }
     if (viewerPose) playerTrail?.record(viewerPose.position);
+    if (cameraAccess === null) cameraAccess = probeCameraAccess(frame, localSpace);
     updateChase(time, viewerPose);
     if (operatorVisible) buildChaseTiles(time);
 
@@ -566,6 +575,7 @@ function render(time, frame) {
         ui.setOperatorStatus(formatOperatorStatus({
           anchorState: game.getAnchorState(),
           voxelCount,
+          cameraAccess,
           ninjaPosition,
           playerPosition: viewerPose?.position ?? null,
           pathPointCount: playerTrail?.getCount() ?? 0,
@@ -667,6 +677,18 @@ function maybeBuildVoxelOccluder() {
   // In game mode it should start occluding as soon as it exists; in the
   // diagnostic the panel owns the toggle so the wireframe stays inspectable.
   if (!VOXEL_DEBUG_MODE) voxelOccluder.setVisible(true);
+}
+
+// Answer whether the browser granted raw camera access, or null while no frame
+// has reported a view yet. XRView.camera exists only when camera-access was
+// granted, so it is the honest signal — enabledFeatures can list a feature the
+// runtime then declines to populate. Reads through the shared depth snapshot,
+// so it costs nothing extra on a frame already read.
+function probeCameraAccess(frame, referenceSpace) {
+  const snapshot = depthSource?.read(frame, referenceSpace);
+  const views = snapshot?.viewerPose?.views;
+  if (!views?.length) return null;
+  return Boolean(views[0].camera);
 }
 
 function updateMetrics(viewerPose) {
