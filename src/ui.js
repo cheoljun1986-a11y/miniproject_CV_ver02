@@ -58,11 +58,13 @@ function formatPosition(label, position) {
 export function formatOperatorStatus({
   anchorState = null,
   voxelCount = 0,
+  keyframeCount = null,
   ninjaPosition = null,
   playerPosition = null,
   pathPointCount = 0,
 }) {
-  return `운영자 공간지도 · 복셀 ${voxelCount}
+  const keyframeTag = keyframeCount === null ? '' : ` · 키프레임 ${keyframeCount}`;
+  return `운영자 공간지도 · 복셀 ${voxelCount}${keyframeTag}
 ${formatAnchorStatus(anchorState)}
 ${formatPosition('Ninja', ninjaPosition)}
 ${formatPosition('플레이어', playerPosition)} · 경로 ${pathPointCount}점`;

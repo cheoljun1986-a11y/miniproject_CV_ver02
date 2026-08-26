@@ -52,9 +52,33 @@ export function autoStartsGame(mode) {
   return mode !== APP_MODES.VOXEL_DEBUG;
 }
 
-// DepthCloud/VoxelMap accumulate every 200ms with no per-frame dedup, so a
-// single frame can promote a voxel on its own. The voxel-debug pipeline
-// replaces them rather than extending them; the legacy modes keep them as-is.
+// The game modes that accumulate a space map. Which accumulator runs is a
+// separate axis — see resolveTerrainSource.
 export function usesDepthCloud(mode) {
   return mode === APP_MODES.CPU_OCCLUSION || mode === APP_MODES.CLOUD;
+}
+
+// Which accumulator feeds the game's space map (operator view + chase terrain).
+//   legacy   — DepthCloud + VoxelMap on a 200ms timer with no per-frame dedup,
+//              so a single frame can promote a voxel on its own. Default until
+//              the keyframe path is proven on device.
+//   keyframe — pose-gated capture with per-frame dedup (VoxelTerrain).
+//              Opt in with ?terrain=keyframe.
+export const TERRAIN_SOURCES = Object.freeze({
+  KEYFRAME: 'keyframe',
+  LEGACY: 'legacy',
+});
+
+export function resolveTerrainSource(search = '') {
+  return new URLSearchParams(search).get('terrain') === 'keyframe'
+    ? TERRAIN_SOURCES.KEYFRAME
+    : TERRAIN_SOURCES.LEGACY;
+}
+
+export function usesKeyframeTerrain(mode, search = '') {
+  return usesDepthCloud(mode) && resolveTerrainSource(search) === TERRAIN_SOURCES.KEYFRAME;
+}
+
+export function usesLegacyTerrain(mode, search = '') {
+  return usesDepthCloud(mode) && resolveTerrainSource(search) === TERRAIN_SOURCES.LEGACY;
 }
