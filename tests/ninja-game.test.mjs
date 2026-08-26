@@ -20,7 +20,7 @@ function matrixAt(x, y, z) {
   return matrix;
 }
 
-function createHarness() {
+function createHarness(gameOptions = {}) {
   const statuses = [];
   const controls = [];
   const sceneObjects = [];
@@ -81,6 +81,7 @@ function createHarness() {
     makeRigidTransform: (position) => ({ position }),
     now: () => 1000,
     random: () => 0,
+    ...gameOptions,
   });
 
   return { game, mapper, statuses, controls, sceneObjects };
@@ -322,4 +323,21 @@ test('deletes the current anchor when the session ends', async () => {
 
   assert.equal(anchor.deleted, true);
   assert.equal(game.getAnchorState(), null);
+});
+
+test('autoMapping off skips the timed scan and waits for an external map', () => {
+  const { game, statuses } = createHarness({ autoMapping: false });
+  game.startSession();
+  assert.equal(game.phase, 'idle');
+  assert.ok(statuses.some((s) => s.includes('맵 생성')), 'it should ask for the map');
+});
+
+test('an injected candidate pool replaces the crosshair pool for hiding', () => {
+  const pool = [
+    { pos: [0, 0.1, -2], matrix: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1] },
+  ];
+  const { game } = createHarness({ autoMapping: false, getCandidatePool: () => pool });
+  assert.equal(game.hideNewTarget(), true);
+  const [x, , z] = game.getTargetPosition();
+  assert.ok(Math.abs(x - 0) < 0.2 && Math.abs(z + 2) < 0.3);
 });

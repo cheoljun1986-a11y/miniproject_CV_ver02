@@ -148,6 +148,7 @@ export function createUI(documentRoot = document) {
     chaseHint: documentRoot.querySelector('#chaseHint'),
     chaseArrow: documentRoot.querySelector('#chaseArrow'),
     hudToggle: documentRoot.querySelector('#hudToggle'),
+    map: documentRoot.querySelector('#mapBtn'),
   };
 
   // The metrics card is a diagnostic wall of text that covers half a phone
@@ -168,18 +169,19 @@ export function createUI(documentRoot = document) {
     applyMetricsVisible();
   }
 
-  function bindCommands({ onScan, onNewRound, onExtend, onMark, onCheck }) {
+  function bindCommands({ onScan, onNewRound, onExtend, onMark, onCheck, onMap }) {
     const bindings = [
       [elements.scan, onScan],
       [elements.newRound, onNewRound],
       [elements.extend, onExtend],
       [elements.mark, onMark],
       [elements.check, onCheck],
+      [elements.map, onMap],
     ];
     // The chase page drops the two diagnostic buttons, so a missing element is
     // normal rather than a mistake.
     bindings.forEach(([element, command]) => {
-      if (!element) return;
+      if (!element || !command) return;
       element.addEventListener('click', (event) => {
         event.stopPropagation();
         command();
@@ -296,6 +298,15 @@ export function createUI(documentRoot = document) {
     bindChase,
     hasChaseControls() {
       return Boolean(elements.chaseBtn);
+    },
+    // Map-building lifecycle button; only the chase page has one.
+    setMapButton(label, enabled) {
+      if (!elements.map) return;
+      elements.map.textContent = label;
+      elements.map.disabled = !enabled;
+    },
+    hasMapButton() {
+      return Boolean(elements.map);
     },
     setChaseButton(label, enabled) {
       if (!elements.chaseBtn) return;

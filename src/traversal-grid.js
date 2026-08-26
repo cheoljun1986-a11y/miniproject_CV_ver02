@@ -271,9 +271,18 @@ export class TraversalGrid {
   // Neighbours reachable in one step. Height decides walk vs jump; anything
   // steeper than maxJumpUp is simply not an edge, which is what keeps
   // Hachuping out of walls and off unreachable shelves.
+  //
+  // Every admissible level of a neighbouring cell is offered as its own edge.
+  // The earlier version returned only the level closest to the current height,
+  // which made staying on furniture the ONLY option while standing on it — the
+  // floor edge under a table was never even generated, so once Hachuping got
+  // up somewhere it toured the room at tabletop altitude. Now the floor route
+  // always exists and the costs below make it the preferred one.
   neighbors(node) {
     const fromY = this.levelY(node.cx, node.cz, node.level);
     if (fromY === null) return [];
+    const floorSlab = this.resolveFloorSlab();
+    const floorY = floorSlab === null ? null : this.slabTopY(floorSlab);
 
     const out = [];
     for (let dz = -1; dz <= 1; dz += 1) {
@@ -291,31 +300,36 @@ export class TraversalGrid {
           }
         }
 
-        let bestLevel = -1;
-        let bestRise = Infinity;
+        const planar = Math.hypot(dx, dz) * this.cellSize;
         for (let level = 0; level < levels.length; level += 1) {
           const rise = levels[level] - fromY;
-          if (rise > this.maxJumpUp) continue;
-          if (rise < -this.maxDropDown) continue;
-          if (Math.abs(rise) < Math.abs(bestRise)) {
-            bestRise = rise;
-            bestLevel = level;
-          }
-        }
-        if (bestLevel < 0) continue;
+          // Slab tops are sums of floats; without the epsilon a rise exactly at
+          // the limit (0.7000000000000002 vs 0.7) is rejected at random.
+          if (rise > this.maxJumpUp + 1e-9) continue;
+          if (rise < -this.maxDropDown - 1e-9) continue;
 
-        const planar = Math.hypot(dx, dz) * this.cellSize;
-        const jump = Math.abs(bestRise) > this.maxStepUp;
-        out.push({
-          cx: nx,
-          cz: nz,
-          level: bestLevel,
-          rise: bestRise,
-          distance: planar,
-          move: jump ? MOVE.JUMP : MOVE.WALK,
-          // Jumps are legal but should not be the casual choice.
-          cost: planar + (jump ? 0.6 + Math.abs(bestRise) : 0),
-        });
+          const jump = Math.abs(rise) > this.maxStepUp;
+          // Climbing is charged double its height, dropping half: coming down
+          // must always look like the easy direction.
+          const jumpCost = jump
+            ? 0.6 + (rise > 0 ? rise * 2 : Math.abs(rise) * 0.5)
+            : 0;
+          // Toll for walking above the floor, per step and proportional to
+          // altitude. This is what turns table-chair-table routes into
+          // table-floor-table ones without forbidding furniture outright.
+          const heightToll = floorY === null
+            ? 0
+            : Math.max(0, levels[level] - floorY - this.slabHeight / 2) * 0.8;
+          out.push({
+            cx: nx,
+            cz: nz,
+            level,
+            rise,
+            distance: planar,
+            move: jump ? MOVE.JUMP : MOVE.WALK,
+            cost: planar + jumpCost + heightToll,
+          });
+        }
       }
     }
     return out;

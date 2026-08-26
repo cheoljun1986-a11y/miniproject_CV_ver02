@@ -171,8 +171,9 @@ export function chooseFleeTarget(grid, {
       // Long hauls start to look like teleporting.
       if (travel > maxDistance) score -= (travel - maxDistance) * 1.2;
 
-      // A destination it has to climb to is more interesting than open floor.
-      if (level > 0) score += 0.8;
+      // Ground is where a small creature believably runs; furniture is the
+      // exception. The old +0.8 bonus here kept Hachuping touring tabletops.
+      if (level > 0) score -= 1.2;
 
       score += random() * 1.2;
 

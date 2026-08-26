@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { TraversalGrid, MOVE } from '../src/traversal-grid.js';
+import { findPath } from '../src/chase-path.js';
 
 function floorPatch(grid, x0, x1, z0, z1, y = 0.02, step = 0.05) {
   for (let x = x0; x <= x1; x += step) {
@@ -189,4 +190,58 @@ test('the cap is re-applied when the floor is found later', () => {
   const after = grid.levels(grid.cellX(1.1), grid.cellZ(1.1));
   assert.equal(after.length, 1);
   assert.ok(Math.abs(after[0] - 0.1) < 1e-6);
+});
+
+// ── pre-built-map era movement rules ─────────────────────────
+
+test('a neighbouring cell offers BOTH its floor and its tabletop as edges', () => {
+  const grid = new TraversalGrid();
+  // Broad floor so the floor estimate settles.
+  for (let x = 0; x <= 1.0; x += 0.1) {
+    for (let z = 0; z <= 1.0; z += 0.1) grid.observe([x, 0.02, z]);
+  }
+  // A tabletop over one cell, high enough to leave headroom underneath.
+  grid.observe([0.5, 0.72, 0.5]);
+
+  const from = grid.nodeAtWorld([0.3, 0.1, 0.5]);
+  const toCell = { cx: grid.cellX(0.5), cz: grid.cellZ(0.5) };
+  const offered = grid.neighbors(from)
+    .filter((n) => n.cx === toCell.cx && n.cz === toCell.cz);
+  // The old code offered only the level nearest the current height, which made
+  // furniture a one-way trap. Both must exist now.
+  assert.ok(offered.length >= 2, `expected floor and tabletop edges, got ${offered.length}`);
+});
+
+test('the floor route is cheaper than the furniture route', () => {
+  const grid = new TraversalGrid();
+  for (let x = 0; x <= 1.0; x += 0.1) {
+    for (let z = 0; z <= 1.0; z += 0.1) grid.observe([x, 0.02, z]);
+  }
+  grid.observe([0.5, 0.72, 0.5]);
+  const from = grid.nodeAtWorld([0.3, 0.1, 0.5]);
+  const offered = grid.neighbors(from)
+    .filter((n) => n.cx === grid.cellX(0.5) && n.cz === grid.cellZ(0.5));
+  const floorEdge = offered.reduce((a, b) => (a.rise < b.rise ? a : b));
+  const tableEdge = offered.reduce((a, b) => (a.rise > b.rise ? a : b));
+  assert.ok(floorEdge.cost < tableEdge.cost,
+    `floor ${floorEdge.cost} should undercut table ${tableEdge.cost}`);
+});
+
+test('a path across a room with a table goes under it, not over it', () => {
+  const grid = new TraversalGrid();
+  for (let x = 0; x <= 2.0; x += 0.1) {
+    for (let z = 0; z <= 0.6; z += 0.1) grid.observe([x, 0.02, z]);
+  }
+  // Tabletop strip across the middle, floor beneath still has headroom.
+  for (let x = 0.8; x <= 1.2; x += 0.1) {
+    for (let z = 0; z <= 0.6; z += 0.1) grid.observe([x, 0.72, z]);
+  }
+  const start = grid.nodeAtWorld([0.1, 0.1, 0.3]);
+  const goal = grid.nodeAtWorld([1.9, 0.1, 0.3]);
+  const path = findPath(grid, start, goal);
+  assert.ok(path, 'a route must exist');
+  for (const node of path) {
+    const world = grid.worldOf(node);
+    assert.ok(world[1] < 0.4, `expected a ground route, but a step sits at y=${world[1]}`);
+  }
 });

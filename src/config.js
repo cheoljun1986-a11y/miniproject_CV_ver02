@@ -34,7 +34,10 @@ export const CPU_OCCLUSION_STALE_MS = 250;
 // Voxel reconstruction / operator view.
 export const VOXEL_SIZE_M = 0.05;
 export const VOXEL_SOLID_MIN_HITS = 3;
-export const VOXEL_MAX_SOLID = 20000;
+// Raised from 20000 for the pre-built map flow: an untimed walk around a room
+// measured ~62k voxels at 5cm, and a full map that silently stops growing is
+// worse than the extra ~1MB the larger buffers cost.
+export const VOXEL_MAX_SOLID = 80000;
 export const VOXEL_MAX_PENDING = 40000;
 export const TRAIL_MIN_STEP_M = 0.15;
 export const TRAIL_MAX_POINTS = 300;
@@ -68,7 +71,10 @@ export const CHASE_GRID_MIN_Y = -3.0;       // 'local' origin sits ~1.4m above t
 export const CHASE_GRID_SLABS = 64;
 export const CHASE_BODY_HEIGHT_M = 0.5;     // headroom Hachuping needs
 export const CHASE_MAX_STEP_UP_M = 0.15;    // above this it is a jump
-export const CHASE_MAX_JUMP_UP_M = 0.7;     // above this it cannot go at all
+// 0.45 lets it hop a chair seat but not leap floor-to-desk in one go. The
+// first play test used 0.7, which chained floor-chair-desk into an aerial
+// highway: Hachuping crossed the whole room without ever touching the floor.
+export const CHASE_MAX_JUMP_UP_M = 0.45;   // above this it cannot go at all
 export const CHASE_MAX_DROP_M = 1.2;
 // A ceiling looks exactly like a tabletop to the grid, so cap how high a
 // surface may be above the detected floor before it stops counting.

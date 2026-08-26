@@ -27,6 +27,11 @@ export class NinjaGame {
     random = Math.random,
     schedule = setTimeout,
     makeRigidTransform = (position) => new XRRigidTransform(position),
+    // Pre-built-map flow (the chase page): no timed mapping phase on session
+    // start, and hiding candidates come from the frozen traversal grid rather
+    // than the crosshair hit-test pool. index.html keeps the defaults.
+    autoMapping = true,
+    getCandidatePool = null,
   }) {
     this.scene = scene;
     this.ui = ui;
@@ -39,6 +44,8 @@ export class NinjaGame {
     this.random = random;
     this.schedule = schedule;
     this.makeRigidTransform = makeRigidTransform;
+    this.autoMapping = autoMapping;
+    this.getCandidatePool = getCandidatePool;
     this.phase = 'idle';
     this.mappingEnd = 0;
     this.lastSampleTime = 0;
@@ -66,6 +73,17 @@ export class NinjaGame {
     this.misses = 0;
     this.lastSampleTime = 0;
     this.clearTarget();
+    if (!this.autoMapping) {
+      // The page owns the map-building lifecycle; the game waits until a
+      // frozen map exists and a hide is requested.
+      this.phase = 'idle';
+      this.setControls({
+        scan: false, newRound: false, extend: false, mark: true, check: true,
+      });
+      this.ui.setStatus('맵 생성 대기');
+      this.ui.setMessage('맵 생성을 누르고 방을 천천히 돌며 스캔하세요.');
+      return;
+    }
     this.setControls({ extend: true, mark: true, check: true });
     this.startMapping(MAP_SECONDS, true);
   }
@@ -137,7 +155,9 @@ export class NinjaGame {
   hideNewTarget() {
     const viewerPose = this.getViewerPose();
     if (!this.getSession() || !viewerPose) return false;
-    const pool = this.mapper.getPool();
+    const pool = this.getCandidatePool
+      ? this.getCandidatePool()
+      : this.mapper.getPool();
     if (!pool.length) return false;
 
     this.clearTarget();

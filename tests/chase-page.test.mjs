@@ -298,3 +298,17 @@ test('without hold handlers SCAN is never wired for a long press', () => {
   const scan = doc.elements.get('scanBtn');
   assert.equal(scan.listeners.some(([type]) => type === 'pointerdown'), false);
 });
+
+// ── pre-built map flow ───────────────────────────────────────
+
+test('the chase page carries a map button and drops the +20s scan', async () => {
+  const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
+  assert.match(html, /id="mapBtn"/);
+  assert.doesNotMatch(html, /id="extendBtn"/);
+  assert.match(html, /맵 생성/);
+});
+
+test('index.html is untouched by the map flow — no map button there', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /id="mapBtn"/);
+});

@@ -39,6 +39,7 @@ import {
 } from './capture-gauge.js';
 import { visibleFraction } from './line-of-sight.js';
 import { ChaseLog } from './chase-log.js';
+import { gridCandidatePool } from './grid-candidates.js';
 import { forwardFromQuaternion } from './game-rules.js';
 import {
   CHASE_BODY_HEIGHT_M,
@@ -122,6 +123,12 @@ let chaseTiles = null;
 let chaseTilesRevision = -1;
 let chaseLog = null;
 let chaseArrowGate = null;
+// Pre-built-map lifecycle (chase page): the map is gathered while mapBuilding,
+// then frozen — nothing feeds it during play, which is what stops terrain from
+// changing under Hachuping's feet and errors from accumulating into the map.
+let mapBuilding = false;
+let mapFrozen = false;
+let lastMapStatusTime = -Infinity;
 let lastTileBuildAt = -Infinity;
 let lastOperatorStatusTime = -Infinity;
 let lastOperatorRenderTime = -Infinity;
@@ -174,6 +181,13 @@ async function init() {
     getSession: () => xrSession.getSession(),
     getLocalSpace: () => xrSession.getLocalSpace(),
     getViewerPose: () => xrSession.getViewerPose(),
+    // Chase page: the map is built explicitly (맵 생성 → 종료), so no timed
+    // mapping phase, and hiding spots come from the frozen grid instead of
+    // the crosshair pool.
+    autoMapping: !ui.hasMapButton(),
+    getCandidatePool: ui.hasMapButton()
+      ? () => (chaseGrid ? gridCandidatePool(chaseGrid) : [])
+      : null,
   });
 
   controller = renderer.xr.getController(0);
@@ -187,6 +201,7 @@ async function init() {
     onExtend: () => game.startMapping(MAP_SECONDS, false),
     onMark: () => game.saveCheckpoint(),
     onCheck: () => game.checkReturnError(),
+    onMap: () => toggleMapBuild(),
   });
   // No hold handlers: capture now needs only range plus aim, so SCAN keeps its
   // ordinary tap behaviour and never sees a long press.
@@ -352,6 +367,9 @@ async function init() {
     voxelOverlay?.clear();
     voxelOccluder?.reset();
     chaseFedRevision = -1;
+    mapBuilding = false;
+    mapFrozen = false;
+    ui.setMapButton('맵 생성', true);
     voxelDebug?.startScan(performance.now());
     await xrSession.start();
     if (autoStartsGame(APP_MODE)) game.startSession();
@@ -371,6 +389,9 @@ async function init() {
     voxelDebug?.reset();
     voxelOverlay?.clear();
     voxelOccluder?.reset();
+    mapBuilding = false;
+    mapFrozen = false;
+    ui.setMapButton('맵 생성', true);
     operatorVisible = false;
     ui.setOperatorVisible(false);
     if (autoStartsGame(APP_MODE)) game.endSession();
@@ -398,6 +419,45 @@ function detachOccluder() {
   if (!occluder) return;
   scene.remove(occluder);
   occluder = null; // three recreates the mesh for the next session
+}
+
+// ── pre-built map lifecycle ───────────────────────────────────
+// 맵 생성 → walk the room, everything feeds the map → 맵 생성 종료 → frozen.
+// Hiding and chasing then run on the frozen map only. Building again discards
+// the old map entirely — mixing observations from two walks would re-create
+// exactly the accumulated-error problem this flow exists to remove.
+function toggleMapBuild() {
+  if (!chaseGrid) return;
+  if (mapBuilding) {
+    freezeMap();
+    return;
+  }
+  if (chaseActive) stopChase('도망 모드를 껐습니다.');
+  mapBuilding = true;
+  mapFrozen = false;
+  voxelMap?.reset();
+  chaseGrid.reset();
+  chaseRunner?.reset();
+  chaseTiles = null;
+  chaseTilesRevision = -1;
+  game.clearTarget();
+  game.setControls({ scan: false, newRound: false });
+  ui.setMapButton('맵 생성 종료', true);
+  ui.setStatus('맵 생성 중 — 방을 천천히 돌며 비춰주세요');
+  ui.setMessage('구석과 책상 밑까지 비출수록 좋아집니다. 충분하면 맵 생성 종료를 누르세요.');
+}
+
+function freezeMap() {
+  mapBuilding = false;
+  mapFrozen = true;
+  const { walkable } = chaseGrid.stats();
+  const candidateCount = gridCandidatePool(chaseGrid).length;
+  game.setControls({ newRound: candidateCount > 0 });
+  ui.setMapButton('맵 다시 만들기', true);
+  ui.setStatus(`지도 확정 — 설 수 있는 칸 ${walkable}`);
+  ui.setMessage(candidateCount > 0
+    ? `숨을 자리 후보 ${candidateCount}곳. 다시 숨기기 또는 도망 모드를 누르세요.`
+    : '설 수 있는 곳이 없습니다 — 맵 다시 만들기로 더 넓게 스캔해주세요.');
 }
 
 // ── chase mode ────────────────────────────────────────────────
@@ -440,15 +500,25 @@ function toggleChase() {
     return;
   }
 
-  const target = game.getTargetPosition();
-  if (!target) {
-    ui.setMessage('먼저 스캔을 끝내고 하츄핑이 숨은 뒤에 시작하세요.');
+  if (ui.hasMapButton() && !mapFrozen) {
+    ui.setMessage('먼저 맵 생성을 눌러 지도를 만들고, 맵 생성 종료로 확정하세요.');
     return;
   }
   const { walkable } = chaseGrid.stats();
   if (walkable < CHASE_MIN_WALKABLE_CELLS) {
-    ui.setMessage(`지도가 아직 부족합니다 — 갈 수 있는 칸 ${walkable}/${CHASE_MIN_WALKABLE_CELLS}. 더 걸으며 비춰주세요.`);
+    ui.setMessage(`지도가 아직 부족합니다 — 갈 수 있는 칸 ${walkable}/${CHASE_MIN_WALKABLE_CELLS}. 맵 다시 만들기로 더 걸으며 비춰주세요.`);
     return;
+  }
+  // No hide-and-seek round is required first: place Hachuping on the map now
+  // and let it run. The old flow forced scan → hide → find → chase, and the
+  // find step contributed nothing to the chase.
+  let target = game.getTargetPosition();
+  if (!target) {
+    if (!game.hideNewTarget()) {
+      ui.setMessage('하츄핑을 놓을 자리를 찾지 못했습니다 — 맵을 더 넓게 만들어주세요.');
+      return;
+    }
+    target = game.getTargetPosition();
   }
   if (!chaseRunner.start(target, performance.now())) {
     ui.setMessage('하츄핑이 설 자리를 찾지 못했습니다. 주변 바닥을 더 비춰주세요.');
@@ -565,7 +635,18 @@ function render(time, frame) {
       maybeFeedChaseGrid();
     }
     if (!KEYFRAME_SCAN_MODE) {
-      depthCloud?.update(frame, localSpace, time);
+      // On the pre-built-map page the world feeds the map ONLY while building.
+      // A frozen map is the whole point: play must not mutate it.
+      if (!ui.hasMapButton() || mapBuilding) {
+        depthCloud?.update(frame, localSpace, time);
+      }
+    }
+    if (mapBuilding && time - lastMapStatusTime >= 500) {
+      lastMapStatusTime = time;
+      const { walkable } = chaseGrid?.stats() ?? { walkable: 0 };
+      const solid = voxelMap?.getSolidCount() ?? 0;
+      const full = solid >= VOXEL_MAX_SOLID ? ' ⚠상한' : '';
+      ui.setStatus(`맵 생성 중 — 복셀 ${solid}${full} · 설 수 있는 칸 ${walkable}`);
     }
     if (viewerPose) playerTrail?.record(viewerPose.position);
     updateChase(time, viewerPose);
