@@ -434,3 +434,24 @@ test('the on-screen range instruction follows the capture radius constant', asyn
   assert.match(src, /\$\{CAPTURE_RADIUS_M\}m/);
   assert.doesNotMatch(src, /1\.2m 안까지/);
 });
+
+// ── the map anchor must actually be asked where it is ────────
+// Regression: MapAnchor was created and beginTracking() called, but update()
+// never ran, so the map-space transforms stayed identity forever. A drift
+// correction then teleported Hachuping in the room while the operator view
+// (drawing stored coordinates) showed a perfectly smooth track.
+test('the render loop refreshes the map anchor pose every frame', async () => {
+  const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(src, /mapAnchor\.update\(frame, localSpace\)/);
+  // And its state is surfaced instead of silently degrading to identity.
+  assert.match(src, /mapAnchorState: mapAnchor \? mapAnchorState : null/);
+});
+
+test('operator view compares hachuping and the player in one space', async () => {
+  const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  // Mixing map-space hachuping with world-space player made the PLAYER dot
+  // jump on a drift correction — hiding the real symptom (map vs room).
+  assert.match(src, /ninjaPos: ninjaMapPos/);
+  assert.match(src, /playerPos: playerMapPos/);
+  assert.doesNotMatch(src, /playerPos: viewerPose/);
+});

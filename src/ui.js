@@ -59,8 +59,24 @@ function formatPosition(label, position) {
   return `${label}  x ${position[0].toFixed(2)}  y ${position[1].toFixed(2)}  z ${position[2].toFixed(2)}`;
 }
 
+// The nail the whole map hangs on — distinct from the ninja's own placement
+// anchor above. It fell silent once (created but never asked for its pose) and
+// nothing on the phone showed it, so its state gets its own tag here.
+function formatMapAnchorTag(state) {
+  if (state === null) return '';
+  const label = ({
+    idle: '-',
+    pending: '생성 중',
+    anchor: 'O',
+    'anchor-lost': '일시 손실',
+    local: '미지원',
+  })[state] ?? state;
+  return ` · 지도앵커 ${label}`;
+}
+
 export function formatOperatorStatus({
   anchorState = null,
+  mapAnchorState = null,
   voxelCount = 0,
   cameraAccess = null,
   keyframeCount = null,
@@ -74,7 +90,7 @@ export function formatOperatorStatus({
   const cameraTag = cameraAccess === null ? '?' : (cameraAccess ? 'O' : 'X');
   const keyframeTag = keyframeCount === null ? '' : ` · 키프레임 ${keyframeCount}`;
   return `운영자 공간지도 · 복셀 ${voxelCount} · 카메라 ${cameraTag}${keyframeTag}
-${formatAnchorStatus(anchorState)}
+${formatAnchorStatus(anchorState)}${formatMapAnchorTag(mapAnchorState)}
 ${formatPosition('Ninja', ninjaPosition)}
 ${formatPosition('플레이어', playerPosition)} · 경로 ${pathPointCount}점`;
 }

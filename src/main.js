@@ -716,6 +716,20 @@ function render(time, frame) {
 
   if (SPACE_MAPPING_MODE) {
     const localSpace = xrSession.getLocalSpace();
+    // The nail only holds if someone hammers it in and keeps asking where it
+    // is. This call creates the anchor on the first frame that can, then
+    // refreshes its pose every frame — every toMapSpace/toRenderSpace below
+    // rides on that pose. It was missing entirely once: beginTracking() was
+    // called but never update(), so the transforms stayed identity forever and
+    // a drift correction visibly teleported Hachuping while the operator view
+    // (which draws stored map coordinates) showed nothing wrong.
+    if (mapAnchor) {
+      const anchorState = mapAnchor.update(frame, localSpace);
+      if (anchorState !== mapAnchorState) {
+        mapAnchorState = anchorState;
+        chaseLog?.push(time, 'map-anchor', anchorState);
+      }
+    }
     if (CPU_OCCLUSION_MODE) {
       cpuDepthOccluder?.update(frame, localSpace, time);
     }
@@ -751,6 +765,14 @@ function render(time, frame) {
     maybeBackupGameMap(time);
 
     const ninjaPosition = game.getTargetPosition();
+    // Operator display compares positions in MAP space, the same frame the
+    // grid tiles and Hachuping's stored coordinates live in. Passing the raw
+    // world pose mixed two frames on one canvas: after a drift correction the
+    // player dot jumped while the map stayed put — which is exactly backwards
+    // as a diagnostic, since it hides the real problem (the map no longer
+    // matching the room) behind a fake one. Identity while no anchor exists.
+    const ninjaMapPos = ninjaPosition ? toMapSpace(ninjaPosition) : null;
+    const playerMapPos = viewerPose ? toMapSpace(viewerPose.position) : null;
     const spaceMap = voxelMap ?? voxelTerrain;
     const voxelCount = spaceMap?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0;
     if (time - lastOperatorStatusTime >= OPERATOR_STATUS_GAP_MS) {
@@ -763,11 +785,16 @@ function render(time, frame) {
       } else {
         ui.setOperatorStatus(formatOperatorStatus({
           anchorState: game.getAnchorState(),
+          // game.getAnchorState() above is the NINJA's placement anchor; this
+          // one is the nail the whole map hangs on. Different things that
+          // share a word — both shown so a dead map anchor is visible on the
+          // phone instead of silently degrading to identity transforms.
+          mapAnchorState: mapAnchor ? mapAnchorState : null,
           voxelCount,
           cameraAccess,
           keyframeCount: voxelTerrain?.getKeyframeCount() ?? null,
-          ninjaPosition,
-          playerPosition: viewerPose?.position ?? null,
+          ninjaPosition: ninjaMapPos,
+          playerPosition: playerMapPos,
           pathPointCount: playerTrail?.getCount() ?? 0,
         }));
       }
@@ -790,9 +817,9 @@ function render(time, frame) {
         operatorView.render({
           solidVoxels: null,
           voxelRevision: revision,
-          ninjaPos: ninjaPosition,
-          playerPos: viewerPose?.position ?? null,
-          playerPath: playerTrail.getPoints(),
+          ninjaPos: ninjaMapPos,
+          playerPos: playerMapPos,
+          playerPath: playerTrail.getPoints().map(toMapSpace),
         });
       } else if (spaceMap) {
         const voxelRevision = spaceMap.getRevision();
@@ -806,11 +833,15 @@ function render(time, frame) {
           cellSize: CHASE_CELL_SIZE_M,
           chasePath: chaseActive ? chaseRunner?.remainingPathWorld() : null,
           hachupingPos: chaseActive ? chaseRunner?.position : null,
+          // solidVoxels stay in the raw frame they were captured in: they are
+          // a coarse backdrop, and re-projecting tens of thousands of points
+          // per render is not worth it. Tiles, path, and both dots — the
+          // things the diagnostic actually compares — are all map space now.
           solidVoxels: operatorSolidVoxels,
           voxelRevision,
-          ninjaPos: ninjaPosition,
-          playerPos: viewerPose?.position ?? null,
-          playerPath: playerTrail.getPoints(),
+          ninjaPos: ninjaMapPos,
+          playerPos: playerMapPos,
+          playerPath: playerTrail.getPoints().map(toMapSpace),
         });
       }
     }

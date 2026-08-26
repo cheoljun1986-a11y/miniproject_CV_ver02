@@ -240,3 +240,18 @@ test('formatOperatorStatus reports camera access the browser refused', () => {
 test('formatOperatorStatus marks camera access unknown before the first frame', () => {
   assert.match(formatOperatorStatus({ cameraAccess: null }), /카메라 \?/);
 });
+
+// The map anchor is the nail the whole map hangs on — not the ninja's
+// placement anchor. It once ran dead (created, never polled) with no visible
+// symptom, so the operator card must say whether it is actually holding.
+test('formatOperatorStatus shows the map anchor state on the chase page', () => {
+  assert.match(formatOperatorStatus({ mapAnchorState: 'anchor' }), /지도앵커 O/);
+  assert.match(formatOperatorStatus({ mapAnchorState: 'pending' }), /지도앵커 생성 중/);
+  assert.match(formatOperatorStatus({ mapAnchorState: 'anchor-lost' }), /지도앵커 일시 손실/);
+  assert.match(formatOperatorStatus({ mapAnchorState: 'local' }), /지도앵커 미지원/);
+});
+
+test('pages without a map anchor keep the old card exactly', () => {
+  assert.doesNotMatch(formatOperatorStatus({ mapAnchorState: null }), /지도앵커/);
+  assert.doesNotMatch(formatOperatorStatus({}), /지도앵커/);
+});
