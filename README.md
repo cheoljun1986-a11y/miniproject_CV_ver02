@@ -11,15 +11,6 @@
 
 기존 최상위 쿼리 주소(`/?occlusion=cpu` 등)는 같은 모드의 `app.html` 주소로 자동 이동한다.
 
-## private/junsung 모바일 테스트
-
-- 브랜치 코드: <https://github.com/cheoljun1986-a11y/miniproject_CV_ver02/tree/private/junsung>
-- GitHub Pages 모바일 RPS: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/app.html?occlusion=cpu>
-- 모바일 RPS 실행(현재 로컬 터널): <https://proposal-visits-phd-rome.trycloudflare.com/?occlusion=cpu>
-- 수동 가위바위보 진단: <https://proposal-visits-phd-rome.trycloudflare.com/?occlusion=cpu&input=manual>
-
-GitHub Pages 링크는 main 배포가 완료된 뒤 반영된다. 로컬 터널은 개발 PC의 로컬 서버와
-cloudflared가 실행 중일 때만 사용할 수 있으며, 터널을 다시 시작하면 주소가 바뀔 수 있다.
 
 > **이 문서는 발표 자료로 쓸 수 있도록 시계열로 정리했다.**
 > 3장 타임라인 표가 목차, 4장의 각 단계가 슬라이드 한 장에 대응한다.
