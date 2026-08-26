@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#111111"/>
+<title>복셀 복원 뷰어 — 스캔 JSON을 PC에서 보기</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#0b0b0b; color:#fff; }
+  canvas { display:block; }
+  #panel {
+    position:fixed; left:12px; top:12px; z-index:10; width:330px; max-height:calc(100vh - 24px);
+    overflow-y:auto; padding:12px 14px; border-radius:12px;
+    background:rgba(0,0,0,.72); backdrop-filter:blur(8px); font-size:13px; line-height:1.5;
+  }
+  #drop {
+    position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+    background:rgba(10,10,10,.94); font-size:17px; text-align:center; padding:24px;
+  }
+  #drop.hidden { display:none; }
+  #drop .box { max-width:560px; line-height:1.7; }
+  #stats { white-space:pre-line; font-variant-numeric:tabular-nums; margin-bottom:10px; }
+  .row { display:flex; align-items:center; gap:8px; margin:4px 0; }
+  .row span.label { flex:0 0 78px; }
+  .row span.value { flex:0 0 62px; text-align:right; font-variant-numeric:tabular-nums; }
+  .row input { flex:1 1 auto; min-width:0; }
+  .btns { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  button {
+    border:0; border-radius:999px; padding:8px 12px; font-weight:700; font-size:12px;
+    background:rgba(255,255,255,.9); color:#111; cursor:pointer;
+  }
+  button.on { background:#ffd66b; }
+  h1 { font-size:15px; margin:0 0 8px; }
+  .hint { opacity:.62; font-size:12px; margin-top:10px; }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="drop">
+  <div class="box">
+    <b>스캔 JSON을 여기에 끌어다 놓으세요</b><br/>
+    폰의 <code>?voxel=debug</code>에서 <b>JSON 내보내기</b>로 받은 파일, 또는<br/>
+    게임 세션이 <code>results/</code>에 남긴 <code>game-*.json</code> 복셀맵입니다.<br/><br/>
+    <button id="pick">파일 선택</button>
+    <input id="file" type="file" accept="application/json" style="display:none"/>
+    <div class="hint">
+      폰에서 쓰는 것과 같은 복원 코드를 그대로 부르므로 결과가 동일합니다.<br/>
+      AR 세션이 필요 없고, 재구성이 폰보다 훨씬 빨라 슬라이더가 즉시 반응합니다.
+    </div>
+  </div>
+</div>
+
+<div id="panel" style="display:none">
+  <h1>복셀 복원 뷰어</h1>
+  <div id="stats"></div>
+  <div id="sliders"></div>
+  <div class="btns" id="modes"></div>
+  <div class="btns" id="actions"></div>
+  <div class="hint">
+    마우스 드래그로 회전, 휠로 확대, 우클릭 드래그로 이동.
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+import { keyframeStoreFromJSON, rebuildVoxelGrid } from './src/keyframe-store.js';
+import { voxelCellsFromJSON } from './src/voxel-cells-codec.js';
+import { cellMeanPosition, selectCells } from './src/voxel-grid.js';
+import { buildOccluderGeometry } from './src/voxel-occluder-mesh.js';
+import { voxelColorRGB, VOXEL_COLOR_MODES } from './src/voxel-color-modes.js';
+import { detectFloorY } from './src/voxel-floor.js';
+import { DEFAULT_VOXEL_DEBUG_PARAMS, VOXEL_DEBUG_CONTROLS, applyParam } from './src/voxel-debug-params.js';
+
+// Same pure modules the phone runs, so what shows here is what the headset
+// reconstructed — not a re-implementation that could drift.
+
+const MAX_VOXELS = 300000;
+const MAX_PATH_POINTS = 512; // 400 keyframes or a 300-point player trail
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0b0b);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 2.2));
+const key = new THREE.DirectionalLight(0xffffff, 1.1);
+key.position.set(2, 4, 3);
+scene.add(key);
+scene.add(new THREE.GridHelper(10, 20, 0x334455, 0x1e2a36));
+scene.add(new THREE.AxesHelper(0.4));
+
+const camera = new THREE.PerspectiveCamera(58, 1, 0.05, 200);
+camera.position.set(2.4, 2.2, 3.2);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// --- voxel boxes -----------------------------------------------------------
+// No vertexColors: it defines USE_COLOR, whose shader chunk multiplies against
+// a colour attribute BoxGeometry lacks, which zeroes instanceColor.
+const voxels = new THREE.InstancedMesh(
+  new THREE.BoxGeometry(1, 1, 1),
+  new THREE.MeshLambertMaterial(),
+  MAX_VOXELS,
+);
+voxels.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_VOXELS * 3), 3);
+voxels.count = 0;
+voxels.frustumCulled = false;
+scene.add(voxels);
+
+// --- occluder surface ------------------------------------------------------
+// The mesh the phone feeds to the depth buffer, drawn visibly here. This is the
+// only place the staircase from voxel quantisation can actually be judged.
+const surface = new THREE.Mesh(
+  new THREE.BufferGeometry(),
+  new THREE.MeshLambertMaterial({ color: 0x9fd8ff, flatShading: true, side: THREE.DoubleSide }),
+);
+surface.frustumCulled = false;
+surface.visible = false;
+scene.add(surface);
+
+// --- camera path -----------------------------------------------------------
+const pathGeom = new THREE.BufferGeometry();
+pathGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PATH_POINTS * 3), 3));
+pathGeom.setDrawRange(0, 0);
+const path = new THREE.Line(pathGeom, new THREE.LineBasicMaterial({ color: 0x66e0ff }));
+path.frustumCulled = false;
+path.visible = false;
+scene.add(path);
+
+const _m = new THREE.Matrix4();
+const _c = new THREE.Color();
+const _s = new THREE.Vector3();
+
+// Two inputs. A keyframe scan (store) is rebuilt from raw depth on every
+// slider; a game map (loadedCells) is the finished grid, so only the
+// observation threshold still applies.
+let store = null;
+let loadedCells = null; // { grid, meta } from voxelCellsFromJSON
+let params = { ...DEFAULT_VOXEL_DEBUG_PARAMS };
+let colorMode = VOXEL_COLOR_MODES.OBSERVATION;
+let mode = 'voxel'; // voxel | surface
+
+function rebuild() {
+  if (!store && !loadedCells) return;
+  const t0 = performance.now();
+  let grid;
+  let stats;
+  if (loadedCells) {
+    grid = loadedCells.grid;
+    stats = { cells: grid.getCellCount(), histogram: grid.getHistogram() };
+  } else {
+    ({ grid, stats } = rebuildVoxelGrid(store.getKeyframes(), {
+      voxelSize: params.voxelSize,
+      nearM: params.nearM,
+      farM: params.farM,
+      gradientMaxJumpM: params.gradientMaxJumpM,
+      now: () => performance.now(),
+    }));
+  }
+  const buildMs = performance.now() - t0;
+
+  const all = grid.getCells();
+  const shown = selectCells(all, { minObservations: params.minObservations });
+  const floor = detectFloorY(all.filter((c) => c.observationCount >= 3), {});
+
+  drawVoxels(shown);
+  const geo = drawSurface(shown);
+  drawPath();
+
+  const h = stats.histogram;
+  const head = loadedCells
+    ? `게임 복셀맵 (${loadedCells.meta.source}) · 세션 ${loadedCells.meta.sessionId ?? '-'} · 키프레임 ${loadedCells.meta.keyframeCount}\n`
+      + `복셀 ${stats.cells} (표시 ${shown.length})\n`
+    : `키프레임 ${store.getCount()} · 복셀 ${stats.cells} (표시 ${shown.length})\n`;
+  const rejected = loadedCells
+    ? ''
+    : `버림  0값 ${stats.rejectedZero} · 범위 ${stats.rejectedRange} · 경사 ${stats.rejectedGradient}\n`;
+  document.getElementById('stats').textContent =
+    head
+    + `관측 1회 ${h.one} · 2회 ${h.two} · 3+회 ${h.three + h.fourPlus}\n`
+    + rejected
+    + `표면 ${geo.triangleCount.toLocaleString()} 삼각형 · 재구성 ${Math.round(buildMs)}ms\n`
+    + (floor ? `바닥 y ${floor.floorY.toFixed(2)}m (신뢰 ${floor.confidence === Infinity ? '∞' : floor.confidence.toFixed(1)}배)` : '바닥 미검출');
+}
+
+function drawVoxels(cells) {
+  const size = params.voxelSize;
+  const n = Math.min(cells.length, MAX_VOXELS);
+  const ys = cells.map((c) => cellMeanPosition(c)[1]);
+  const minY = ys.length ? Math.min(...ys) : -1;
+  const spanY = ys.length ? Math.max(0.5, Math.max(...ys) - minY) : 3;
+
+  for (let i = 0; i < n; i += 1) {
+    const p = cellMeanPosition(cells[i]);
+    _m.makeScale(size, size, size);
+    _m.setPosition(p[0], p[1], p[2]);
+    voxels.setMatrixAt(i, _m);
+    const [r, g, b] = voxelColorRGB(cells[i], colorMode, { y: p[1], minY, spanY });
+    _c.setRGB(r, g, b);
+    voxels.setColorAt(i, _c);
+  }
+  voxels.count = n;
+  voxels.instanceMatrix.needsUpdate = true;
+  if (voxels.instanceColor) voxels.instanceColor.needsUpdate = true;
+  voxels.visible = mode === 'voxel';
+}
+
+function drawSurface(cells) {
+  // The occluder is built from confident cells only — a voxel seen once is as
+  // likely to be depth noise as a surface.
+  const confident = cells.filter((c) => c.observationCount >= 3);
+  const geo = buildOccluderGeometry(confident, { voxelSize: params.voxelSize });
+
+  const previous = surface.geometry;
+  const next = new THREE.BufferGeometry();
+  next.setAttribute('position', new THREE.BufferAttribute(geo.positions, 3));
+  next.setIndex(new THREE.BufferAttribute(geo.indices, 1));
+  next.computeVertexNormals();
+  surface.geometry = next;
+  previous.dispose();
+  surface.visible = mode === 'surface';
+  return geo;
+}
+
+// Keyframe camera positions for a scan, the player trail for a game map.
+function pathPoints() {
+  if (loadedCells) return loadedCells.meta.playerPath;
+  return store.getKeyframes().map((k) => k.viewerPosition);
+}
+
+function drawPath() {
+  const pts = pathPoints();
+  const positions = pathGeom.attributes.position.array;
+  const n = Math.min(pts.length, MAX_PATH_POINTS);
+  for (let i = 0; i < n; i += 1) {
+    const p = pts[i];
+    positions[i * 3] = p[0];
+    positions[i * 3 + 1] = p[1];
+    positions[i * 3 + 2] = p[2];
+  }
+  pathGeom.setDrawRange(0, n);
+  pathGeom.attributes.position.needsUpdate = true;
+}
+
+// --- UI --------------------------------------------------------------------
+function buildUI() {
+  const box = document.getElementById('sliders');
+  box.innerHTML = '';
+  for (const control of VOXEL_DEBUG_CONTROLS) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = control.label;
+    const input = document.createElement('input');
+    Object.assign(input, {
+      type: 'range', min: control.min, max: control.max,
+      step: control.step, value: params[control.id],
+    });
+    // A game map has no depth to re-filter; only the threshold still means something.
+    if (loadedCells && control.rebuild) {
+      input.disabled = true;
+      row.style.opacity = '0.4';
+    }
+    const value = document.createElement('span');
+    value.className = 'value';
+    const paint = (v) => {
+      value.textContent = control.step >= 1 ? `${v}` : `${v.toFixed(2)}${control.unit}`;
+    };
+    paint(params[control.id]);
+    input.addEventListener('input', () => {
+      const result = applyParam(params, control.id, Number(input.value));
+      if (!result.changed) return;
+      params = result.params;
+      input.value = String(params[control.id]);
+      paint(params[control.id]);
+      rebuild();
+    });
+    row.append(label, input, value);
+    box.appendChild(row);
+  }
+
+  const modes = document.getElementById('modes');
+  modes.innerHTML = '';
+  const modeBtn = (text, value) => {
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.className = mode === value ? 'on' : '';
+    b.addEventListener('click', () => { mode = value; rebuild(); buildUI(); });
+    modes.appendChild(b);
+  };
+  modeBtn('복셀', 'voxel');
+  modeBtn('표면 메시', 'surface');
+
+  const actions = document.getElementById('actions');
+  actions.innerHTML = '';
+  const colorBtn = document.createElement('button');
+  const labels = { observation: '관측 횟수', height: '높이', cluster: '클러스터' };
+  colorBtn.textContent = `색상: ${labels[colorMode]}`;
+  colorBtn.addEventListener('click', () => {
+    const order = [VOXEL_COLOR_MODES.OBSERVATION, VOXEL_COLOR_MODES.HEIGHT];
+    colorMode = order[(order.indexOf(colorMode) + 1) % order.length];
+    rebuild();
+    buildUI();
+  });
+  actions.appendChild(colorBtn);
+
+  const pathBtn = document.createElement('button');
+  pathBtn.textContent = '카메라 경로';
+  pathBtn.className = path.visible ? 'on' : '';
+  pathBtn.addEventListener('click', () => { path.visible = !path.visible; buildUI(); });
+  actions.appendChild(pathBtn);
+}
+
+function load(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    alert('JSON을 읽을 수 없습니다.');
+    return;
+  }
+  const cells = voxelCellsFromJSON(parsed);
+  const loaded = cells ? null : keyframeStoreFromJSON(parsed);
+  if (!cells && !loaded) {
+    alert('이 파일은 스캔 JSON 형식이 아닙니다.');
+    return;
+  }
+  loadedCells = cells;
+  store = loaded;
+  if (cells) params = { ...params, voxelSize: cells.grid.voxelSize };
+  document.getElementById('drop').classList.add('hidden');
+  document.getElementById('panel').style.display = '';
+  buildUI();
+  rebuild();
+  frameToContent();
+}
+
+// Point the camera at whatever was scanned, rather than at the world origin —
+// the XR origin is wherever the phone started, which is rarely the middle.
+function frameToContent() {
+  // A game map may carry no trail, so fall back to the cells themselves.
+  const pts = pathPoints().length
+    ? pathPoints()
+    : loadedCells ? loadedCells.grid.getCells().map(cellMeanPosition) : [];
+  if (!pts.length) return;
+  const c = [0, 0, 0];
+  for (const p of pts) for (let i = 0; i < 3; i += 1) c[i] += p[i] / pts.length;
+  controls.target.set(c[0], c[1] - 0.6, c[2]);
+  camera.position.set(c[0] + 2.6, c[1] + 1.8, c[2] + 2.6);
+  controls.update();
+}
+
+const fileInput = document.getElementById('file');
+document.getElementById('pick').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files?.[0];
+  if (file) file.text().then(load);
+});
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer?.files?.[0];
+  if (file) file.text().then(load);
+});
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

@@ -20,9 +20,9 @@ test('application wires camera access and duel runtime into the XR lifecycle', a
   const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   assert.match(main, /new RpsRuntime/);
   assert.match(main, /camera-access/);
-  assert.match(main, /rpsRuntime\.startSession/);
-  assert.match(main, /rpsRuntime\.update/);
-  assert.match(main, /rpsRuntime\.resetSession/);
+  assert.match(main, /rpsRuntime\??\.startSession/);
+  assert.match(main, /rpsRuntime\??\.update/);
+  assert.match(main, /rpsRuntime\??\.resetSession/);
 });
 
 test('pinned gesture model matches the reviewed Google asset', async () => {

@@ -27,6 +27,11 @@ export class NinjaGame {
     random = Math.random,
     schedule = setTimeout,
     makeRigidTransform = (position) => new XRRigidTransform(position),
+    // Pre-built-map flow (the chase page): no timed mapping phase on session
+    // start, and hiding candidates come from the frozen traversal grid rather
+    // than the crosshair hit-test pool. index.html keeps the defaults.
+    autoMapping = true,
+    getCandidatePool = null,
     onDuelStart = () => {},
   }) {
     this.scene = scene;
@@ -40,6 +45,8 @@ export class NinjaGame {
     this.random = random;
     this.schedule = schedule;
     this.makeRigidTransform = makeRigidTransform;
+    this.autoMapping = autoMapping;
+    this.getCandidatePool = getCandidatePool;
     this.onDuelStart = onDuelStart;
     this.phase = 'idle';
     this.mappingEnd = 0;
@@ -68,6 +75,17 @@ export class NinjaGame {
     this.misses = 0;
     this.lastSampleTime = 0;
     this.clearTarget();
+    if (!this.autoMapping) {
+      // The page owns the map-building lifecycle; the game waits until a
+      // frozen map exists and a hide is requested.
+      this.phase = 'idle';
+      this.setControls({
+        scan: false, newRound: false, extend: false, mark: true, check: true,
+      });
+      this.ui.setStatus('맵 생성 대기');
+      this.ui.setMessage('맵 생성을 누르고 방을 천천히 돌며 스캔하세요.');
+      return;
+    }
     this.setControls({ extend: true, mark: true, check: true });
     this.startMapping(MAP_SECONDS, true);
   }
@@ -131,17 +149,20 @@ export class NinjaGame {
       return false;
     }
 
-    this.clearSurfaceMarkers();
     this.ui.setStatus(`스캔 완료 — 후보 ${pool.length}개`);
     this.ui.setMessage('후보 중 한 곳에 Ninja를 숨기는 중…');
+    this.clearSurfaceMarkers();
     return this.hideNewTarget();
   }
 
   hideNewTarget({ excludeCandidate = null } = {}) {
     const viewerPose = this.getViewerPose();
     if (!this.getSession() || !viewerPose) return false;
-    const pool = this.mapper.getPool();
+    const pool = this.getCandidatePool
+      ? this.getCandidatePool()
+      : this.mapper.getPool();
     if (!pool.length) return false;
+
     const previousCandidate = excludeCandidate ?? this.target?.candidate ?? null;
     const available = pool.filter((candidate) => candidate !== previousCandidate);
     const candidates = available.length ? available : pool;
@@ -167,17 +188,13 @@ export class NinjaGame {
       anchorPromise: null,
       anchorState: 'anchor-pending',
       position: placement.position.slice(),
-      found: false,
       candidate: chosen,
+      found: false,
     };
     this.phase = 'hunt';
     this.setControls({ scan: true, newRound: true });
     this.ui.setStatus('Ninja가 숨었습니다');
     this.ui.setMessage('걸어다니며 찾으세요. 의심되는 방향을 화면 중앙에 두고 SCAN을 누르세요.');
-    if (!available.length && previousCandidate) {
-      this.ui.setStatus('다른 숨을 위치 후보가 부족합니다');
-      this.ui.setMessage('같은 후보에 다시 숨었습니다. 공간을 더 스캔하면 다음에는 다른 위치로 이동합니다.');
-    }
     return true;
   }
 
@@ -219,15 +236,16 @@ export class NinjaGame {
     if (!this.target) return false;
     this.phase = 'duel-countdown';
     this.target.object.visible = false;
+    this.clearSurfaceMarkers();
     this.setControls({ scan: false });
     this.ui.setStatus('Ninja와 가위바위보!');
-    this.ui.setMessage('화면 중앙에 한 손을 준비하세요.');
+    this.ui.setMessage('화면 안내에 맞춰 손 모양을 준비하세요.');
     this.onDuelStart({ target: this.target });
     return true;
   }
 
   setDuelPhase(phase) {
-    if (!phase.startsWith('duel-') || !this.target) return false;
+    if (!this.target || !phase.startsWith('duel-')) return false;
     this.phase = phase;
     return true;
   }
@@ -239,22 +257,24 @@ export class NinjaGame {
       return true;
     }
     if (outcome === 'draw') {
+      this.target.object.visible = false;
       this.model.setNinjaOpacity(this.target.object, NINJA_CAMOUFLAGE_OPACITY);
       this.phase = 'duel-countdown';
       return true;
     }
-    if (outcome !== 'lose') return false;
-
-    const previousCandidate = this.target.candidate;
-    this.clearTarget();
-    return this.hideNewTarget({ excludeCandidate: previousCandidate });
+    if (outcome === 'lose') {
+      const previousCandidate = this.target.candidate;
+      this.clearTarget();
+      return this.hideNewTarget({ excludeCandidate: previousCandidate });
+    }
+    return false;
   }
 
   revealTarget() {
     if (!this.target) return;
+    this.target.object.visible = true;
     this.target.found = true;
     this.phase = 'found';
-    this.target.object.visible = true;
     this.model.revealNinja(this.target.object);
     this.setControls({ scan: false });
     this.ui.setStatus('DETECTED!');
@@ -285,7 +305,36 @@ export class NinjaGame {
     return result;
   }
 
+  // Chase mode drives the model itself. Letting the anchor keep writing the
+  // object's matrix would snap it back to where it was hidden every frame.
+  setExternalControl(enabled) {
+    this.externalControl = Boolean(enabled);
+  }
+
+  getTargetObject() {
+    return this.target?.object ?? null;
+  }
+
+  setTargetOpacity(opacity) {
+    if (!this.target) return false;
+    this.model.setNinjaOpacity(this.target.object, opacity);
+    return true;
+  }
+
+  // Move the hidden model to a world position while the chase runs.
+  setTargetWorldPosition(position, headingAngle = null) {
+    if (!this.target || !position) return false;
+    const object = this.target.object;
+    object.matrixAutoUpdate = true;
+    object.position.set(position[0], position[1], position[2]);
+    if (headingAngle !== null) object.rotation.set(0, headingAngle, 0);
+    object.updateMatrix();
+    this.target.position = [position[0], position[1], position[2]];
+    return true;
+  }
+
   updateTargetAnchor(frame) {
+    if (this.externalControl) return;
     const localSpace = this.getLocalSpace();
     if (!this.target) return;
     if (this.target.anchorState === 'anchor-pending') {
@@ -309,6 +358,11 @@ export class NinjaGame {
     const matrix = pose.transform.matrix;
     target.object.matrix.fromArray(matrix);
     target.object.matrixWorldNeedsUpdate = true;
+    // createNinja leaves matrixAutoUpdate on, so three recomputes .matrix from
+    // position/quaternion every frame and the write above is thrown away. The
+    // anchor has to move `position` as well or the model stays where it was
+    // first placed while the game believes it has followed the anchor.
+    target.object.position.set(matrix[12], matrix[13], matrix[14]);
     target.position[0] = matrix[12];
     target.position[1] = matrix[13];
     target.position[2] = matrix[14];
@@ -381,10 +435,6 @@ export class NinjaGame {
 
   getTargetPosition() {
     return this.target ? this.target.position.slice() : null;
-  }
-
-  getTargetObject() {
-    return this.target?.object ?? null;
   }
 
   getAnchorState() {

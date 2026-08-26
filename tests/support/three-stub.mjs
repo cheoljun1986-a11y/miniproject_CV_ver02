@@ -7,6 +7,8 @@ const IDENTITY = [
 
 export const DynamicDrawUsage = 'dynamic';
 export const DoubleSide = 'double';
+export const FrontSide = 'front';
+export const BackSide = 'back';
 
 export class Matrix4 {
   constructor() { this.elements = IDENTITY.slice(); }
@@ -32,10 +34,12 @@ export class BufferGeometry {
   setIndex(attribute) { this.index = attribute; return this; }
   setDrawRange(start, count) { this.drawRange = { start, count }; }
   computeBoundingSphere() { this.boundingSphereComputed = true; }
+  dispose() { this.disposed = true; }
 }
 
 export class MeshBasicMaterial {
   constructor(options) { Object.assign(this, options); }
+  dispose() { this.disposed = true; }
 }
 
 export class PointsMaterial {
@@ -47,40 +51,12 @@ export class Mesh {
     this.geometry = geometry;
     this.material = material;
     this.visible = true;
+    this.renderOrder = 0;
+    this.frustumCulled = true;
   }
 }
 
 export class Points extends Mesh {}
-
-export class CanvasTexture {
-  constructor(image) {
-    this.image = image;
-    this.disposed = false;
-  }
-  dispose() { this.disposed = true; }
-}
-
-export class SpriteMaterial extends MeshBasicMaterial {
-  dispose() { this.disposed = true; }
-}
-
-function transformTarget() {
-  return {
-    values: null,
-    set(...values) { this.values = values; },
-  };
-}
-
-export class Sprite {
-  constructor(material) {
-    this.material = material;
-    this.position = transformTarget();
-    this.scale = transformTarget();
-    this.name = '';
-  }
-}
-
-export const SRGBColorSpace = 'srgb';
 
 export const MathUtils = {
   clamp(value, min, max) { return Math.min(max, Math.max(min, value)); },

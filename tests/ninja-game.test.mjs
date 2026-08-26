@@ -20,11 +20,10 @@ function matrixAt(x, y, z) {
   return matrix;
 }
 
-function createHarness() {
+function createHarness(gameOptions = {}) {
   const statuses = [];
   const controls = [];
   const sceneObjects = [];
-  const duelStarts = [];
   const ui = {
     setStatus(value) { statuses.push(value); },
     setMessage() {},
@@ -41,8 +40,6 @@ function createHarness() {
   const model = {
     createNinja() {
       return {
-        opacity: 0.13,
-        visible: true,
         matrixAutoUpdate: true,
         matrixWorldNeedsUpdate: false,
         matrix: {
@@ -62,7 +59,6 @@ function createHarness() {
         quaternion: { identity() {} },
       };
     },
-    setNinjaOpacity(object, opacity) { object.opacity = opacity; },
     revealNinja(object) { object.revealed = true; },
     disposeObject(object) { object.disposed = true; },
     createSurfaceMarker(position, horizontal) {
@@ -85,10 +81,10 @@ function createHarness() {
     makeRigidTransform: (position) => ({ position }),
     now: () => 1000,
     random: () => 0,
-    onDuelStart: ({ target }) => duelStarts.push(target),
+    ...gameOptions,
   });
 
-  return { game, mapper, statuses, controls, sceneObjects, duelStarts };
+  return { game, mapper, statuses, controls, sceneObjects };
 }
 
 function addHorizontalCandidate(mapper, position = [0, 0, -2]) {
@@ -128,8 +124,11 @@ test('session start enters mapping with the existing control availability', () =
   });
 });
 
-test('a detected scan starts a duel while the field ninja stays camouflaged', () => {
-  const { game, mapper, sceneObjects, duelStarts } = createHarness();
+test('mapping candidates produce a hidden target that starts a duel when detected', () => {
+  const duelStarts = [];
+  const { game, mapper, sceneObjects } = createHarness({
+    onDuelStart: (target) => duelStarts.push(target),
+  });
   game.startSession();
   for (const [index, position] of [[0, 0, -2], [0.3, 0, -2], [0.6, 0, -2]].entries()) {
     mapper.recordSurface({ position, matrix: [index], upY: 1 });
@@ -142,96 +141,8 @@ test('a detected scan starts a duel while the field ninja stays camouflaged', ()
   assert.equal(game.triggerScan(), true);
   assert.equal(game.getState().phase, 'duel-countdown');
   assert.equal(sceneObjects[0].revealed, undefined);
-  assert.equal(sceneObjects[0].opacity, 0.13);
   assert.equal(sceneObjects[0].visible, false);
   assert.equal(duelStarts.length, 1);
-});
-
-test('winning the duel captures and reveals the current ninja', () => {
-  const { game, mapper, sceneObjects } = createHarness();
-  addHorizontalCandidate(mapper);
-  game.hideNewTarget();
-  game.triggerScan();
-
-  assert.equal(game.resolveDuel('win'), true);
-  assert.equal(game.getState().phase, 'found');
-  assert.equal(sceneObjects[0].revealed, true);
-  assert.equal(sceneObjects[0].visible, true);
-});
-
-test('drawing keeps the same target for another countdown', () => {
-  const { game, mapper, sceneObjects } = createHarness();
-  addHorizontalCandidate(mapper);
-  game.hideNewTarget();
-  game.triggerScan();
-  const firstObject = sceneObjects[0];
-  const firstPosition = game.getTargetPosition();
-
-  assert.equal(game.resolveDuel('draw'), true);
-  assert.equal(game.getState().phase, 'duel-countdown');
-  assert.equal(sceneObjects[0], firstObject);
-  assert.deepEqual(game.getTargetPosition(), firstPosition);
-  assert.equal(sceneObjects[0].opacity, 0.13);
-  assert.equal(sceneObjects[0].visible, false);
-});
-
-test('successful mapping removes candidate markers before the hunt', () => {
-  const { game, sceneObjects } = createHarness();
-  game.startSession();
-
-  game.update(1000, {}, { position: [-0.3, 0, -2], upY: 1, matrix: [0] });
-  game.update(2000, {}, { position: [0, 0, -2], upY: 1, matrix: [1] });
-  game.update(3000, {}, { position: [0.3, 0, -2], upY: 1, matrix: [2] });
-  assert.equal(sceneObjects.filter((object) => object.marker).length, 3);
-
-  assert.equal(game.finishMapping(), true);
-  assert.equal(game.getState().phase, 'hunt');
-  assert.equal(sceneObjects.filter((object) => object.marker).length, 0);
-});
-
-test('starting another hunt after a win removes the captured ninja and avoids its position', () => {
-  const { game, mapper, sceneObjects } = createHarness();
-  addHorizontalCandidate(mapper, [0, 0, -2]);
-  addHorizontalCandidate(mapper, [0.3, 0, -2]);
-  game.hideNewTarget();
-  game.triggerScan();
-  game.resolveDuel('win');
-  const capturedObject = sceneObjects[0];
-  const capturedPosition = game.getTargetPosition();
-
-  assert.equal(game.hideNewTarget(), true);
-  assert.equal(capturedObject.disposed, true);
-  assert.equal(sceneObjects.length, 1);
-  assert.notEqual(sceneObjects[0], capturedObject);
-  assert.notDeepEqual(game.getTargetPosition(), capturedPosition);
-  assert.equal(sceneObjects[0].opacity, 0.13);
-});
-
-test('losing relocates to a different mapped candidate', () => {
-  const { game, mapper, sceneObjects } = createHarness();
-  addHorizontalCandidate(mapper, [0, 0, -2]);
-  addHorizontalCandidate(mapper, [0.3, 0, -2]);
-  game.hideNewTarget();
-  game.triggerScan();
-  const firstObject = sceneObjects[0];
-  const firstPosition = game.getTargetPosition();
-
-  assert.equal(game.resolveDuel('lose'), true);
-  assert.equal(game.getState().phase, 'hunt');
-  assert.equal(firstObject.disposed, true);
-  assert.notDeepEqual(game.getTargetPosition(), firstPosition);
-  assert.equal(sceneObjects.length, 1);
-});
-
-test('losing with one candidate reuses it without failing', () => {
-  const { game, mapper, statuses } = createHarness();
-  addHorizontalCandidate(mapper);
-  game.hideNewTarget();
-  game.triggerScan();
-
-  assert.equal(game.resolveDuel('lose'), true);
-  assert.equal(game.getState().phase, 'hunt');
-  assert.match(statuses.at(-1), /후보|위치/);
 });
 
 test('mapping drops a visible marker for each stored scan point and clears them on a new scan', () => {
@@ -253,9 +164,8 @@ test('mapping drops a visible marker for each stored scan point and clears them 
 });
 
 test('getTargetPosition returns the hidden position while hunting and null otherwise', () => {
-  const { game, mapper, sceneObjects } = createHarness();
+  const { game, mapper } = createHarness();
   assert.equal(game.getTargetPosition(), null);
-  assert.equal(game.getTargetObject(), null);
   game.startSession();
   for (const [index, position] of [[0, 0, -2], [0.3, 0, -2], [0.6, 0, -2]].entries()) {
     mapper.recordSurface({ position, matrix: [index], upY: 1 });
@@ -263,10 +173,8 @@ test('getTargetPosition returns the hidden position while hunting and null other
   game.finishMapping();
   const target = game.getTargetPosition();
   assert.ok(Array.isArray(target) && target.length === 3);
-  assert.equal(game.getTargetObject(), sceneObjects.at(-1));
   game.endSession();
   assert.equal(game.getTargetPosition(), null);
-  assert.equal(game.getTargetObject(), null);
 });
 
 test('uses the same surface-offset position for rendering and detection', () => {
@@ -420,4 +328,21 @@ test('deletes the current anchor when the session ends', async () => {
 
   assert.equal(anchor.deleted, true);
   assert.equal(game.getAnchorState(), null);
+});
+
+test('autoMapping off skips the timed scan and waits for an external map', () => {
+  const { game, statuses } = createHarness({ autoMapping: false });
+  game.startSession();
+  assert.equal(game.phase, 'idle');
+  assert.ok(statuses.some((s) => s.includes('맵 생성')), 'it should ask for the map');
+});
+
+test('an injected candidate pool replaces the crosshair pool for hiding', () => {
+  const pool = [
+    { pos: [0, 0.1, -2], matrix: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1] },
+  ];
+  const { game } = createHarness({ autoMapping: false, getCandidatePool: () => pool });
+  assert.equal(game.hideNewTarget(), true);
+  const [x, , z] = game.getTargetPosition();
+  assert.ok(Math.abs(x - 0) < 0.2 && Math.abs(z + 2) < 0.3);
 });

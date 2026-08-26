@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 
 import {
   APP_MODES,
+  autoStartsGame,
   depthUsageForMode,
+  depthUsageForSession,
   resolveAppMode,
+  usesDepthCloud,
   usesSpaceMapping,
+  usesVoxelOccluder,
 } from '../src/app-mode.js';
 
 test('default URL keeps GPU occlusion', () => {
@@ -30,4 +34,77 @@ test('CPU occlusion and cloud diagnostics both accumulate a space map', () => {
   assert.equal(usesSpaceMapping(APP_MODES.CPU_OCCLUSION), true);
   assert.equal(usesSpaceMapping(APP_MODES.CLOUD), true);
   assert.equal(usesSpaceMapping(APP_MODES.GPU_OCCLUSION), false);
+});
+
+test('voxel debug URL selects the keyframe voxel diagnostic', () => {
+  assert.equal(resolveAppMode('?voxel=debug'), 'voxel-debug');
+  assert.equal(resolveAppMode('?voxel=on'), 'gpu-occlusion');
+});
+
+// A live CPU occluder writes real-world depth, which would depth-cull the voxel
+// wireframe overlay exactly where we most need to see it (behind a table).
+test('voxel debug outranks the other experimental parameters', () => {
+  assert.equal(resolveAppMode('?voxel=debug&occlusion=cpu'), 'voxel-debug');
+  assert.equal(resolveAppMode('?depth=cloud&voxel=debug'), 'voxel-debug');
+});
+
+test('voxel debug requests CPU-optimized depth and shares the space-map wiring', () => {
+  assert.equal(depthUsageForMode(APP_MODES.VOXEL_DEBUG), 'cpu-optimized');
+  assert.equal(usesSpaceMapping(APP_MODES.VOXEL_DEBUG), true);
+});
+
+test('only the legacy modes drive DepthCloud and VoxelMap', () => {
+  assert.equal(usesDepthCloud(APP_MODES.CPU_OCCLUSION), true);
+  assert.equal(usesDepthCloud(APP_MODES.CLOUD), true);
+  assert.equal(usesDepthCloud(APP_MODES.VOXEL_DEBUG), false);
+  assert.equal(usesDepthCloud(APP_MODES.GPU_OCCLUSION), false);
+});
+
+test('only the voxel diagnostic keeps the game idle at session start', () => {
+  assert.equal(autoStartsGame(APP_MODES.GPU_OCCLUSION), true);
+  assert.equal(autoStartsGame(APP_MODES.CPU_OCCLUSION), true);
+  assert.equal(autoStartsGame(APP_MODES.CLOUD), true);
+  assert.equal(autoStartsGame(APP_MODES.VOXEL_DEBUG), false);
+});
+
+test('the voxel occluder is an axis of its own, not a mode', () => {
+  assert.equal(usesVoxelOccluder('?occluder=voxel'), true);
+  assert.equal(usesVoxelOccluder(''), false);
+  assert.equal(usesVoxelOccluder('?occluder=cpu'), false);
+  // Composes with every depth pipeline instead of competing with them.
+  assert.equal(resolveAppMode('?occluder=voxel'), 'gpu-occlusion');
+  assert.equal(resolveAppMode('?occlusion=cpu&occluder=voxel'), 'cpu-occlusion');
+});
+
+// One session, one depth usage: the occluder needs CPU-readable depth, so
+// asking for it overrides the GPU preference the default mode would pick.
+test('the voxel occluder forces CPU-readable depth', () => {
+  assert.equal(depthUsageForSession(APP_MODES.GPU_OCCLUSION, false), 'gpu-optimized');
+  assert.equal(depthUsageForSession(APP_MODES.GPU_OCCLUSION, true), 'cpu-optimized');
+  assert.equal(depthUsageForSession(APP_MODES.CPU_OCCLUSION, true), 'cpu-optimized');
+  assert.equal(depthUsageForSession(APP_MODES.VOXEL_DEBUG, false), 'cpu-optimized');
+});
+
+const {
+  TERRAIN_SOURCES, resolveTerrainSource, usesKeyframeTerrain, usesLegacyTerrain,
+} = await import('../src/app-mode.js');
+
+test('the legacy accumulator stays the default game terrain; keyframe is opt-in', () => {
+  assert.equal(resolveTerrainSource(''), TERRAIN_SOURCES.LEGACY);
+  assert.equal(resolveTerrainSource('?occlusion=cpu'), TERRAIN_SOURCES.LEGACY);
+  assert.equal(resolveTerrainSource('?terrain=legacy'), TERRAIN_SOURCES.LEGACY);
+  assert.equal(resolveTerrainSource('?terrain=keyframe'), TERRAIN_SOURCES.KEYFRAME);
+});
+
+test('exactly one terrain accumulator runs, and only in the game map modes', () => {
+  for (const mode of [APP_MODES.CPU_OCCLUSION, APP_MODES.CLOUD]) {
+    assert.equal(usesLegacyTerrain(mode, '?occlusion=cpu'), true);
+    assert.equal(usesKeyframeTerrain(mode, '?occlusion=cpu'), false);
+    assert.equal(usesKeyframeTerrain(mode, '?occlusion=cpu&terrain=keyframe'), true);
+    assert.equal(usesLegacyTerrain(mode, '?occlusion=cpu&terrain=keyframe'), false);
+  }
+  for (const mode of [APP_MODES.GPU_OCCLUSION, APP_MODES.VOXEL_DEBUG]) {
+    assert.equal(usesKeyframeTerrain(mode, '?terrain=keyframe'), false);
+    assert.equal(usesLegacyTerrain(mode, ''), false);
+  }
 });

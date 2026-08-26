@@ -3,9 +3,13 @@ import { ARButton } from 'three/addons/webxr/ARButton.js';
 
 import {
   APP_MODES,
-  depthUsageForMode,
+  autoStartsGame,
+  depthUsageForSession,
   resolveAppMode,
+  usesKeyframeTerrain,
+  usesLegacyTerrain,
   usesSpaceMapping,
+  usesVoxelOccluder,
 } from './app-mode.js';
 import {
   HIDDEN_MODEL_HEIGHT_M,
@@ -19,34 +23,83 @@ import {
   MAP_SECONDS,
   MAX_TRACKING_STEP,
   MIN_CANDIDATE_SPACING,
+  NINJA_CAMOUFLAGE_OPACITY,
   OPERATOR_RENDER_GAP_MS,
   OPERATOR_STATUS_GAP_MS,
   RPS_COUNTDOWN_MS,
   RPS_READ_TIMEOUT_MS,
   RPS_RESULT_MS,
+  SCAN_BACKUP_INTERVAL_MS,
   TRAIL_MAX_POINTS,
   TRAIL_MIN_STEP_M,
+  VOXEL_DEBUG_MAX_INSTANCES,
+  VOXEL_OCCLUDER_MIN_OBSERVATIONS,
+  VOXEL_TERRAIN_MAX_SOLID,
+  VOXEL_TRAVERSAL_MIN_OBSERVATIONS,
   VOXEL_MAX_SOLID,
   VOXEL_MAX_PENDING,
   VOXEL_SIZE_M,
   VOXEL_SOLID_MIN_HITS,
 } from './config.js';
 import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
-import { CpuDepthOccluder } from './cpu-depth-occluder.js';
-import { DepthCloud } from './depth-cloud.js';
 import { GestureConsensus } from './gesture-consensus.js';
 import { HandGestureRecognizer } from './hand-gesture-recognizer.js';
-import { loadHiddenModel } from './hidden-model-loader.js';
 import { resolveInputMode } from './input-mode.js';
+import { RawCameraFrameSource } from './raw-camera-frame-source.js';
+import { RpsRuntime } from './rps-runtime.js';
+import { TraversalGrid, nodeKey } from './traversal-grid.js';
+import { ChaseRunner } from './chase-runner.js';
+import {
+  CaptureGauge, angleToTargetDeg, directionInViewSpace, makeArrowGate,
+  screenAngleFromViewDirection,
+} from './capture-gauge.js';
+import { visibleFraction } from './line-of-sight.js';
+import { ChaseLog } from './chase-log.js';
+import { gridCandidatePool } from './grid-candidates.js';
+import { MapAnchor } from './map-anchor.js';
+import { forwardFromQuaternion } from './game-rules.js';
+import {
+  CHASE_BODY_HEIGHT_M,
+  CHASE_CELL_SIZE_M,
+  CHASE_GRID_MIN_Y,
+  CHASE_GRID_REBUILD_GAP_MS,
+  CHASE_GRID_SLABS,
+  CHASE_MAX_DROP_M,
+  CHASE_MAX_JUMP_UP_M,
+  CHASE_MAX_STAND_ABOVE_FLOOR_M,
+  CHASE_MAX_STEP_UP_M,
+  CHASE_MIN_WALKABLE_CELLS,
+  CHASE_RECENT_WINDOW_MS,
+  CHASE_RETARGET_MS,
+  CHASE_SLAB_HEIGHT_M,
+  CHASE_STUCK_MS,
+} from './config.js';
+import { CpuDepthOccluder } from './cpu-depth-occluder.js';
+import { DepthCloud } from './depth-cloud.js';
+import { loadHiddenModel } from './hidden-model-loader.js';
 import { NinjaGame } from './ninja-game.js';
 import * as ninjaModel from './ninja-model.js';
 import { OperatorView } from './operator-view.js';
 import { PlayerTrail } from './player-trail.js';
-import { RawCameraFrameSource } from './raw-camera-frame-source.js';
-import { RpsRuntime } from './rps-runtime.js';
+import {
+  ScanUploader, formatSessionId, shouldBackup, uploadName,
+} from './scan-uploader.js';
 import { SpatialMapper } from './spatial-mapper.js';
-import { createUI, formatMetrics, formatOperatorStatus } from './ui.js';
+import {
+  createUI,
+  formatMetrics,
+  formatOperatorStatus,
+  formatVoxelDebugStatus,
+  formatVoxelDebugSummary,
+} from './ui.js';
+import { cellsFromSolidVoxels, voxelCellsToJSON } from './voxel-cells-codec.js';
+import { confirmedCellPositions } from './voxel-grid.js';
+import { VoxelDebugController } from './voxel-debug-controller.js';
+import { createVoxelDebugPanel } from './voxel-debug-panel.js';
 import { VoxelMap } from './voxel-map.js';
+import { VoxelOccluder } from './voxel-occluder.js';
+import { VoxelOverlay } from './voxel-overlay.js';
+import { VoxelTerrain } from './voxel-terrain.js';
 import { XRSessionController } from './xr-session.js';
 
 // A WebXR session uses one depth mode. CPU mode shares that single feed between
@@ -55,7 +108,17 @@ const APP_MODE = resolveAppMode(location.search);
 const CLOUD_MODE = APP_MODE === APP_MODES.CLOUD;
 const CPU_OCCLUSION_MODE = APP_MODE === APP_MODES.CPU_OCCLUSION;
 const GPU_OCCLUSION_MODE = APP_MODE === APP_MODES.GPU_OCCLUSION;
-const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE);
+const VOXEL_DEBUG_MODE = APP_MODE === APP_MODES.VOXEL_DEBUG;
+// Orthogonal to the depth pipeline: the static occluder composes with any mode
+// but needs the keyframe scan, hence the space-mapping wiring.
+const VOXEL_OCCLUDER_ON = usesVoxelOccluder(location.search);
+const KEYFRAME_SCAN_MODE = VOXEL_DEBUG_MODE || VOXEL_OCCLUDER_ON;
+const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE) || VOXEL_OCCLUDER_ON;
+// The game's space map comes from one of two accumulators. The keyframe scan
+// modes already run their own capture and feed the chase grid from it
+// (maybeFeedChaseGrid), so neither terrain accumulator runs alongside them.
+const KEYFRAME_TERRAIN_MODE = usesKeyframeTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
+const LEGACY_TERRAIN_MODE = usesLegacyTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
 const MANUAL_INPUT_MODE = resolveInputMode(location.search) === 'manual';
 
 const ui = createUI();
@@ -67,21 +130,63 @@ let reticle;
 let mapper;
 let xrSession;
 let game;
+let rpsRuntime;
+let handRecognizer;
+let rawCameraSource;
 let depthSource = null;
+// null until the first frame answers it: does XRView carry a camera, i.e. did
+// the browser actually grant camera-access for this session?
+let cameraAccess = null;
 let depthCloud = null;
 let occluder = null; // depth-sensing occlusion mesh (real world hides the ninja)
 let cpuDepthOccluder = null;
-let voxelMap = null;
+let voxelMap = null;      // legacy accumulator (default)
+let voxelTerrain = null;  // keyframe accumulator (?terrain=keyframe)
 let playerTrail = null;
 let operatorView = null;
 let operatorVisible = false;
+
+// ── chase mode ────────────────────────────────────────────────
+// Only wired up on the chase page, which is the only one carrying #chaseBtn.
+let chaseGrid = null;
+let chaseRunner = null;
+let captureGauge = null;
+let chaseActive = false;
+let lastChaseTime = null;
+let chaseTiles = null;
+let chaseTilesRevision = -1;
+let chaseLog = null;
+let chaseArrowGate = null;
+// Pre-built-map lifecycle (chase page): the map is gathered while mapBuilding,
+// then frozen — nothing feeds it during play, which is what stops terrain from
+// changing under Hachuping's feet and errors from accumulating into the map.
+let mapBuilding = false;
+let mapFrozen = false;
+// The nail the map hangs on. Created at the origin when building starts; every
+// stored coordinate (grid cells, Hachuping) lives in ITS frame, and rendering
+// converts back out. When ARCore corrects its drift the map follows the nail.
+let mapAnchor = null;
+let mapAnchorState = 'idle';
+let lastMapStatusTime = -Infinity;
+let lastTileBuildAt = -Infinity;
 let lastOperatorStatusTime = -Infinity;
 let lastOperatorRenderTime = -Infinity;
 let operatorVoxelRevision = -1;
 let operatorSolidVoxels = [];
-let rpsRuntime = null;
-let handRecognizer = null;
-let rawCameraSource = null;
+let voxelDebug = null;
+let voxelOverlay = null;
+let voxelPanel = null;
+let voxelOccluder = null;
+let chaseFedRevision = -1;
+
+// ── scan backup ───────────────────────────────────────────────
+// One file per AR session in results/ on the dev server, refreshed on an
+// interval and finalised at session end. Nothing here is load-bearing: with
+// no /upload endpoint every attempt fails quietly.
+let uploader = null;
+let sessionId = null;
+let lastBackupAt = -Infinity;
+let backedUpRevision = -1;
 
 init();
 
@@ -124,42 +229,56 @@ async function init() {
     getSession: () => xrSession.getSession(),
     getLocalSpace: () => xrSession.getLocalSpace(),
     getViewerPose: () => xrSession.getViewerPose(),
+    // Chase page: the map is built explicitly (맵 생성 → 종료), so no timed
+    // mapping phase, and hiding spots come from the frozen grid instead of
+    // the crosshair pool.
+    autoMapping: !ui.hasMapButton(),
+    getCandidatePool: ui.hasMapButton()
+      ? () => (chaseGrid ? gridCandidatePool(chaseGrid) : [])
+      : null,
     onDuelStart: () => rpsRuntime?.startDuel(performance.now()),
   });
-  handRecognizer = new HandGestureRecognizer({
-    consensus: new GestureConsensus({
-      minConfidence: HAND_MIN_CONFIDENCE,
-      requiredMatches: HAND_REQUIRED_MATCHES,
-      windowSize: HAND_SAMPLE_WINDOW,
-      maxAgeMs: HAND_SAMPLE_MAX_AGE_MS,
-    }),
-  });
-  rawCameraSource = new RawCameraFrameSource({
-    minIntervalMs: HAND_INFERENCE_GAP_MS,
-  });
-  rpsRuntime = new RpsRuntime({
-    ui,
-    game,
-    recognizer: handRecognizer,
-    cameraSource: rawCameraSource,
-    manualMode: MANUAL_INPUT_MODE,
-    countdownMs: RPS_COUNTDOWN_MS,
-    readTimeoutMs: RPS_READ_TIMEOUT_MS,
-    resultMs: RPS_RESULT_MS,
-    resetRendererState: () => renderer.resetState?.(),
-  });
+
+  if (ui.hasDuelUI()) {
+    handRecognizer = new HandGestureRecognizer({
+      consensus: new GestureConsensus({
+        minConfidence: HAND_MIN_CONFIDENCE,
+        requiredMatches: HAND_REQUIRED_MATCHES,
+        windowSize: HAND_SAMPLE_WINDOW,
+        maxAgeMs: HAND_SAMPLE_MAX_AGE_MS,
+      }),
+    });
+    rawCameraSource = new RawCameraFrameSource({ minIntervalMs: HAND_INFERENCE_GAP_MS });
+    rpsRuntime = new RpsRuntime({
+      ui,
+      game,
+      recognizer: handRecognizer,
+      cameraSource: rawCameraSource,
+      manualMode: MANUAL_INPUT_MODE,
+      countdownMs: RPS_COUNTDOWN_MS,
+      readTimeoutMs: RPS_READ_TIMEOUT_MS,
+      resultMs: RPS_RESULT_MS,
+      resetRendererState: () => renderer.resetState?.(),
+    });
+  }
 
   controller = renderer.xr.getController(0);
   controller.addEventListener('select', () => game.triggerScan());
   scene.add(controller);
 
   ui.bindCommands({
-    onScan: () => game.triggerScan(),
+    // SCAN is hidden during a chase; ignore it defensively all the same.
+    onScan: () => { if (!chaseActive) game.triggerScan(); },
     onNewRound: () => game.hideNewTarget(),
     onExtend: () => game.startMapping(MAP_SECONDS, false),
     onMark: () => game.saveCheckpoint(),
     onCheck: () => game.checkReturnError(),
+    onMap: () => toggleMapBuild(),
   });
+  // No hold handlers: capture now needs only range plus aim, so SCAN keeps its
+  // ordinary tap behaviour and never sees a long press.
+  // No chase toggle any more: the chase starts when the map is frozen.
+  ui.bindChase({ onToggle: () => startChase() });
   addEventListener('resize', onResize);
 
   const supported = Boolean(navigator.xr)
@@ -181,36 +300,93 @@ async function init() {
     console.error('Hidden model unavailable, using the built-in ninja:', error);
   }
 
-  ui.setStatus(CLOUD_MODE
-    ? 'WebXR AR 지원됨 (공간 복원 모드) — START AR을 누르세요'
-    : CPU_OCCLUSION_MODE
-      ? 'WebXR AR 지원됨 (CPU 깊이 가림 모드) — START AR을 누르세요'
-      : 'WebXR AR 지원됨 — START AR을 누르세요');
+  ui.setStatus(VOXEL_DEBUG_MODE
+    ? 'WebXR AR 지원됨 (복셀 진단 모드) — START AR을 누르세요'
+    : CLOUD_MODE
+      ? 'WebXR AR 지원됨 (공간 복원 모드) — START AR을 누르세요'
+      : CPU_OCCLUSION_MODE
+        ? 'WebXR AR 지원됨 (CPU 깊이 가림 모드) — START AR을 누르세요'
+        : 'WebXR AR 지원됨 — START AR을 누르세요');
   if (SPACE_MAPPING_MODE) {
     depthSource = new CpuDepthFrameSource({
       getSession: () => xrSession.getSession(),
     });
-    voxelMap = new VoxelMap({
-      voxelSize: VOXEL_SIZE_M,
-      solidMinHits: VOXEL_SOLID_MIN_HITS,
-      maxSolid: VOXEL_MAX_SOLID,
-      maxPending: VOXEL_MAX_PENDING,
-    });
+    uploader = new ScanUploader({ onStatus: (text) => ui.setMessage(text) });
+    if (ui.hasChaseControls()) {
+      chaseGrid = new TraversalGrid({
+        cellSize: CHASE_CELL_SIZE_M,
+        slabHeight: CHASE_SLAB_HEIGHT_M,
+        minY: CHASE_GRID_MIN_Y,
+        slabCount: CHASE_GRID_SLABS,
+        headroom: CHASE_BODY_HEIGHT_M,
+        maxStepUp: CHASE_MAX_STEP_UP_M,
+        maxJumpUp: CHASE_MAX_JUMP_UP_M,
+        maxDropDown: CHASE_MAX_DROP_M,
+        maxStandAboveFloor: CHASE_MAX_STAND_ABOVE_FLOOR_M,
+      });
+      chaseLog = new ChaseLog();
+      mapAnchor = new MapAnchor();
+      chaseArrowGate = makeArrowGate();
+      chaseRunner = new ChaseRunner({
+        grid: chaseGrid,
+        retargetMs: CHASE_RETARGET_MS,
+        stuckMs: CHASE_STUCK_MS,
+        recentWindowMs: CHASE_RECENT_WINDOW_MS,
+        onEvent: (type, detail) => chaseLog.push(performance.now(), type, detail),
+      });
+      captureGauge = new CaptureGauge();
+    }
     playerTrail = new PlayerTrail({
       minStep: TRAIL_MIN_STEP_M,
       maxPoints: TRAIL_MAX_POINTS,
     });
-    depthCloud = new DepthCloud({
-      scene,
-      voxelMap,
-      renderPoints: false,
-      depthSource,
-    });
+    if (KEYFRAME_TERRAIN_MODE) {
+      voxelTerrain = new VoxelTerrain({
+        depthSource,
+        // Same contract VoxelMap.onSolid had: one cell touched per confirmed
+        // voxel, never a full grid rebuild.
+        onSolid: chaseGrid ? (center) => chaseGrid.observe(toMapSpace(center)) : null,
+      });
+    }
+    if (LEGACY_TERRAIN_MODE) {
+      voxelMap = new VoxelMap({
+        voxelSize: VOXEL_SIZE_M,
+        solidMinHits: VOXEL_SOLID_MIN_HITS,
+        maxSolid: VOXEL_MAX_SOLID,
+        maxPending: VOXEL_MAX_PENDING,
+        // One cell touched per confirmed voxel — never a full grid rebuild.
+        onSolid: chaseGrid ? (center) => chaseGrid.observe(toMapSpace(center)) : null,
+      });
+      depthCloud = new DepthCloud({
+        scene,
+        voxelMap,
+        renderPoints: false,
+        depthSource,
+      });
+    }
+    if (KEYFRAME_SCAN_MODE) {
+      // Keyframe-gated capture with per-frame dedup, replacing DepthCloud's
+      // 200ms timer which lets a single frame promote a voxel on its own.
+      voxelDebug = new VoxelDebugController({ depthSource });
+    }
+    if (VOXEL_DEBUG_MODE) {
+      voxelOverlay = new VoxelOverlay({ scene });
+    }
+    if (KEYFRAME_SCAN_MODE) {
+      // Built in the diagnostic too, so the wireframe can be checked against
+      // it, but only shown automatically when it is the point of the session.
+      voxelOccluder = new VoxelOccluder({ scene });
+    }
     if (CPU_OCCLUSION_MODE) {
       cpuDepthOccluder = new CpuDepthOccluder({ scene, depthSource });
     }
     try {
-      operatorView = new OperatorView({ canvas: ui.getOperatorCanvas() });
+      operatorView = new OperatorView({
+        canvas: ui.getOperatorCanvas(),
+        maxVoxels: VOXEL_DEBUG_MODE
+          ? VOXEL_DEBUG_MAX_INSTANCES
+          : KEYFRAME_TERRAIN_MODE ? VOXEL_TERRAIN_MAX_SOLID : VOXEL_MAX_SOLID,
+      });
       ui.setOperatorButtonVisible(true);
       ui.bindOperator({
         onToggle(visible) {
@@ -222,21 +398,42 @@ async function init() {
       console.error('Operator view unavailable:', error);
       operatorView = null;
     }
+    if (VOXEL_DEBUG_MODE) {
+      voxelPanel = createVoxelDebugPanel({
+        root: document.querySelector('#hud'),
+        controller: voxelDebug,
+        overlay: voxelOverlay,
+        operatorView,
+        onOperatorToggle: () => {
+          operatorVisible = !operatorVisible;
+          ui.setOperatorVisible(operatorVisible);
+        },
+        onStartGame: () => {
+          game.startSession();
+          // Starting the game in the diagnostic has exactly one purpose:
+          // watching whether the character hides. Leaving the occluder off
+          // makes that test silently measure nothing.
+          voxelOccluder?.setVisible(true);
+        },
+        occluder: voxelOccluder,
+        onUpload: () => backupScan('manual'),
+      });
+      // Nothing on the legacy metrics card applies while the game is idle, and
+      // the panel already reports everything else.
+      ui.setMetricsVisible(false);
+    }
   }
 
   const arButton = ARButton.createButton(renderer, {
     requiredFeatures: ['hit-test'],
-    optionalFeatures: [
-      'anchors',
-      'dom-overlay',
-      'local-floor',
-      'depth-sensing',
-      'camera-access',
-    ],
+    // camera-access is requested only to find out whether this browser grants
+    // it; nothing reads camera images yet. Optional, so a refusal cannot stop
+    // the session from starting.
+    optionalFeatures: ['anchors', 'dom-overlay', 'local-floor', 'depth-sensing', 'camera-access'],
     // gpu-optimized feeds three's built-in mesh. CPU modes let this app read
     // samples for either point-cloud reconstruction or our dynamic occluder.
     depthSensing: {
-      usagePreference: [depthUsageForMode(APP_MODE)],
+      usagePreference: [depthUsageForSession(APP_MODE, VOXEL_OCCLUDER_ON)],
       dataFormatPreference: ['luminance-alpha', 'float32'],
     },
     domOverlay: { root: document.body },
@@ -247,32 +444,62 @@ async function init() {
     detachOccluder();
     depthSource?.reset();
     cpuDepthOccluder?.reset();
+    resetChaseState();
     depthCloud?.reset();
     voxelMap?.reset();
+    voxelTerrain?.reset();
     playerTrail?.reset();
     lastOperatorStatusTime = -Infinity;
     lastOperatorRenderTime = -Infinity;
     operatorVoxelRevision = -1;
     operatorSolidVoxels = [];
+    cameraAccess = null;
+    voxelDebug?.reset();
+    voxelOverlay?.clear();
+    voxelOccluder?.reset();
+    chaseFedRevision = -1;
+    mapBuilding = false;
+    mapFrozen = false;
+    mapAnchor?.reset();
+    mapAnchorState = 'idle';
+    ui.setMapButton('맵 생성', true);
+    sessionId = formatSessionId(new Date());
+    lastBackupAt = performance.now();
+    backedUpRevision = -1;
+    voxelDebug?.startScan(performance.now());
     await xrSession.start();
-    rpsRuntime.startSession(xrSession.getSession(), renderer.getContext());
-    game.startSession();
+    rpsRuntime?.startSession(xrSession.getSession(), renderer.getContext());
+    if (autoStartsGame(APP_MODE)) game.startSession();
   });
   renderer.xr.addEventListener('sessionend', () => {
+    rpsRuntime?.resetSession();
+    // Serialised before anything below resets it. The page outlives the XR
+    // session, so the upload itself can finish after the resets.
+    backupScan('final');
     detachOccluder();
     depthSource?.reset();
     cpuDepthOccluder?.reset();
+    resetChaseState();
     depthCloud?.reset();
     voxelMap?.reset();
+    voxelTerrain?.reset();
     playerTrail?.reset();
     lastOperatorStatusTime = -Infinity;
     lastOperatorRenderTime = -Infinity;
     operatorVoxelRevision = -1;
     operatorSolidVoxels = [];
+    cameraAccess = null;
+    voxelDebug?.reset();
+    voxelOverlay?.clear();
+    voxelOccluder?.reset();
+    mapBuilding = false;
+    mapFrozen = false;
+    mapAnchor?.reset();
+    mapAnchorState = 'idle';
+    ui.setMapButton('맵 생성', true);
     operatorVisible = false;
     ui.setOperatorVisible(false);
-    rpsRuntime.resetSession();
-    game.endSession();
+    if (autoStartsGame(APP_MODE)) game.endSession();
     xrSession.end();
   });
   renderer.setAnimationLoop(render);
@@ -299,6 +526,208 @@ function detachOccluder() {
   occluder = null; // three recreates the mesh for the next session
 }
 
+// ── pre-built map lifecycle ───────────────────────────────────
+// 맵 생성 → walk the room, everything feeds the map → 맵 생성 종료 → frozen.
+// Hiding and chasing then run on the frozen map only. Building again discards
+// the old map entirely — mixing observations from two walks would re-create
+// exactly the accumulated-error problem this flow exists to remove.
+function toggleMapBuild() {
+  if (!chaseGrid) return;
+  if (mapBuilding) {
+    freezeMap();
+    return;
+  }
+  if (chaseActive) stopChase('도망 모드를 껐습니다.');
+  mapBuilding = true;
+  mapFrozen = false;
+  // A rebuild is a new map: pin a fresh nail in the CURRENT corrected frame.
+  mapAnchor?.reset();
+  mapAnchor?.beginTracking();
+  voxelMap?.reset();
+  voxelTerrain?.reset();
+  chaseGrid.reset();
+  chaseRunner?.reset();
+  chaseTiles = null;
+  chaseTilesRevision = -1;
+  game.clearTarget();
+  game.setControls({ scan: false, newRound: false });
+  ui.setMapButton('맵 생성 종료', true);
+  ui.setStatus('맵 생성 중 — 방을 천천히 돌며 비춰주세요');
+  ui.setMessage('구석과 책상 밑까지 비출수록 좋아집니다. 충분하면 맵 생성 종료를 누르세요.');
+}
+
+function freezeMap() {
+  mapBuilding = false;
+  mapFrozen = true;
+  const { walkable } = chaseGrid.stats();
+  const candidateCount = gridCandidatePool(chaseGrid).length;
+  game.setControls({ newRound: false });
+  ui.setMapButton('맵 다시 만들기', true);
+  ui.setStatus(`지도 확정 — 설 수 있는 칸 ${walkable}`);
+  // Freezing the map IS the start signal: this page is the chase, so there is
+  // nothing left to opt into once terrain exists.
+  if (candidateCount > 0 && startChase()) return;
+  ui.setMessage(candidateCount > 0
+    ? `설 수 있는 자리 ${candidateCount}곳 — 도망 모드를 누르면 하츄핑이 도망칩니다.`
+    : '설 수 있는 곳이 없습니다 — 맵 다시 만들기로 더 넓게 스캔해주세요.');
+}
+
+// ── chase mode ────────────────────────────────────────────────
+function resetChaseState() {
+  if (!chaseRunner) return;
+  chaseActive = false;
+  lastChaseTime = null;
+  chaseRunner.reset();
+  chaseGrid.reset();
+  captureGauge.reset();
+  chaseTiles = null;
+  chaseTilesRevision = -1;
+  lastTileBuildAt = -Infinity;
+  chaseLog?.clear();
+  chaseArrowGate = makeArrowGate();
+  ui.setChaseVisible(false);
+  ui.setChaseArrow(null);
+  ui.setScanVisible(true);
+}
+
+function stopChase(message) {
+  if (!chaseRunner) return;
+  chaseActive = false;
+  chaseLog?.push(performance.now(), 'stop');
+  chaseRunner.stop();
+  game.setExternalControl(false);
+  game.setTargetOpacity(NINJA_CAMOUFLAGE_OPACITY);
+  ui.setChaseVisible(false);
+  ui.setChaseArrow(null);
+  ui.setScanVisible(true);
+  // The round is over; the only way on is a fresh map.
+  ui.setMapButton('맵 다시 만들기', true);
+  if (message) ui.setMessage(message);
+}
+
+// Begins the chase on the frozen map. Returns false, with the reason on
+// screen, when the terrain cannot support one yet. This page has no idle
+// state to return to: freezing the map starts the game.
+function startChase() {
+  if (!chaseRunner || !chaseGrid) return false;
+  if (chaseActive) return true;
+
+  const { walkable } = chaseGrid.stats();
+  if (walkable < CHASE_MIN_WALKABLE_CELLS) {
+    ui.setMessage(`지도가 아직 부족합니다 — 갈 수 있는 칸 ${walkable}/${CHASE_MIN_WALKABLE_CELLS}. 맵 다시 만들기로 더 걸으며 비춰주세요.`);
+    return false;
+  }
+  // Hachuping is placed straight onto the frozen map: no hide-and-seek round
+  // precedes the chase on this page.
+  let target = game.getTargetPosition();
+  if (!target) {
+    if (!game.hideNewTarget()) {
+      ui.setMessage('하츄핑을 놓을 자리를 찾지 못했습니다 — 맵을 더 넓게 만들어주세요.');
+      return false;
+    }
+    target = game.getTargetPosition();
+  }
+  if (!chaseRunner.start(toMapSpace(target), performance.now())) {
+    ui.setMessage('하츄핑이 설 자리를 찾지 못했습니다. 주변 바닥을 더 비춰주세요.');
+    return false;
+  }
+
+  captureGauge.reset();
+  chaseActive = true;
+  lastChaseTime = null;
+  game.setExternalControl(true);
+  game.setTargetOpacity(1);
+  ui.setChaseVisible(true);
+  ui.setChaseGauge(0);
+  ui.setScanVisible(false);
+  ui.setStatus('하츄핑이 도망칩니다');
+  ui.setMessage('1.2m 안까지 쪽아가 화면 중앙에 5초간 담아두세요.');
+  return true;
+}
+
+function updateChase(time, viewerPose) {
+  if (!chaseActive || !chaseRunner?.isActive()) return;
+
+  const dt = lastChaseTime === null
+    ? 0
+    : Math.min(0.1, Math.max(0, (time - lastChaseTime) / 1000));
+  lastChaseTime = time;
+  if (dt <= 0) return;
+
+  // Losing tracking must not hand Hachuping a free head start.
+  chaseRunner.setFrozen(!viewerPose);
+  // All chase LOGIC runs in map (anchor) space: the grid, Hachuping, and the
+  // player's position converted into it. Only RENDERING converts back out, so
+  // a drift correction moves the whole map together instead of leaving
+  // Hachuping and the grid behind.
+  const playerMap = viewerPose ? toMapSpace(viewerPose.position) : null;
+  const state = chaseRunner.update(dt, {
+    playerPosition: playerMap,
+    now: time,
+    speedMultiplier: captureGauge.speedMultiplier(),
+  });
+  if (state.position) {
+    game.setTargetWorldPosition(
+      toRenderSpace([state.position[0], state.visualY, state.position[2]]),
+      state.headingAngle + (mapAnchor?.yaw() ?? 0),
+    );
+  }
+
+  if (!viewerPose || !state.position) {
+    ui.setChaseHint('추적 대기 중');
+    return;
+  }
+
+  // Distance and aim compare like with like: the player's real position vs
+  // Hachuping's RENDERED position — what the player actually sees on screen.
+  const renderPos = toRenderSpace(state.position);
+  const forward = forwardFromQuaternion(viewerPose.quaternion);
+  const dx = renderPos[0] - viewerPose.position[0];
+  const dy = renderPos[1] - viewerPose.position[1];
+  const dz = renderPos[2] - viewerPose.position[2];
+  const distance = Math.hypot(dx, dy, dz);
+  const angleDeg = angleToTargetDeg(forward, viewerPose.position, renderPos);
+  // How much of Hachuping the scanned terrain actually leaves visible. Graded
+  // rather than yes/no: half a character behind a chair leg still counts, it
+  // just fills slower.
+  const visibility = visibleFraction(chaseGrid, playerMap, state.position, {
+    bodyHeightM: HIDDEN_MODEL_HEIGHT_M,
+  });
+  const capture = captureGauge.update(dt, { distance, angleDeg, visibility });
+
+  ui.setChaseGauge(capture.value);
+  ui.setChaseHint(`${captureGauge.hint()}  ·  ${distance.toFixed(1)}m`);
+  ui.setChaseArrow(chaseArrowGate(angleDeg)
+    ? screenAngleFromViewDirection(
+      directionInViewSpace(viewerPose.quaternion, viewerPose.position, renderPos),
+    )
+    : null);
+
+  if (capture.captured) {
+    chaseLog?.push(time, 'captured', `${distance.toFixed(2)}m`);
+    stopChase(`검거 성공! ${distance.toFixed(2)}m 에서 잡았습니다.`);
+    ui.setStatus('하츄핑 검거 완료');
+    ui.setChaseGauge(1);
+    ui.flash();
+  }
+}
+
+function buildChaseTiles(time) {
+  if (!chaseGrid) return;
+  if (time - lastTileBuildAt < CHASE_GRID_REBUILD_GAP_MS) return;
+  if (chaseGrid.getRevision() === chaseTilesRevision) return;
+  lastTileBuildAt = time;
+  chaseTilesRevision = chaseGrid.getRevision();
+  const reachable = chaseRunner?.getReachable() ?? null;
+  chaseTiles = chaseGrid.toOverlay().map((tile) => ({
+    ...tile,
+    // null = unknown (no chase running yet), so it just draws green.
+    reachable: !tile.walkable || !reachable
+      ? null
+      : reachable.has(nodeKey(tile.cx, tile.cz, tile.level)),
+  }));
+}
+
 function render(time, frame) {
   if (!frame) {
     renderer.render(scene, camera);
@@ -308,27 +737,65 @@ function render(time, frame) {
   const { viewerPose, surface } = xrSession.update(frame);
   if (viewerPose) mapper.recordViewer(viewerPose.position);
   game.update(time, frame, surface);
-  rpsRuntime.update(time, frame, xrSession.getLocalSpace());
+  rpsRuntime?.update(time, frame, xrSession.getLocalSpace());
 
   if (SPACE_MAPPING_MODE) {
     const localSpace = xrSession.getLocalSpace();
     if (CPU_OCCLUSION_MODE) {
       cpuDepthOccluder?.update(frame, localSpace, time);
     }
-    depthCloud?.update(frame, localSpace, time);
+    if (KEYFRAME_SCAN_MODE) {
+      voxelDebug.update(frame, localSpace, time, viewerPose);
+      voxelDebug.rebuildIfDirty();
+      maybeBuildVoxelOccluder();
+      maybeFeedChaseGrid();
+    }
+    // On the pre-built-map page the world feeds the map ONLY while building.
+    // A frozen map is the whole point: play must not mutate it. Either terrain
+    // accumulator (the team's keyframe VoxelTerrain or the legacy DepthCloud)
+    // goes through the same gate.
+    const feedingTerrain = !ui.hasMapButton() || mapBuilding;
+    if (KEYFRAME_TERRAIN_MODE && feedingTerrain) {
+      voxelTerrain.update(frame, localSpace, time, viewerPose);
+    }
+    if (LEGACY_TERRAIN_MODE && feedingTerrain) {
+      depthCloud.update(frame, localSpace, time);
+    }
+    if (mapBuilding && time - lastMapStatusTime >= 500) {
+      lastMapStatusTime = time;
+      const { walkable } = chaseGrid?.stats() ?? { walkable: 0 };
+      const solid = (voxelMap ?? voxelTerrain)?.getSolidCount() ?? 0;
+      // Only the legacy accumulator has a hard cap; VoxelTerrain grows freely.
+      const full = voxelMap && solid >= VOXEL_MAX_SOLID ? ' ⚠상한' : '';
+      ui.setStatus(`맵 생성 중 — 복셀 ${solid}${full} · 설 수 있는 칸 ${walkable}`);
+    }
     if (viewerPose) playerTrail?.record(viewerPose.position);
+    if (cameraAccess === null) cameraAccess = probeCameraAccess(frame, localSpace);
+    updateChase(time, viewerPose);
+    if (operatorVisible) buildChaseTiles(time);
+    maybeBackupGameMap(time);
 
     const ninjaPosition = game.getTargetPosition();
-    const voxelCount = voxelMap?.getSolidCount() ?? 0;
+    const spaceMap = voxelMap ?? voxelTerrain;
+    const voxelCount = spaceMap?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0;
     if (time - lastOperatorStatusTime >= OPERATOR_STATUS_GAP_MS) {
       lastOperatorStatusTime = time;
-      ui.setOperatorStatus(formatOperatorStatus({
-        anchorState: game.getAnchorState(),
-        voxelCount,
-        ninjaPosition,
-        playerPosition: viewerPose?.position ?? null,
-        pathPointCount: playerTrail?.getCount() ?? 0,
-      }));
+      if (VOXEL_DEBUG_MODE) {
+        const stats = voxelDebug.getStats(time);
+        voxelPanel?.setStatus(formatVoxelDebugStatus(stats));
+        voxelPanel?.refresh();
+        ui.setOperatorStatus(formatVoxelDebugSummary(stats));
+      } else {
+        ui.setOperatorStatus(formatOperatorStatus({
+          anchorState: game.getAnchorState(),
+          voxelCount,
+          cameraAccess,
+          keyframeCount: voxelTerrain?.getKeyframeCount() ?? null,
+          ninjaPosition,
+          playerPosition: viewerPose?.position ?? null,
+          pathPointCount: playerTrail?.getCount() ?? 0,
+        }));
+      }
     }
     if (
       operatorVisible
@@ -336,24 +803,161 @@ function render(time, frame) {
       && time - lastOperatorRenderTime >= OPERATOR_RENDER_GAP_MS
     ) {
       lastOperatorRenderTime = time;
-      const voxelRevision = voxelMap.getRevision();
-      if (voxelRevision !== operatorVoxelRevision) {
-        operatorVoxelRevision = voxelRevision;
-        operatorSolidVoxels = voxelMap.getSolidVoxels();
+      if (VOXEL_DEBUG_MODE) {
+        const revision = voxelDebug.getRevision();
+        operatorView.setVoxelSize(voxelDebug.getParams().voxelSize);
+        operatorView.setVoxelCells(
+          voxelDebug.getRenderCells(),
+          revision,
+          voxelDebug.getColorMode(),
+        );
+        operatorView.setKeyframePoses(voxelDebug.getKeyframePoses());
+        operatorView.render({
+          solidVoxels: null,
+          voxelRevision: revision,
+          ninjaPos: ninjaPosition,
+          playerPos: viewerPose?.position ?? null,
+          playerPath: playerTrail.getPoints(),
+        });
+      } else if (spaceMap) {
+        const voxelRevision = spaceMap.getRevision();
+        if (voxelRevision !== operatorVoxelRevision) {
+          operatorVoxelRevision = voxelRevision;
+          operatorSolidVoxels = spaceMap.getSolidVoxels();
+        }
+        operatorView.render({
+          gridTiles: chaseTiles,
+          gridRevision: chaseTilesRevision,
+          cellSize: CHASE_CELL_SIZE_M,
+          chasePath: chaseActive ? chaseRunner?.remainingPathWorld() : null,
+          hachupingPos: chaseActive ? chaseRunner?.position : null,
+          solidVoxels: operatorSolidVoxels,
+          voxelRevision,
+          ninjaPos: ninjaPosition,
+          playerPos: viewerPose?.position ?? null,
+          playerPath: playerTrail.getPoints(),
+        });
       }
-      operatorView.render({
-        solidVoxels: operatorSolidVoxels,
-        voxelRevision,
-        ninjaPos: ninjaPosition,
-        playerPos: viewerPose?.position ?? null,
-        playerPath: playerTrail.getPoints(),
-      });
+    }
+    if (VOXEL_DEBUG_MODE && voxelOverlay?.isVisible()) {
+      voxelOverlay.setVoxelSize(voxelDebug.getParams().voxelSize);
+      voxelOverlay.setCells(
+        voxelDebug.getRenderCells(),
+        voxelDebug.getRevision(),
+        voxelDebug.getColorMode(),
+        { cameraPosition: viewerPose?.position ?? null },
+      );
     }
   } else if (GPU_OCCLUSION_MODE) {
     maybeAttachOccluder();
   }
-  updateMetrics(viewerPose);
+  if (!VOXEL_DEBUG_MODE) updateMetrics(viewerPose);
   renderer.render(scene, camera);
+}
+
+// Hands the keyframe reconstruction to the chase terrain. Without this the
+// grid starves in keyframe mode, since it was only ever fed through
+// VoxelMap.onSolid, which fires off the DepthCloud path this mode replaces.
+//
+// The rebuild is wholesale rather than incremental: a threshold change can
+// remove cells as well as add them, and TraversalGrid accumulates, so it has
+// to start clean. A few thousand points once per rebuild is cheap.
+function maybeFeedChaseGrid() {
+  if (!chaseGrid || !voxelDebug) return;
+  if (voxelDebug.isScanning(performance.now())) return;
+  if (voxelDebug.getRevision() === chaseFedRevision) return;
+  chaseFedRevision = voxelDebug.getRevision();
+
+  const points = confirmedCellPositions(voxelDebug.getRenderCells(), {
+    minObservations: VOXEL_TRAVERSAL_MIN_OBSERVATIONS,
+    voxelSize: voxelDebug.getParams().voxelSize,
+  });
+  chaseGrid.reset();
+  chaseGrid.observeAll(points);
+}
+
+// The occluder is static: built when the scan settles and left alone. Only a
+// slider in the diagnostic can change the cell set afterwards, which the
+// revision gate picks up. Confidence threshold is deliberately higher than the
+// display default — a single-observation voxel writing depth would hide the
+// character behind noise.
+function maybeBuildVoxelOccluder() {
+  if (!voxelOccluder || !voxelDebug) return;
+  if (voxelDebug.isScanning(performance.now())) return;
+
+  const cells = voxelDebug.getRenderCells()
+    .filter((c) => c.observationCount >= VOXEL_OCCLUDER_MIN_OBSERVATIONS);
+  voxelOccluder.setVoxelSize(voxelDebug.getParams().voxelSize);
+  voxelOccluder.build(cells, voxelDebug.getRevision());
+  // In game mode it should start occluding as soon as it exists; in the
+  // diagnostic the panel owns the toggle so the wireframe stays inspectable.
+  if (!VOXEL_DEBUG_MODE) voxelOccluder.setVisible(true);
+}
+
+// ── scan backup ───────────────────────────────────────────────
+// The game map as voxel-cells JSON from whichever accumulator is live, or the
+// diagnostic's raw keyframes. null when there is nothing worth a file.
+function exportScan() {
+  const playerPath = playerTrail?.getPoints() ?? [];
+  if (voxelTerrain) {
+    if (voxelTerrain.getCellCount() === 0) return null;
+    return { kind: 'game', text: voxelTerrain.exportJSON({ playerPath, sessionId }) };
+  }
+  if (voxelMap) {
+    const solid = voxelMap.getSolidVoxels();
+    if (solid.length === 0) return null;
+    return {
+      kind: 'game',
+      text: JSON.stringify(voxelCellsToJSON({
+        cells: cellsFromSolidVoxels(solid, VOXEL_SIZE_M, VOXEL_SOLID_MIN_HITS),
+        voxelSize: VOXEL_SIZE_M,
+        playerPath,
+        sessionId,
+        source: 'legacy',
+      })),
+    };
+  }
+  if (voxelDebug && voxelDebug.getStats().keyframeCount > 0 && !voxelDebug.isImported()) {
+    return { kind: 'scan', text: voxelDebug.exportJSON() };
+  }
+  return null;
+}
+
+function backupScan(reason) {
+  if (!uploader || !sessionId) return;
+  const scan = exportScan();
+  if (!scan) return;
+  backedUpRevision = (voxelMap ?? voxelTerrain)?.getRevision() ?? backedUpRevision;
+  lastBackupAt = performance.now();
+  uploader.upload(uploadName(scan.kind, sessionId), scan.text, {
+    label: reason === 'final' ? '최종 저장' : reason === 'manual' ? '수동 저장' : '자동 백업',
+  });
+}
+
+// Interval backup for the game map only. The diagnostic's keyframe JSON is
+// tens of MB, so it goes at session end and on the panel button.
+function maybeBackupGameMap(time) {
+  const spaceMap = voxelMap ?? voxelTerrain;
+  if (!spaceMap || !uploader || uploader.isBusy()) return;
+  if (!shouldBackup({
+    now: time,
+    lastBackupAt,
+    intervalMs: SCAN_BACKUP_INTERVAL_MS,
+    dirty: spaceMap.getRevision() !== backedUpRevision,
+  })) return;
+  backupScan('interval');
+}
+
+// Answer whether the browser granted raw camera access, or null while no frame
+// has reported a view yet. XRView.camera exists only when camera-access was
+// granted, so it is the honest signal — enabledFeatures can list a feature the
+// runtime then declines to populate. Reads through the shared depth snapshot,
+// so it costs nothing extra on a frame already read.
+function probeCameraAccess(frame, referenceSpace) {
+  const snapshot = depthSource?.read(frame, referenceSpace);
+  const views = snapshot?.viewerPose?.views;
+  if (!views?.length) return null;
+  return Boolean(views[0].camera);
 }
 
 function updateMetrics(viewerPose) {
@@ -390,7 +994,10 @@ function updateMetrics(viewerPose) {
       ? 'cpu'
       : GPU_OCCLUSION_MODE && renderer.xr.hasDepthSensing?.() ? 'gpu' : null,
     occlusionTriangles: cpuDepthOccluder?.getTriangleCount() ?? 0,
-    voxelCount: SPACE_MAPPING_MODE ? (voxelMap?.getSolidCount() ?? 0) : null,
+    chaseLogText: chaseLog?.formatRecent() ?? '',
+    voxelCount: SPACE_MAPPING_MODE
+      ? (voxelMap?.getSolidCount() ?? voxelTerrain?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0)
+      : null,
     depthUsage,
     depthDataFormat,
     anchorState: game.getAnchorState(),
@@ -401,4 +1008,16 @@ function onResize() {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+}
+
+
+// ── map-anchor space helpers ──────────────────────────────────
+// Everything the map stores lives in the anchor's frame; these are identity
+// until an anchor exists, so every caller can use them unconditionally.
+function toMapSpace(point) {
+  return mapAnchor ? mapAnchor.toAnchor(point) : point;
+}
+
+function toRenderSpace(point) {
+  return mapAnchor ? mapAnchor.toWorld(point) : point;
 }

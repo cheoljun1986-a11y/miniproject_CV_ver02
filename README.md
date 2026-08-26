@@ -7,84 +7,17 @@
 - CPU 동적 가림 + 통합 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?occlusion=cpu>
 - 공간 복원 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?depth=cloud>
 
-## private/junsung — 손 인식 가위바위보 미니게임
-
-이 브랜치는 기존 `cj_develop`의 공간 스캔, XRAnchor, CPU 동적 가림, 운영자 뷰와
-`hcp.glb` 모델을 그대로 유지하면서 **닌자 발견 뒤 실제 손으로 하는 가위바위보**를 추가한다.
+## private/junsung 모바일 테스트
 
 - 브랜치 코드: <https://github.com/cheoljun1986-a11y/miniproject_CV_ver02/tree/private/junsung>
-- **private/junsung 모바일 실행(현재 테스트 터널):** <https://proposal-visits-phd-rome.trycloudflare.com/?v=e19f879>
-- 비교 기준: `cj_develop`
-- 정상 실행 쿼리: `?occlusion=cpu`
-- PC/비상 진단용 수동 입력: `?occlusion=cpu&input=manual`
+- 모바일 실행(현재 로컬 터널): <https://proposal-visits-phd-rome.trycloudflare.com/>
+- 수동 가위바위보 진단: <https://proposal-visits-phd-rome.trycloudflare.com/?input=manual>
 
-> 현재 GitHub Pages가 `main`을 배포한다면 브랜치 코드가 공개 데모 주소에 바로 나타나지 않는다.
-> `private/junsung`을 Pages 배포 브랜치로 지정하거나 병합한 뒤 위 쿼리 주소로 테스트해야 한다.
-> 위 테스트 터널은 이 개발 PC의 로컬 서버와 `cloudflared`가 실행 중일 때만 열리며,
-> 터널을 다시 시작하면 주소가 바뀔 수 있다.
-
-### 게임 흐름
-
-1. 기존처럼 20초 동안 공간을 스캔하고 숨은 닌자를 찾는다.
-2. 화면 중앙에 닌자를 맞춰 `SCAN`을 누른다.
-3. 탐지에 성공해도 바로 포획되지 않고 `3 → 2 → 1 → 가위바위보!`가 시작된다.
-4. 촬영자는 손 전체를 화면 중앙에 두고 한 가지 모양을 잠시 유지한다.
-   - 주먹 `Closed_Fist` → 바위
-   - 손바닥 `Open_Palm` → 보
-   - V 손가락 `Victory` → 가위
-5. 여러 프레임에서 신뢰도 높은 같은 결과가 반복되어야 사용자 패로 확정된다.
-6. 승리하면 닌자를 포획하고, 무승부면 같은 자리에서 다시 겨룬다.
-7. 패배하면 닌자가 직전 후보를 제외한 다른 스캔 위치로 이동한다.
-
-손을 찾지 못하거나 신뢰도가 낮은 프레임은 패배로 처리하지 않는다. 제한 시간이 지나면
-손 전체를 중앙에 놓으라는 안내와 함께 같은 라운드의 인식을 다시 시도한다.
-
-### 기기와 권한
-
-- Android ARCore 지원 기기, 최신 Chrome, HTTPS가 필요하다.
-- AR 세션의 `camera-access` 권한이 필요하다.
-- 손 영상은 브라우저 안에서 MediaPipe로만 처리하며 저장하거나 서버로 보내지 않는다.
-- 정상 주소에서는 수동 버튼이 표시되지 않는다. `input=manual`은 카메라가 없는 PC에서
-  승패 흐름을 점검하거나 시연 장애 원인을 분리하기 위한 진단 기능이다.
-- 브라우저가 WebXR Raw Camera Access를 제공하지 않으면 자동으로 수동 모드로 바꾸지 않고
-  호환성 오류를 표시한다.
-
-### 구현 구조
-
-| 파일 | 역할 |
-|---|---|
-| `rps-rules.js` | MediaPipe 라벨 변환, 닌자 패 선택, 9가지 승패 계산 |
-| `gesture-consensus.js` | 신뢰도·최근 프레임·일치 횟수 기반 패 확정 |
-| `rps-game.js` | 카운트다운, 인식 시간, 결과 표시, 재대결 상태 머신 |
-| `raw-camera-frame-source.js` | `view.camera`와 `XRWebGLBinding`에서 입력 프레임 획득 |
-| `camera-texture-copier.js` | 세로·가로 비율을 유지해 최대 320px 추론 캔버스로 복사 |
-| `hand-gesture-recognizer.js` | MediaPipe Tasks Vision 1.0.1 초기화와 로컬 추론 |
-| `rps-runtime.js` | 카메라/수동 입력, UI, 닌자 승패 전환을 한 경로로 조립 |
-| `rps-art.js` | HUD의 가위·바위·보 벡터 손 그림 |
-| `assets/gesture_recognizer.task` | Google 공식 모델 8,373,440바이트 |
-
-모델 SHA-256:
-`97952348cf6a6a4915c2ea1496b4b37ebabc50cbbf80571435643c455f2b0482`
-
-### 검증 상태
-
-- PC 자동 테스트: **140개 통과** (`node --test tests/*.test.mjs`)
-- `main.js` 구문 검사와 모델 크기·SHA-256 검증 완료
-- 실제 Android에서 반드시 추가 확인할 항목:
-  카메라 권한, 세로 화면 방향, 실내 조명의 세 손 모양 정확도, CPU 가림 프레임률,
-  반복 플레이 발열, 패배 후 위치 이동, 승리 포획
-
-PC 테스트 통과는 실제 AR 카메라 품질 검증을 대신하지 않는다. 특히 `camera-access` 지원과
-카메라 텍스처 방향은 배포 대상 Android Chrome에서 직접 확인해야 한다.
-
-### 08-25 실기기 피드백 반영
-
-- 페이지 진입을 막던 MediaPipe 초기화를 제거하고 AR 세션의 20초 공간 스캔 중
-  백그라운드에서 모델을 준비한다.
-- 세로 카메라를 256×256으로 찌그러뜨리지 않고 원본 비율을 유지한다.
-- 손 검출 0.5, 패 신뢰도 0.55, 최근 5프레임 중 3회 합의로 실기기 판정을 완화했다.
-- 중앙의 큰 패널을 상단 안내 바로 축소하고, 큰 패 카드는 결과 순간에만 표시한다.
-- 우측 하단에 'AI가 보는 화면'과 `바위 인식 중 2/3 · 81%` 형식의 진행도를 표시한다.
+GitHub Pages의 공개 주소는 main 기준이므로 private/junsung의 미병합 코드는 바로 반영되지
+않는다. 위 터널은 개발 PC의 로컬 서버와 cloudflared가 실행 중일 때만 사용할 수 있으며,
+터널을 다시 시작하면 주소가 바뀔 수 있다.
+- 하츄핑 도망 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/v4-chase.html>
+- 키프레임 복셀 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?voxel=debug>
 
 > **이 문서는 발표 자료로 쓸 수 있도록 시계열로 정리했다.**
 > 3장 타임라인 표가 목차, 4장의 각 단계가 슬라이드 한 장에 대응한다.
@@ -143,9 +76,11 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 | 8 | 08-25 06:46 ~ 11:21 | 앵커 + 표면 분리 + depth 공유 | 위치 드리프트·표면 파묻힘·중복 조회·메모리 증가 | XRAnchor, normal 오프셋, frame 캐시, 상한 |
 | 9 | 08-25 11:37 | 하츄핑 3D 모델로 교체 | 코드로 만든 닌자 대신 스캔 모델 사용 | GLB 로드 + 크기/바닥 정규화 + 인스턴스 복제 |
 | 10 | 08-25 13:27 | **색이 검게 나오는 문제** | 스캔 모델이 거의 검게 렌더링됨 | 기본 재질이 금속 → unlit + sRGB 디코딩 |
-| 11 | 08-25 | **손 인식 가위바위보** | SCAN 즉시 포획이라 상호작용이 짧음 | Raw Camera + MediaPipe 손 인식, 승패별 포획·재대결·재배치 |
+| 11 | 08-25 10:23 ~ 17:16 | 하츄핑 도망 모드 + 지도뷰 (`private/jaehoon`) | 숨기만 하는 대상은 정적 — 스캔한 공간 위를 실제로 다니게 하려면 "설 수 있는 곳"이 필요 | 복셀 → 20cm 통행 격자(슬랩·flood fill) + 경로 탐색 + 잡기 게이지 |
+| 12 | 08-26 00:20 ~ 01:11 | **키프레임 복셀 복원 + 진단 모드** (`private/baencho`) | 복셀 "3회 관측" 규칙이 시점이 아니라 샘플을 세어 근거리에서 무력화 | 키프레임 단위 중복 제거, 원본 보존·재필터, 정적 복셀 occluder 실험 |
+| 13 | 08-26 | **키프레임 복원을 게임 지형으로** (`private/baencho/keyframe-terrain`) | 12단계의 수정이 진단 모드에만 있고, 게임은 여전히 결함 있는 `VoxelMap`을 사용 | `VoxelTerrain` — 세션 내내 키프레임을 즉시 복셀로 누적. `?terrain=keyframe`으로 선택, 기본은 기존 경로 |
 
-자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 130개 → 140개**
+자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 152개 → 251개 → 282개**
 
 ---
 
@@ -438,30 +373,178 @@ vertex 0: 원본 GLB 바이트 191 135 138
 
 ---
 
-## 5. 세 개의 depth 모드
+### 4-11. [11단계] 하츄핑 도망 모드 + 지도뷰 (`private/jaehoon`)
+
+**상황** — 지금까지 하츄핑은 한 곳에 숨어 있기만 했다. 복원한 공간을 실제로 *쓰는*
+게임을 만들려면, 하츄핑이 **그 공간의 지형을 따라 도망다니고** 플레이어가 쫓아가
+잡는 모드가 필요했다. 새 페이지 `v4-chase.html`로 얹었다(`?occlusion=cpu`가 자동으로 붙는다).
+
+**핵심 문제** — 복셀 지도는 "여기 뭔가 있다"만 알려준다. 움직이려면 **"여기 설 수 있는가,
+여기서 저기로 갈 수 있는가"** 를 알아야 한다.
+
+**해결**
+
+- **통행 격자(`traversal-grid.js`)** — 복셀을 위에서 내려다본 **20cm 바둑판**으로 다시 정리하고,
+  각 칸의 높이를 10cm 두께 슬랩 64겹으로 기록한다. 한 칸이 바닥·탁자 위처럼 여러 높이를
+  가질 수 있어 하츄핑이 가구 위로 오를 수 있다. 어떤 슬랩 위 50cm(몸 높이)가 비면 설 수 있다.
+  복셀 하나가 확정될 때마다 그 칸만 갱신한다(전체 재구축 대비 **110배 빠름** 측정).
+- **천장 문제** — 천장은 기하학적으로 탁자와 같다(얇은 층 + 위가 미관측). 1차 실기기 테스트에서
+  하츄핑이 천장으로 올라가, **바닥 추정(8칸 이상이 공유하는 가장 낮은 슬랩) + 1.3m 상한**을 넣었다.
+- **벽 윗면 문제** — 2m 벽의 윗면도 "설 수 있음"으로 판정되므로, 하츄핑의 현재 위치에서
+  **flood fill로 실제 닿을 수 있는 칸만** 남긴다.
+- **도망·잡기(`chase-path.js`, `chase-runner.js`, `capture-gauge.js`)** — 통행 가능한 칸 위에서
+  경로를 짜 이동하고, 플레이어가 가까이 붙어 SCAN을 **누르고 있어야** 게이지가 차서 잡힌다.
+- **부수 작업** — v3 지도뷰(`v3-mapview.html`), 카메라 위에 감지된 평면·앵커 오버레이,
+  WebXR 기능 탐색 페이지, 인수인계 문서 2종(`chase-mode-handoff.md`,
+  `webxr_hide_seek_development_handoff.md`).
+
+**결과** — 갤럭시 S25 1차 실기기 플레이 테스트와 그에 따른 수정까지 완료. 테스트 89 → 152개.
+
+---
+
+### 4-12. [12단계] 키프레임 복셀 복원 + 진단 모드 (`private/baencho`)
+
+**상황** — 도망 모드가 복셀 지도 위에서 돌기 시작하자, 그 지도가 **얼마나 믿을 만한지**가
+게임 품질을 결정하게 됐다. 복원 결과를 실기기에서 눈으로 검증할 수단이 필요했다.
+
+**진단 — 기존 누적기가 시점이 아니라 샘플을 세고 있었다**
+
+`VoxelMap`의 "같은 칸을 3번 이상 관측하면 solid" 규칙은 **서로 다른 시점 3개**를 뜻해야 한다.
+그런데 `depth-cloud.js`가 200ms마다 뿌리는 40×30 격자는 1m 거리에서 샘플 간격이 ~2.9cm인데
+복셀 한 변은 5cm다. **한 프레임의 광선 여러 개가 같은 칸에 떨어져 임계값이 한 장으로 충족**된다.
+간격은 거리에 비례하므로(4m에서 11.6cm) 가까운 것은 즉시 통과하고 먼 것만 걸러지는
+**거리 의존 편향**이 생긴다. 화면에서는 "원거리 복원이 깨졌다"처럼 보이지만 필터의 결함이다.
+
+**해결 — 별도 파이프라인 `?voxel=debug`** (기존 모드는 건드리지 않음)
+
+- **키프레임만 캡처** — 직전 대비 **20cm 이동 또는 15° 회전**일 때만(최대 40장). 포즈 판정은
+  매 프레임, 쿨다운은 캡처에만 걸어 임계값이 조용히 넓어지지 않게 한다.
+- **프레임 단위 중복 제거(`voxel-grid.js`)** — 한 키프레임은 한 칸에 **최대 1표**. 이제 관측 횟수가
+  "동의한 시점의 수"를 뜻한다.
+- **이상치 2단계(`depth-grid-filter.js`)** — 유효 범위(0.3~5m) + 이웃 깊이 불연속 검사로
+  물체 경계의 flying pixel 제거. 역투영은 ARCore가 광선 길이가 아니라 **광축 수직 거리**를
+  주는 점을 반영한다.
+- **원본 보존·재필터(`keyframe-store.js`)** — 스캔 중에는 깊이 격자와 포즈를 그대로 쌓고 복셀은
+  시각화 시점에 계산한다. **슬라이더를 움직이면 재스캔 없이 같은 데이터로 재필터**되므로
+  파라미터 효과를 같은 스캔 위에서 비교할 수 있다. JSON 내보내기/불러오기로 PC에서 반복 실험
+  (`viewer.html`에 JSON을 드롭하면 폰 없이 같은 재필터·색상 모드·occluder 메시를 볼 수 있다).
+- **시각화** — 관측 횟수(1=빨강/2=노랑/3+=초록)·높이·클러스터 색상 모드, 키프레임 카메라
+  프러스텀(포즈 누적이 매끄러운 호인지), AR 화면 위 복셀 wireframe, 바닥 평면 추정.
+- **정적 복셀 occluder 실험(`?occluder=voxel`)** — 9장의 "Phase 2"였던 것. 확정 복셀을 면 병합
+  깊이 전용 메시로 만들어 캐릭터보다 먼저 그리면 z-test가 뒤쪽 픽셀을 버린다. 맞닿은 면 제거로
+  삼각형 58~75% 감소, polygonOffset으로 발 잘림 방지. **실기기에서 체감 효과가 뚜렷하지 않아
+  기본값은 꺼져 있고** URL 파라미터로만 켠다.
+- **도망 모드 연결** — 키프레임 모드에서는 3회 이상 관측된 복셀만 통행 격자에 공급한다.
+  같은 스캔에서 "관측됐지만 설 곳 없는 칸"이 57 → 12로 줄었다(허공 노이즈가 걸러진 결과).
+  단, 이 경로는 `?voxel=debug`/`?occluder=voxel`에서만 쓰이며 기본 도망 모드는 기존 경로 그대로다.
+
+**실기기 결과 (갤럭시)** — 1차: 키프레임 28장/18초 → 복셀 19,330개, 바닥과 0.70m 위 책상 높이에
+히스토그램 봉우리, 카메라 높이 1.42m로 손에 든 폰과 일치. 2차: 거실 3.7분 → 복셀 61,990개(0.05m),
+임계값 1→2→4 전환 시 61,990 → 21,265 → 6,145로 즉각 재필터, 검은 물체 주변의 시선 방향 번짐
+아티팩트가 임계 4에서 사라짐. 재구성 249~717ms.
+
+**되지 않은 것** — 바닥을 지우고 3D 연결 성분으로 물체를 나누는 기하 분할. 복원 결과가 부피가
+아니라 표면 껍질이고 실내 가구가 서로 닿아 있어 84~96%가 한 덩어리로 남는다. 도망 모드가
+물체를 나누는 대신 "설 수 있는가"만 묻는 쪽으로 간 것이 옳았다는 근거가 됐다.
+
+**부수 수정** — 운영자 뷰 `InstancedMesh` 재질의 `vertexColors: true`를 제거. `BoxGeometry`에 색
+속성이 없어 셰이더가 0을 곱해 **복셀과 도망 모드 통행 타일이 검게** 그려지던 버그로, 기본 모드에도
+적용되는 유일한 동작 변경이다. 테스트 152 → 251개.
+
+---
+
+### 4-13. [13단계] 키프레임 복원을 게임 지형으로 (`private/baencho/keyframe-terrain`)
+
+**상황** — 12단계에서 "샘플을 세는" 결함을 고쳤지만 그건 `?voxel=debug`에만 있었다. 도망 모드가
+실제로 밟는 지형은 여전히 `VoxelMap`이 만들었고, `VoxelMap.observe()`는 점이 어느 프레임에서
+왔는지 모른다 — 한 프레임의 광선 3~4개가 같은 5cm 칸에 떨어지면 그 자리에서 solid가 된다.
+
+**왜 이렇게 했나** — 진단 모드의 파이프라인을 그대로 게임에 옮기되, 두 모드의 목적이 달라
+저장 방식은 달라야 했다.
+
+| | 진단 모드 (`?voxel=debug`) | 게임 지형 (`VoxelTerrain`) |
+|---|---|---|
+| 수집 기간 | `스캔 종료`까지 (최대 10분·400장) | 세션이 끝날 때까지, 상한 없음 |
+| 남기는 것 | 키프레임 원본 전부 (재필터·JSON용) | **복셀만** — 원본은 반영 즉시 버림 |
+| 복셀 계산 | 스캔 종료 후 한꺼번에 재구성 | 키프레임 한 장 들어올 때마다 그 장만 누적 |
+| 파라미터 | 슬라이더로 즉시 재조정 | `config.js` 고정값 (진단에서 정한 값) |
+
+즉 **진단은 실험실, 게임은 운영**이다. 같은 부품(`depth-grid-filter.js`, `depthSampleToWorld`,
+`VoxelGrid`)을 쓰므로 진단에서 튜닝한 결과가 게임에서 그대로 재현된다.
+
+**해결** — `voxel-terrain.js`
+- `KeyframeCapture`가 요구하는 `store.add()` 자리에 직접 들어가 저장 대신 즉시 필터·역투영·누적
+- `VoxelGrid`에 `onConfirmed` 콜백 추가 — 셀이 **서로 다른 시점 3개**에 도달하는 순간 한 번만 발화,
+  그대로 `TraversalGrid.observe()`에 연결. 옛 `VoxelMap.onSolid`와 같은 O(1) 증분 계약이라
+  통행 격자·경로 탐색·잡기 코드는 수정이 없다
+- 운영자 뷰도 `getSolidVoxels()` 같은 인터페이스를 유지해 그대로 그린다
+- **메모리는 방 크기에 비례, 시간에는 무관** — 같은 곳을 오래 돌면 관측 횟수만 올라간다. 셀 상한
+  (20만)에 닿으면 한 번만 관측된 노이즈 셀부터 비운다(`evictUnconfirmed`)
+- **기본 게임은 기존 `VoxelMap`/`DepthCloud` 경로 그대로**이고, 새 경로는 `?terrain=keyframe`으로 켠다.
+  실기기에서 검증이 끝나면 기본값을 바꾼다
+
+**부수 변경** — 진단 모드 스캔 상한 20초·40장 → 10분·400장. 원본 한 장이 77KB라 RAM이 아니라
+JSON 내보내기 크기(~40MB)가 실질 상한이다. 재구성이 수 초로 늘지만 진단 모드에서는 허용.
+
+**체감될 차이** — 확정 속도. 옛 경로는 폰을 가만히 들고 있어도 0.6초면 확정됐지만, 새 경로는
+20cm 이동/15° 회전을 세 번 해야 확정된다. "지도가 아직 부족합니다"까지 조금 더 걸어야 할 수 있다.
+`VOXEL_TERRAIN_MIN_OBSERVATIONS`로 조절한다.
+
+⚠️ 실기기 미검증. 확인 항목: 키프레임 처리 시간(`getLastIngestMs`)이 프레임 예산 안인지, 도망 모드
+시작까지 걸어야 하는 거리, 기본 경로 대비 허공 노이즈 감소.
+
+#### 게임 복셀맵 추출과 서버 자동 백업
+
+게임 누적기는 원본 키프레임이 없으므로 **복셀 셀 자체**를 내보낸다 (`voxel-cells-codec.js`,
+`{kind:'voxel-cells', cells:[[ix,iy,iz,관측횟수,평균x,y,z],…]}`, 6만 셀 ≈ 2MB). 기본 경로(`VoxelMap`)와
+키프레임 경로 모두 같은 형식이고, `viewer.html`에 드롭하면 관측 임계값·색상 모드·표면 메시·플레이어
+경로를 볼 수 있다(재필터 슬라이더는 원본이 없어 비활성).
+
+폰에서 파일을 내려받아 옮기는 대신 **PC 개발 서버로 자동 전송**한다 (`serve.py` + `scan-uploader.js`).
+
+| 시점 | 게임 모드 | 진단 모드 (`?voxel=debug`) |
+|---|---|---|
+| 30초마다 (지도가 바뀐 경우만) | ✅ 같은 파일 덮어쓰기 | – (40MB라 제외) |
+| 세션 종료 (`STOP AR`·뒤로가기) | ✅ 최종본 | ✅ 키프레임 JSON |
+| 수동 | – | 패널 `서버로 전송` 버튼 |
+
+파일은 `results/<game|scan>-<세션시작시각>.json` — 한 세션 = 한 파일. 탭이 죽어도 최근 30초 이내
+상태가 남는다. `/upload`가 없는 호스트(GitHub Pages)에서는 조용히 실패하고 게임은 그대로 진행된다.
+`serve.py`는 터널이 열린 개발용이라 이름 화이트리스트·크기 상한·JSON 검증만 한다.
+
+---
+
+## 5. depth 모드
 
 WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다.
 
-| | 기본 URL | `?occlusion=cpu` | `?depth=cloud` |
-|---|---|---|---|
-| depth usage | `gpu-optimized` | `cpu-optimized` | `cpu-optimized` |
-| 하는 일 | three.js 내장 가림 | 동적 메시 가림 + 복셀 지도 | 복셀 공간 복원 진단 |
-| 동적 손 가림 | 브라우저 지원 시 가능 | 가능, 실기기 검증 필요 | 불가(과거 점을 누적) |
-| 운영자 뷰 | 없음 | 복셀·Ninja·anchor·이동 경로 | 같은 공간지도 진단 뷰 |
-| HUD 표시 | `가림 GPU` 또는 unavailable | `가림 CPU · 삼각형 N · 복셀 N` | `복셀 N` |
-| 갤럭시 현재 결과 | GPU depth unavailable | 새 검증 대상 | CPU depth 정상 확인 |
+| | 기본 URL | `?occlusion=cpu` | `?depth=cloud` | `?voxel=debug` |
+|---|---|---|---|---|
+| depth usage | `gpu-optimized` | `cpu-optimized` | `cpu-optimized` | `cpu-optimized` |
+| 하는 일 | three.js 내장 가림 | 동적 메시 가림 + 복셀 지도 | 복셀 공간 복원 진단 | 키프레임 복셀 진단 |
+| 동적 손 가림 | 브라우저 지원 시 가능 | 가능, 실기기 검증 필요 | 불가(과거 점을 누적) | 불가(가림 전부 끔) |
+| 운영자 뷰 | 없음 | 복셀·Ninja·anchor·이동 경로 | 같은 공간지도 진단 뷰 | 복셀·키프레임 프러스텀 |
+| HUD 표시 | `가림 GPU` 또는 unavailable | `가림 CPU · 삼각형 N · 복셀 N` | `복셀 N` | 키프레임·히스토그램·폐기 통계 |
+| 갤럭시 현재 결과 | GPU depth unavailable | 새 검증 대상 | CPU depth 정상 확인 | 1·2차 실기기 진단 완료 |
 
 `?depth=cloud&occlusion=cpu`처럼 두 값을 동시에 넣으면 통합 CPU 게임 모드를 우선한다.
+`?voxel=debug`는 그보다도 우선한다 — 가림이 살아 있으면 복셀 wireframe이 실물 뒤에서
+깊이 테스트로 잘려나가, 정작 확인해야 할 "책상 반대편이 복셀화됐는가"를 볼 수 없다.
+
+- `v4-chase.html` — 도망 모드 페이지. `?occlusion=cpu`를 자동으로 붙인다.
+- `?terrain=keyframe` — 게임 지형 누적기를 키프레임 `VoxelTerrain`(13단계)으로 바꾼다. 기본은 기존
+  `VoxelMap`(200ms 타이머, 프레임 중복 제거 없음). `?occlusion=cpu`·`?depth=cloud`에서만 의미가 있다.
+  도망 모드에서는 `v4-chase.html?occlusion=cpu&terrain=keyframe`.
+- `?occluder=voxel` — 정적 복셀 occluder(실험). depth 파이프라인과 별개 축이라 별도 파라미터이며,
+  CPU 깊이가 필요하므로 실질 조합은 `?occlusion=cpu&occluder=voxel`이다.
 
 ## 6. 기술 스택
 
 - **WebXR** `immersive-ar` (Android Chrome + ARCore)
 - **three.js 0.180** (렌더링, WebXR 매니저, 내장 depth-sensing 오클루전, GLTFLoader)
-- WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, `camera-access`,
-  (옵션) `anchors`, `local-floor`
-- **정적 호스팅**: GitHub Pages (백엔드 없음). three.js와 MediaPipe 실행 모듈은 CDN,
-  손 모양 모델은 저장소의 고정 파일을 사용한다.
-- 테스트: Node.js `node:test` — **140개** (순수 로직·게임 상태·WebXR 경계·depth·손 인식 소비자)
+- WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, (옵션) `anchors`, `local-floor`
+- **정적 호스팅**: GitHub Pages (백엔드 없음). CDN(three.js)만 외부 의존.
+- 테스트: Node.js `node:test` — **282개** (순수 로직·게임 상태·WebXR 경계·depth 소비자·통행 격자·복셀 진단)
 
 ## 7. 실행 / 테스트 방법
 
@@ -496,10 +579,12 @@ WebXR depth 세션 활성화 문제로 분류한다.
 
 ### 로컬 실행
 ```bash
-python -m http.server 8000
-# http://localhost:8000  (단, WebXR는 HTTPS 또는 실기기 필요)
-node --test tests/*.test.mjs   # 자동 테스트 140개
+python serve.py                # http://localhost:8000 — 정적 파일 + POST /upload → results/
+cloudflared tunnel --url http://localhost:8000   # 폰용 HTTPS 주소 (WebXR는 HTTPS 필수)
+node --test tests/*.test.mjs   # 자동 테스트 282개
 ```
+
+`python -m http.server`도 여전히 동작하지만 그 경우 스캔 자동 백업은 꺼진다(404로 조용히 실패).
 
 ## 8. 현재 상태 / 검증
 
@@ -514,7 +599,11 @@ node --test tests/*.test.mjs   # 자동 테스트 140개
 | 복셀 재구성 + 운영자 3D 뷰 | ✅ 구현 / 실기기 확인 필요 |
 | CPU depth 공유 | ✅ 같은 XRFrame당 한 번 조회하도록 구현·자동 테스트 |
 | 하츄핑 GLB 모델 교체 | ✅ 구현·자동 테스트 / 크기·바닥·색 왕복 실측 확인 |
-| 자동 테스트 | ✅ **140개 통과** |
+| 도망 모드 (통행 격자·경로·잡기) | ✅ 구현·자동 테스트 / 갤럭시 S25 1차 플레이 테스트 반영 |
+| 키프레임 복셀 진단 모드 | ✅ 구현·자동 테스트 / 갤럭시 1·2차 진단 완료 |
+| 키프레임 지형 (`?terrain=keyframe`) | ✅ 구현·자동 테스트 / **실기기 미검증**, 기본은 기존 경로 |
+| 정적 복셀 occluder | ⚠️ 실험 (`?occluder=voxel`) / 체감 효과 미미, 기본 꺼짐 |
+| 자동 테스트 | ✅ **282개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 
@@ -532,20 +621,32 @@ node --test tests/*.test.mjs   # 자동 테스트 140개
 
 ### 다음 단계
 
-- **복셀 기반 정적 오클루전 (Phase 2)**: 재구성한 solid 복셀을 깊이 버퍼에 반영해
-  베개·장난감·기둥 같은 **정적 물체 뒤에** Ninja를 숨긴다.
+- **키프레임 지형 실기기 검증** (13단계): 처리 시간, 도망 모드 시작까지의 거리, 기본 경로 대비
+  노이즈. 검증되면 기본값을 `keyframe`으로 바꾸고 `VoxelMap`/`DepthCloud` 삭제.
+- **지도 정확도 — 자유공간 카빙**: 지금은 광선이 *맞은* 칸만 센다. 광선이 *지나간* 칸에 "비어 있음"
+  표를 주면 노이즈(맞음 1·지나감 5)와 표면 구멍(맞음 1·지나감 0)이 분리되어, 임계값을 낮춰도
+  노이즈가 돌아오지 않는다. 그 다음이 TSDF + 마칭큐브.
+- **그래디언트 필터 상대화**: 이웃 깊이 차 절대 10cm 기준이라 비스듬히 보는 먼 바닥·벽을 통째로
+  거부한다. 거리·입사각에 비례하는 기준으로.
+- **복셀 기반 정적 오클루전 (Phase 2)**: `?occluder=voxel`로 실험 구현은 됐으나 체감 효과가
+  뚜렷하지 않았다. 메시가 방과 정렬됐는지 확인할 반투명 진단 표시부터 만들고 재검증한다.
+- **재구성 속도**: 0.04m 복셀에서 717ms로 슬라이더가 버벅인다. 바뀐 부분만 갱신하거나 하한을 올린다.
 - **Persistent/Cloud Anchor**: 현재 XRAnchor는 같은 세션 동안의 고정이 목적이다.
   세션 종료 후 같은 현실 위치를 복원하려면 Persistent 또는 Cloud Anchor가 필요하다.
   별도 저장 권한·API·식별자 수명·개인정보 설계가 필요해 이번 범위에서 제외했다.
 - **매끄러운 메시**(마칭큐브 등): 성능 확인 후 복셀 다음 단계로.
-- **SCAN 손동작 트리거**: 가위바위보 인식과 별개로, SCAN 버튼도 연속 제스처로 대체하는 후속 기능.
+- **MediaPipe 손동작 트리거**: SCAN 버튼을 `주먹→가위→주먹` 제스처로 대체.
 - **모델 경량화**: 하츄핑 186,117 삼각형이 실기기에서 무거우면 감량 검토.
 
 ## 10. 코드 구조
 
 ```
 index.html            진입점 (모듈 로더 + HUD DOM)
+v4-chase.html         도망 모드 페이지 (?occlusion=cpu 자동 부착)
+v3-mapview.html       지도뷰 페이지
 hcp.glb               숨는 대상 3D 스캔 모델 (하츄핑, 3.7MB)
+chase-mode-handoff.md / webxr_hide_seek_development_handoff.md  인수인계 문서 (11단계)
+viewer.html           PC용 복셀 복원 뷰어 — ?voxel=debug에서 내보낸 스캔 JSON을 드롭해 재필터·확인
 src/
   main.js             엔트리·GPU/CPU/cloud 모드 조립·공유 depth·렌더 루프
   app-mode.js         URL 모드 선택과 depth usage 결정 (순수 로직)
@@ -568,11 +669,32 @@ src/
   voxel-map.js        복셀 점유·노이즈제거·상한 관리 (three 비의존, 테스트됨)
   player-trail.js     플레이어 경로 버퍼 (three 비의존, 테스트됨)
   operator-view.js    운영자 오빗 3D 뷰 오버레이
-  rps-*.js            가위바위보 규칙·상태·실행 조립·HUD 그림·3D 패 표식
-  gesture-consensus.js 여러 카메라 프레임의 손 모양 합의
-  raw-camera-frame-source.js / camera-texture-copier.js  WebXR 카메라 프레임 입력
-  hand-gesture-recognizer.js  MediaPipe 손 모양 추론
-tests/                자동 테스트 (node:test) 140개
+  --- 도망 모드 (11단계) ---
+  traversal-grid.js   복셀 → 20cm 통행 격자·슬랩·바닥 추정·flood fill (three 비의존, 테스트됨)
+  chase-path.js       통행 격자 위 경로 탐색 (three 비의존, 테스트됨)
+  chase-runner.js     하츄핑 이동·도망 상태 (three 비의존, 테스트됨)
+  capture-gauge.js    잡기 게이지
+  --- 키프레임 복셀 진단 (12단계) ---
+  keyframe-gate.js    포즈 델타 키프레임 선정 (three 비의존, 테스트됨)
+  keyframe-capture.js XRCPUDepthInformation → 스냅샷
+  keyframe-store.js   스냅샷 보존·재구성·JSON 코덱 (three 비의존, 테스트됨)
+  depth-grid-filter.js 범위 클립·4이웃 그래디언트 (three 비의존, 테스트됨)
+  voxel-grid.js       프레임 중복제거·관측횟수·누적평균·확정 셀 추출 (three 비의존, 테스트됨)
+  voxel-floor.js      Y 히스토그램 바닥 평면 추정 (three 비의존, 테스트됨)
+  voxel-color-modes.js 관측횟수/높이/클러스터 색상 (three 비의존, 테스트됨)
+  voxel-debug-params.js 슬라이더 스키마·clamp (three 비의존, 테스트됨)
+  voxel-debug-controller.js 스캔 수명주기·재구성 글루 (테스트됨)
+  voxel-overlay.js    AR 화면 복셀 wireframe
+  voxel-debug-panel.js 런타임 생성 슬라이더 패널
+  voxel-occluder-mesh.js 확정 복셀 → 면 병합 지오메트리 (three 비의존, 테스트됨)
+  voxel-occluder.js   깊이 전용 정적 occluder 메시 (테스트됨)
+  --- 키프레임 지형 (13단계) ---
+  voxel-terrain.js    게임용 누적기: 키프레임 즉시 복셀화·확정 셀 → 통행 격자 (테스트됨)
+  voxel-cells-codec.js 완성된 복셀맵 JSON 코덱 — 게임 내보내기·viewer 불러오기 (테스트됨)
+  scan-uploader.js    POST /upload 전송·세션 ID·백업 주기 판정 (테스트됨)
+serve.py              개발 서버: 정적 파일 + /upload → results/ (python -m http.server 대체)
+results/              폰이 보낸 스캔 JSON (git 제외)
+tests/                자동 테스트 (node:test) 282개
 docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 ```
 
@@ -592,5 +714,4 @@ docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 - 하츄핑 모델은 조명을 받지 않는 unlit으로 그려진다. 스캔 당시의 음영이 그대로 보이며,
   주변 조명에 따라 밝아지거나 그림자가 지지 않는다.
 - 숨어 있는 동안 모델은 13% 투명이므로 색이 흐릿하다. 발견 시 불투명해진다.
-- MediaPipe 가위바위보는 WebXR Raw Camera Access에 의존하므로 배포 대상 Android Chrome에서
-  권한, 화면 방향, 세 손 모양 인식률을 반드시 실측해야 한다.
+- 아직 MediaPipe 손동작은 WebXR와 결합되지 않았고, SCAN 버튼이 그 자리를 대신한다.
