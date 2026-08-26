@@ -156,6 +156,7 @@ export function createUI(documentRoot = document) {
     chaseArrow: documentRoot.querySelector('#chaseArrow'),
     hudToggle: documentRoot.querySelector('#hudToggle'),
     map: documentRoot.querySelector('#mapBtn'),
+    respawn: documentRoot.querySelector('#respawnBtn'),
   };
 
   // The metrics card is a diagnostic wall of text that covers half a phone
@@ -176,7 +177,9 @@ export function createUI(documentRoot = document) {
     applyMetricsVisible();
   }
 
-  function bindCommands({ onScan, onNewRound, onExtend, onMark, onCheck, onMap }) {
+  function bindCommands({
+    onScan, onNewRound, onExtend, onMark, onCheck, onMap, onRespawn,
+  }) {
     const bindings = [
       [elements.scan, onScan],
       [elements.newRound, onNewRound],
@@ -184,6 +187,7 @@ export function createUI(documentRoot = document) {
       [elements.mark, onMark],
       [elements.check, onCheck],
       [elements.map, onMap],
+      [elements.respawn, onRespawn],
     ];
     // The chase page drops the two diagnostic buttons, so a missing element is
     // normal rather than a mistake.
@@ -317,6 +321,11 @@ export function createUI(documentRoot = document) {
     },
     hasMapButton() {
       return Boolean(elements.map);
+    },
+    // Re-place Hachuping without touching the frozen map. Hidden until a
+    // chase is actually running, since it has nothing to act on before that.
+    setRespawnVisible(visible) {
+      if (elements.respawn) elements.respawn.style.display = visible ? '' : 'none';
     },
     setChaseButton(label, enabled) {
       if (!elements.chaseBtn) return;
