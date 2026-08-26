@@ -127,7 +127,7 @@ test('session start enters mapping with the existing control availability', () =
   });
 });
 
-test('a detected scan starts a duel without capturing the ninja', () => {
+test('a detected scan starts a duel while the field ninja stays camouflaged', () => {
   const { game, mapper, sceneObjects, duelStarts } = createHarness();
   game.startSession();
   for (const [index, position] of [[0, 0, -2], [0.3, 0, -2], [0.6, 0, -2]].entries()) {
@@ -141,7 +141,7 @@ test('a detected scan starts a duel without capturing the ninja', () => {
   assert.equal(game.triggerScan(), true);
   assert.equal(game.getState().phase, 'duel-countdown');
   assert.equal(sceneObjects[0].revealed, undefined);
-  assert.equal(sceneObjects[0].opacity, 1);
+  assert.equal(sceneObjects[0].opacity, 0.13);
   assert.equal(duelStarts.length, 1);
 });
 

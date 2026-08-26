@@ -44,7 +44,6 @@ import { OperatorView } from './operator-view.js';
 import { PlayerTrail } from './player-trail.js';
 import { RawCameraFrameSource } from './raw-camera-frame-source.js';
 import { RpsRuntime } from './rps-runtime.js';
-import { clearNinjaMove, showNinjaMove } from './rps-sign.js';
 import { SpatialMapper } from './spatial-mapper.js';
 import { createUI, formatMetrics, formatOperatorStatus } from './ui.js';
 import { VoxelMap } from './voxel-map.js';
@@ -147,8 +146,6 @@ async function init() {
     countdownMs: RPS_COUNTDOWN_MS,
     readTimeoutMs: RPS_READ_TIMEOUT_MS,
     resultMs: RPS_RESULT_MS,
-    showNinjaMove,
-    clearNinjaMove,
     resetRendererState: () => renderer.resetState?.(),
   });
 

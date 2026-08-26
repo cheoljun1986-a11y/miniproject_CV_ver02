@@ -57,7 +57,7 @@
 | `camera-texture-copier.js` | 세로·가로 비율을 유지해 최대 320px 추론 캔버스로 복사 |
 | `hand-gesture-recognizer.js` | MediaPipe Tasks Vision 1.0.1 초기화와 로컬 추론 |
 | `rps-runtime.js` | 카메라/수동 입력, UI, 닌자 승패 전환을 한 경로로 조립 |
-| `rps-art.js` / `rps-sign.js` | HUD 벡터 손 그림과 닌자 위 패 표식 |
+| `rps-art.js` | HUD의 가위·바위·보 벡터 손 그림 |
 | `assets/gesture_recognizer.task` | Google 공식 모델 8,373,440바이트 |
 
 모델 SHA-256:

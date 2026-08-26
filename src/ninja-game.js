@@ -217,7 +217,6 @@ export class NinjaGame {
   startDuel() {
     if (!this.target) return false;
     this.phase = 'duel-countdown';
-    this.model.setNinjaOpacity(this.target.object, 1);
     this.setControls({ scan: false });
     this.ui.setStatus('Ninja와 가위바위보!');
     this.ui.setMessage('화면 중앙에 한 손을 준비하세요.');

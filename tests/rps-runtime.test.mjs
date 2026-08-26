@@ -8,7 +8,6 @@ function makeHarness({ manualMode = false } = {}) {
   const outcomes = [];
   const reveals = [];
   const errors = [];
-  const target = { name: 'ninja' };
   let manualMove = null;
   let captures = 0;
   let resets = 0;
@@ -26,7 +25,6 @@ function makeHarness({ manualMode = false } = {}) {
   const game = {
     setDuelPhase(phase) { phases.push(phase); },
     resolveDuel(outcome) { outcomes.push(outcome); return true; },
-    getTargetObject: () => target,
   };
   const recognizer = {
     async initialize() { this.status = { state: 'ready', detail: null }; return true; },
@@ -53,12 +51,10 @@ function makeHarness({ manualMode = false } = {}) {
     countdownMs: 10,
     readTimeoutMs: 100,
     resultMs: 10,
-    showNinjaMove: (root, move) => { root.move = move; },
-    clearNinjaMove: (root) => { delete root.move; },
     resetRendererState: () => { resets += 1; },
   });
   return {
-    runtime, ui, phases, outcomes, reveals, errors, target,
+    runtime, ui, phases, outcomes, reveals, errors,
     recognizer, cameraSource,
     submitManual: (move) => manualMove(move),
     getCaptures: () => captures,
@@ -66,7 +62,7 @@ function makeHarness({ manualMode = false } = {}) {
   };
 }
 
-test('manual diagnostic input uses the same duel result path without camera capture', () => {
+test('duel result stays in the overlay without adding a move graphic to the field ninja', () => {
   const h = makeHarness({ manualMode: true });
   h.runtime.startDuel(0);
   h.runtime.update(10, {}, {});
@@ -76,7 +72,6 @@ test('manual diagnostic input uses the same duel result path without camera capt
     ninjaMove: 'rock',
     result: 'win',
   }]);
-  assert.equal(h.target.move, 'rock');
   h.runtime.update(20, {}, {});
   assert.deepEqual(h.outcomes, ['win']);
   assert.equal(h.getCaptures(), 0);
@@ -143,13 +138,11 @@ test('camera capability failure is visible and never enables manual fallback', (
   assert.match(h.errors.at(-1), /camera-access/);
 });
 
-test('session reset clears active duel graphics and overlay', () => {
+test('session reset clears the active duel overlay', () => {
   const h = makeHarness({ manualMode: true });
   h.runtime.startDuel(0);
   h.runtime.update(10, {}, {});
   h.submitManual('rock');
-  assert.equal(h.target.move, 'rock');
   h.runtime.resetSession();
-  assert.equal(h.target.move, undefined);
   assert.equal(h.ui.visible, false);
 });

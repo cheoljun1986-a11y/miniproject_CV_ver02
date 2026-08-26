@@ -25,8 +25,6 @@ export class RpsRuntime {
     countdownMs,
     readTimeoutMs,
     resultMs,
-    showNinjaMove,
-    clearNinjaMove,
     resetRendererState = () => {},
   }) {
     this.ui = ui;
@@ -34,8 +32,6 @@ export class RpsRuntime {
     this.recognizer = recognizer;
     this.cameraSource = cameraSource;
     this.manualMode = manualMode;
-    this.showNinjaMove = showNinjaMove;
-    this.clearNinjaMove = clearNinjaMove;
     this.resetRendererState = resetRendererState;
     this.currentTime = 0;
     this.initializationPromise = null;
@@ -95,7 +91,6 @@ export class RpsRuntime {
 
   startDuel(time) {
     this.currentTime = time;
-    this.clearCurrentSign();
     this.recognizer.resetRound();
     this.ui.showDuelError('');
     this.ui.setDuelVisible(true);
@@ -142,7 +137,6 @@ export class RpsRuntime {
   }
 
   resetSession() {
-    this.clearCurrentSign();
     this.duel.reset();
     this.cameraSource.reset();
     this.recognizer.resetRound();
@@ -170,12 +164,9 @@ export class RpsRuntime {
 
   handleReveal(result) {
     this.ui.showMoves(result);
-    const target = this.game.getTargetObject();
-    if (target) this.showNinjaMove(target, result.ninjaMove);
   }
 
   handleOutcome(outcome) {
-    this.clearCurrentSign();
     this.game.resolveDuel(outcome);
     if (outcome !== 'draw') this.ui.setDuelVisible(false);
   }
@@ -185,8 +176,4 @@ export class RpsRuntime {
     this.ui.setHandStatus('손을 찾지 못했습니다. 손 전체를 중앙에 두고 다시 유지하세요.');
   }
 
-  clearCurrentSign() {
-    const target = this.game.getTargetObject();
-    if (target) this.clearNinjaMove(target);
-  }
 }
