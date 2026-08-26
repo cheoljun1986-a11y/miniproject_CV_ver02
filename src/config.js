@@ -84,7 +84,14 @@ export const CHASE_MAX_DROP_M = 1.2;
 // A ceiling looks exactly like a tabletop to the grid, so cap how high a
 // surface may be above the detected floor before it stops counting.
 export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 1.3;
-export const CHASE_MIN_WALKABLE_CELLS = 120; // refuse to start on a bare map
+// Refuse to start on a bare map. Tuned down from 120 when the default terrain
+// became the keyframe/TSDF pipeline: it confirms voxels far more conservatively
+// than the old legacy map, so the same walk yields fewer walkable cells. A real
+// on-device room scan (9 keyframes, a 47-point walk) reached only 104 walkable
+// cells, so the old 120 gate never opened and the chase — and Hachuping — never
+// started. 80 cells (~3.2 m2 at 0.2 m) still rejects a genuinely bare map while
+// letting a properly-walked room begin. See tests/chase-start-gate.test.mjs.
+export const CHASE_MIN_WALKABLE_CELLS = 80;
 export const CHASE_RETARGET_MS = 3000;
 export const CHASE_STUCK_MS = 4000;
 export const CHASE_RECENT_WINDOW_MS = 15000; // how long a visited cell stays penalised
