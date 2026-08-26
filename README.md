@@ -70,7 +70,7 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 | 12 | 08-26 00:20 ~ 01:11 | **키프레임 복셀 복원 + 진단 모드** (`private/baencho`) | 복셀 "3회 관측" 규칙이 시점이 아니라 샘플을 세어 근거리에서 무력화 | 키프레임 단위 중복 제거, 원본 보존·재필터, 정적 복셀 occluder 실험 |
 | 13 | 08-26 | **키프레임 복원을 게임 지형으로** (`private/baencho/keyframe-terrain`) | 12단계의 수정이 진단 모드에만 있고, 게임은 여전히 결함 있는 `VoxelMap`을 사용 | `VoxelTerrain` — 세션 내내 키프레임을 즉시 복셀로 누적. `?terrain=keyframe`으로 선택, 기본은 기존 경로 |
 
-자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 152개 → 251개 → 273개**
+자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 152개 → 251개 → 282개**
 
 ---
 
@@ -534,7 +534,7 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
 - **three.js 0.180** (렌더링, WebXR 매니저, 내장 depth-sensing 오클루전, GLTFLoader)
 - WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, (옵션) `anchors`, `local-floor`
 - **정적 호스팅**: GitHub Pages (백엔드 없음). CDN(three.js)만 외부 의존.
-- 테스트: Node.js `node:test` — **273개** (순수 로직·게임 상태·WebXR 경계·depth 소비자·통행 격자·복셀 진단)
+- 테스트: Node.js `node:test` — **282개** (순수 로직·게임 상태·WebXR 경계·depth 소비자·통행 격자·복셀 진단)
 
 ## 7. 실행 / 테스트 방법
 
@@ -571,7 +571,7 @@ WebXR depth 세션 활성화 문제로 분류한다.
 ```bash
 python serve.py                # http://localhost:8000 — 정적 파일 + POST /upload → results/
 cloudflared tunnel --url http://localhost:8000   # 폰용 HTTPS 주소 (WebXR는 HTTPS 필수)
-node --test tests/*.test.mjs   # 자동 테스트 273개
+node --test tests/*.test.mjs   # 자동 테스트 282개
 ```
 
 `python -m http.server`도 여전히 동작하지만 그 경우 스캔 자동 백업은 꺼진다(404로 조용히 실패).
@@ -593,7 +593,7 @@ node --test tests/*.test.mjs   # 자동 테스트 273개
 | 키프레임 복셀 진단 모드 | ✅ 구현·자동 테스트 / 갤럭시 1·2차 진단 완료 |
 | 키프레임 지형 (`?terrain=keyframe`) | ✅ 구현·자동 테스트 / **실기기 미검증**, 기본은 기존 경로 |
 | 정적 복셀 occluder | ⚠️ 실험 (`?occluder=voxel`) / 체감 효과 미미, 기본 꺼짐 |
-| 자동 테스트 | ✅ **273개 통과** |
+| 자동 테스트 | ✅ **282개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 
@@ -684,7 +684,7 @@ src/
   scan-uploader.js    POST /upload 전송·세션 ID·백업 주기 판정 (테스트됨)
 serve.py              개발 서버: 정적 파일 + /upload → results/ (python -m http.server 대체)
 results/              폰이 보낸 스캔 JSON (git 제외)
-tests/                자동 테스트 (node:test) 273개
+tests/                자동 테스트 (node:test) 282개
 docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 ```
 
