@@ -58,27 +58,69 @@ function formatPosition(label, position) {
 export function formatOperatorStatus({
   anchorState = null,
   voxelCount = 0,
-  pendingCount = 0,
-  occlusionTriangles = null,
-  depthUsage = null,
   cameraAccess = null,
   ninjaPosition = null,
   playerPosition = null,
   pathPointCount = 0,
 }) {
-  // Pending voxels and the depth usage separate the two ways an empty map
-  // looks the same on screen: depth never arrived, or samples arrive but are
-  // evicted before reaching the solid threshold.
-  const triangleTag = occlusionTriangles === null ? '' : ` · 삼각형 ${occlusionTriangles}`;
   // Probe for raw camera access: whether the browser actually handed this
   // session camera images, which decides if real-world voxel color is possible.
   // '?' until the first frame answers it.
   const cameraTag = cameraAccess === null ? '?' : (cameraAccess ? 'O' : 'X');
-  return `운영자 공간지도 · 복셀 ${voxelCount} · 미확정 ${pendingCount}${triangleTag}
-depth ${depthUsage ?? 'unavailable'} · 카메라 ${cameraTag}
+  return `운영자 공간지도 · 복셀 ${voxelCount} · 카메라 ${cameraTag}
 ${formatAnchorStatus(anchorState)}
 ${formatPosition('Ninja', ninjaPosition)}
 ${formatPosition('플레이어', playerPosition)} · 경로 ${pathPointCount}점`;
+}
+
+// Everything Phase 2 diagnosis needs to read off the phone in one card: how
+// much material the scan gathered, where the depth samples went, and how the
+// observation histogram responds to the threshold slider.
+export function formatVoxelDebugStatus({
+  scanning = false,
+  scanLeftSec = 0,
+  keyframeCount = 0,
+  maxKeyframes = 0,
+  elapsedMs = 0,
+  cellCount = 0,
+  displayedCount = 0,
+  truncated = false,
+  histogram = null,
+  colorMode = '',
+  params = null,
+  buildMs = 0,
+  rejected = null,
+  imported = false,
+}) {
+  const h = histogram ?? { one: 0, two: 0, three: 0, fourPlus: 0 };
+  const r = rejected ?? { zero: 0, range: 0, gradient: 0, accepted: 0 };
+  const p = params ?? { nearM: 0, farM: 0, gradientMaxJumpM: 0, voxelSize: 0, minObservations: 1 };
+
+  const source = imported ? 'JSON 불러옴' : scanning ? `스캔 중 ${scanLeftSec.toFixed(0)}s` : '스캔 완료';
+  const truncatedTag = truncated ? ' ⚠상한' : '';
+
+  return `복셀 디버그 · ${source} · 키프레임 ${keyframeCount}/${maxKeyframes} · 경과 ${(elapsedMs / 1000).toFixed(1)}s
+복셀 ${cellCount} (표시 ${displayedCount})${truncatedTag} · 재구성 ${Math.round(buildMs)}ms
+관측 1회 ${h.one} · 2회 ${h.two} · 3+회 ${h.three + h.fourPlus}
+클립 ${p.nearM.toFixed(2)}–${p.farM.toFixed(2)}m · 그래디언트 ${p.gradientMaxJumpM.toFixed(2)}m · 크기 ${p.voxelSize.toFixed(2)}m · 임계 ${p.minObservations}
+버림  0값 ${r.zero} · 범위 ${r.range} · 경사 ${r.gradient} · 수용 ${r.accepted}
+색상 ${colorMode}`;
+}
+
+// The panel (z-25) sits above #operatorOverlay (z-20), so both are on screen at
+// once. Sending the full block to both duplicates six lines; the orbit view gets
+// this one-liner instead so the numbers stay readable without the repetition.
+export function formatVoxelDebugSummary({
+  cellCount = 0,
+  displayedCount = 0,
+  clusterCount = null,
+  keyframeCount = 0,
+  maxKeyframes = 0,
+  buildMs = 0,
+}) {
+  const clusters = clusterCount === null ? '' : ` · 클러스터 ${clusterCount}`;
+  return `복셀 ${cellCount} (표시 ${displayedCount})${clusters}`
+    + ` · 키프레임 ${keyframeCount}/${maxKeyframes} · 재구성 ${Math.round(buildMs)}ms`;
 }
 
 export function createUI(documentRoot = document) {
@@ -99,7 +141,33 @@ export function createUI(documentRoot = document) {
     operatorCanvas: documentRoot.querySelector('#operatorCanvas'),
     operatorCloseBtn: documentRoot.querySelector('#operatorCloseBtn'),
     operatorStatus: documentRoot.querySelector('#operatorStatus'),
+    // Chase mode elements exist only on the chase page; every use below is
+    // guarded so index.html keeps behaving exactly as before.
+    chaseBtn: documentRoot.querySelector('#chaseBtn'),
+    chasePanel: documentRoot.querySelector('#chasePanel'),
+    chaseGaugeFill: documentRoot.querySelector('#chaseGaugeFill'),
+    chaseHint: documentRoot.querySelector('#chaseHint'),
+    chaseArrow: documentRoot.querySelector('#chaseArrow'),
+    hudToggle: documentRoot.querySelector('#hudToggle'),
   };
+
+  // The metrics card is a diagnostic wall of text that covers half a phone
+  // screen. On a page that offers a toggle it starts hidden.
+  let metricsVisible = !elements.hudToggle;
+
+  function applyMetricsVisible() {
+    if (elements.metrics) elements.metrics.style.display = metricsVisible ? '' : 'none';
+    if (elements.hudToggle) elements.hudToggle.textContent = metricsVisible ? '수치 ✕' : '수치';
+  }
+
+  if (elements.hudToggle) {
+    elements.hudToggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      metricsVisible = !metricsVisible;
+      applyMetricsVisible();
+    });
+    applyMetricsVisible();
+  }
 
   function bindCommands({ onScan, onNewRound, onExtend, onMark, onCheck }) {
     const bindings = [
@@ -109,7 +177,10 @@ export function createUI(documentRoot = document) {
       [elements.mark, onMark],
       [elements.check, onCheck],
     ];
+    // The chase page drops the two diagnostic buttons, so a missing element is
+    // normal rather than a mistake.
     bindings.forEach(([element, command]) => {
+      if (!element) return;
       element.addEventListener('click', (event) => {
         event.stopPropagation();
         command();
@@ -118,11 +189,16 @@ export function createUI(documentRoot = document) {
   }
 
   function setControls({ scan, newRound, extend, mark, check }) {
-    elements.scan.disabled = !scan;
-    elements.newRound.disabled = !newRound;
-    elements.extend.disabled = !extend;
-    elements.mark.disabled = !mark;
-    elements.check.disabled = !check;
+    const states = [
+      [elements.scan, scan],
+      [elements.newRound, newRound],
+      [elements.extend, extend],
+      [elements.mark, mark],
+      [elements.check, check],
+    ];
+    states.forEach(([element, enabled]) => {
+      if (element) element.disabled = !enabled;
+    });
   }
 
   function bindOperator({ onToggle }) {
@@ -134,6 +210,34 @@ export function createUI(documentRoot = document) {
       event.stopPropagation();
       onToggle(false);
     });
+  }
+
+  // Chase mode used to ask the player to HOLD scan. On Android a long press on
+  // a DOM button raises the text-selection toolbar, and dismissing it with Back
+  // closes the browser, so the hold is gone unless handlers are passed in.
+  function bindChase({ onToggle, onHoldStart, onHoldEnd }) {
+    if (elements.chaseBtn) {
+      elements.chaseBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        onToggle();
+      });
+    }
+    const scan = elements.scan;
+    if (!scan || !onHoldStart || !onHoldEnd) return;
+    const start = (event) => {
+      event.stopPropagation();
+      onHoldStart();
+    };
+    const end = (event) => {
+      event.stopPropagation();
+      onHoldEnd();
+    };
+    scan.addEventListener('pointerdown', start);
+    scan.addEventListener('pointerup', end);
+    scan.addEventListener('pointercancel', end);
+    scan.addEventListener('pointerleave', end);
+    // A pointer released outside the button must still stop the attempt.
+    documentRoot.addEventListener?.('pointerup', () => onHoldEnd());
   }
 
   function flash() {
@@ -157,12 +261,27 @@ export function createUI(documentRoot = document) {
     setMetrics(text) {
       elements.metrics.textContent = text;
     },
+    setMetricsVisible(visible) {
+      metricsVisible = Boolean(visible);
+      applyMetricsVisible();
+    },
+    isMetricsVisible() {
+      return metricsVisible;
+    },
+    // SCAN has no meaning while Hachuping is running, and leaving it there
+    // invites the long press the capture rule no longer wants.
+    setScanVisible(visible) {
+      if (elements.scan) elements.scan.style.display = visible ? '' : 'none';
+    },
     showFallback(detail) {
       elements.fallbackDetail.textContent = detail;
       elements.fallback.style.display = 'flex';
     },
     flash,
     bindOperator,
+    setMetricsVisible(visible) {
+      elements.metrics.style.display = visible ? '' : 'none';
+    },
     setOperatorButtonVisible(visible) {
       elements.operatorBtn.style.display = visible ? '' : 'none';
     },
@@ -174,6 +293,41 @@ export function createUI(documentRoot = document) {
     },
     getOperatorCanvas() {
       return elements.operatorCanvas;
+    },
+    bindChase,
+    hasChaseControls() {
+      return Boolean(elements.chaseBtn);
+    },
+    setChaseButton(label, enabled) {
+      if (!elements.chaseBtn) return;
+      elements.chaseBtn.textContent = label;
+      elements.chaseBtn.disabled = !enabled;
+    },
+    setChaseVisible(visible) {
+      if (!elements.chasePanel) return;
+      elements.chasePanel.style.display = visible ? 'flex' : 'none';
+    },
+    setChaseGauge(value) {
+      if (!elements.chaseGaugeFill) return;
+      elements.chaseGaugeFill.style.width = `${Math.round(value * 100)}%`;
+      elements.chaseGaugeFill.style.background = value >= 1
+        ? '#35d07f'
+        : (value > 0 ? '#ffc44d' : '#556');
+    },
+    setChaseHint(text) {
+      if (elements.chaseHint) elements.chaseHint.textContent = text;
+    },
+    // Points at Hachuping when it has run out of frame. Without this the
+    // player simply loses it and the chase stalls.
+    setChaseArrow(angleRad) {
+      if (!elements.chaseArrow) return;
+      if (angleRad === null) {
+        elements.chaseArrow.style.display = 'none';
+        return;
+      }
+      elements.chaseArrow.style.display = 'block';
+      elements.chaseArrow.style.transform =
+        `translate(-50%, -50%) rotate(${angleRad}rad)`;
     },
   };
 }

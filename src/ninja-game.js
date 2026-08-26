@@ -238,7 +238,36 @@ export class NinjaGame {
     return result;
   }
 
+  // Chase mode drives the model itself. Letting the anchor keep writing the
+  // object's matrix would snap it back to where it was hidden every frame.
+  setExternalControl(enabled) {
+    this.externalControl = Boolean(enabled);
+  }
+
+  getTargetObject() {
+    return this.target?.object ?? null;
+  }
+
+  setTargetOpacity(opacity) {
+    if (!this.target) return false;
+    this.model.setNinjaOpacity(this.target.object, opacity);
+    return true;
+  }
+
+  // Move the hidden model to a world position while the chase runs.
+  setTargetWorldPosition(position, headingAngle = null) {
+    if (!this.target || !position) return false;
+    const object = this.target.object;
+    object.matrixAutoUpdate = true;
+    object.position.set(position[0], position[1], position[2]);
+    if (headingAngle !== null) object.rotation.set(0, headingAngle, 0);
+    object.updateMatrix();
+    this.target.position = [position[0], position[1], position[2]];
+    return true;
+  }
+
   updateTargetAnchor(frame) {
+    if (this.externalControl) return;
     const localSpace = this.getLocalSpace();
     if (!this.target) return;
     if (this.target.anchorState === 'anchor-pending') {
@@ -262,6 +291,11 @@ export class NinjaGame {
     const matrix = pose.transform.matrix;
     target.object.matrix.fromArray(matrix);
     target.object.matrixWorldNeedsUpdate = true;
+    // createNinja leaves matrixAutoUpdate on, so three recomputes .matrix from
+    // position/quaternion every frame and the write above is thrown away. The
+    // anchor has to move `position` as well or the model stays where it was
+    // first placed while the game believes it has followed the anchor.
+    target.object.position.set(matrix[12], matrix[13], matrix[14]);
     target.position[0] = matrix[12];
     target.position[1] = matrix[13];
     target.position[2] = matrix[14];
