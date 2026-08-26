@@ -63,3 +63,13 @@ test('guide links all primary sources', async () => {
   assert.ok(html.includes('developers.google.com/ar/develop/fundamentals'));
   assert.ok(html.includes('immersive-web.github.io/webxr/spatial-tracking-explainer'));
 });
+
+test('guide supports keyboard presentation and expandable technical notes', async () => {
+  const html = await readFile(guideUrl, 'utf8');
+  for (const key of ['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End']) {
+    assert.ok(html.includes(key), `missing keyboard control ${key}`);
+  }
+  assert.ok((html.match(/<details\b/g) ?? []).length >= 10, 'needs at least 10 technical notes');
+  assert.ok((html.match(/<svg\b/g) ?? []).length >= 10, 'needs at least 10 explanatory diagrams');
+  assert.match(html, /@media \(max-width:\s*700px\)/);
+});
