@@ -2,106 +2,120 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<meta name="theme-color" content="#111111"/>
-<title>WebXR Hidden Ninja v2</title>
-<style>
-  :root { color-scheme: dark; font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-  html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#111; }
-  canvas { display:block; }
-  #hud {
-    position:fixed; inset:0; z-index:10; pointer-events:none;
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#171225"/>
+<meta name="description" content="하츄핑 AR 숨바꼭질 게임과 WebXR 공간 진단 도구를 선택하세요."/>
+<title>하츄핑 AR 숨바꼭질</title>
+<script>
+  if (location.search) {
+    location.replace(`./app.html${location.search}${location.hash}`);
   }
-  .card {
-    position:absolute; left:12px; top:12px;
-    max-width:calc(100vw - 24px);
-    padding:9px 11px; border-radius:12px;
-    background:rgba(0,0,0,.58); backdrop-filter:blur(7px);
-    color:white; font-size:13px; line-height:1.45;
-  }
-  #metrics { top:86px; white-space:pre-line; font-variant-numeric:tabular-nums; }
-  #message {
-    position:absolute; left:50%; bottom:98px; transform:translateX(-50%);
-    width:min(88vw,560px); padding:10px 14px; border-radius:999px;
-    background:rgba(0,0,0,.62); color:white; text-align:center; font-size:14px;
-  }
-  #controls {
-    position:absolute; left:10px; right:10px; bottom:18px;
-    display:flex; gap:8px; justify-content:center; flex-wrap:wrap;
-    pointer-events:auto;
-  }
-  button.ctrl {
-    border:0; border-radius:999px; padding:11px 14px;
-    font-weight:800; font-size:14px;
-    background:rgba(255,255,255,.92); color:#111;
-    box-shadow:0 4px 14px rgba(0,0,0,.25);
-  }
-  button.ctrl.primary { background:#fff; }
-  button.ctrl.warn { background:#ffd66b; }
-  button.ctrl:disabled { opacity:.42; }
-  #scanFlash {
-    position:absolute; inset:0; border:0 solid rgba(255,255,255,0);
-    transition:border-width .08s,border-color .08s;
-  }
-  #crosshair {
-    position:absolute; left:50%; top:50%; width:34px; height:34px;
-    transform:translate(-50%,-50%);
-  }
-  #crosshair:before,#crosshair:after {
-    content:""; position:absolute; background:rgba(255,255,255,.8);
-  }
-  #crosshair:before { left:16px; top:0; width:2px; height:34px; }
-  #crosshair:after { left:0; top:16px; width:34px; height:2px; }
-  #fallback {
-    position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center;
-    padding:24px; background:#111; color:white;
-  }
-  #fallback .box { max-width:620px; line-height:1.6; }
-  code { background:#222; padding:2px 6px; border-radius:6px; }
-</style>
-
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.180.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.180.0/examples/jsm/"
-  }
-}
 </script>
+<style>
+  :root {
+    color-scheme:dark;
+    font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    --bg:#120f1d; --panel:rgba(255,255,255,.075); --line:rgba(255,255,255,.12);
+    --text:#fffafc; --muted:#beb7c8; --pink:#ff5db1;
+  }
+  * { box-sizing:border-box; }
+  html { min-height:100%; background:var(--bg); }
+  body {
+    min-height:100vh; min-height:100svh; margin:0; color:var(--text);
+    background:
+      radial-gradient(circle at 12% 8%,rgba(255,93,177,.22),transparent 32rem),
+      radial-gradient(circle at 90% 28%,rgba(139,92,246,.2),transparent 30rem),
+      linear-gradient(155deg,#181225 0%,#0e0c17 70%);
+  }
+  a { color:inherit; text-decoration:none; }
+  .shell { width:min(960px,100%); margin:0 auto; padding:52px 20px 40px; }
+  .eyebrow {
+    display:inline-flex; align-items:center; gap:8px; margin:0 0 14px;
+    color:#ffc3e3; font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  }
+  .eyebrow::before { content:""; width:22px; height:2px; border-radius:2px; background:var(--pink); }
+  h1 { max-width:680px; margin:0; font-size:clamp(36px,8vw,68px); line-height:1.03; letter-spacing:-.055em; }
+  .intro { max-width:620px; margin:20px 0 34px; color:var(--muted); font-size:clamp(16px,2.5vw,19px); line-height:1.65; }
+  .game-card {
+    position:relative; display:grid; gap:24px; padding:clamp(24px,5vw,42px);
+    overflow:hidden; border:1px solid rgba(255,255,255,.2); border-radius:28px;
+    background:linear-gradient(135deg,rgba(255,93,177,.92),rgba(113,70,214,.95));
+    box-shadow:0 22px 70px rgba(63,25,99,.45); isolation:isolate;
+  }
+  .game-card::after {
+    content:""; position:absolute; width:260px; height:260px; right:-70px; bottom:-120px;
+    border:48px solid rgba(255,255,255,.1); border-radius:50%; z-index:-1;
+  }
+  .game-card:focus-visible,.tool-card:focus-visible { outline:3px solid #fff; outline-offset:4px; }
+  .badge { width:max-content; padding:7px 11px; border-radius:999px; background:rgba(22,15,35,.28); font-size:12px; font-weight:800; }
+  .game-card h2 { margin:10px 0 8px; font-size:clamp(27px,5vw,38px); letter-spacing:-.035em; }
+  .game-card p { max-width:520px; margin:0; color:rgba(255,255,255,.84); line-height:1.6; }
+  .cta { display:flex; align-items:center; justify-content:space-between; gap:16px; font-size:17px; font-weight:900; }
+  .cta-icon { display:grid; place-items:center; width:46px; height:46px; border-radius:50%; background:#fff; color:#342049; font-size:22px; }
+  .section-head { display:flex; justify-content:space-between; align-items:end; gap:16px; margin:44px 0 16px; }
+  .section-head h2 { margin:0; font-size:20px; }
+  .section-head span { color:var(--muted); font-size:13px; }
+  .tools { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .tool-card {
+    min-height:166px; padding:21px; border:1px solid var(--line); border-radius:20px;
+    background:var(--panel); backdrop-filter:blur(16px);
+    transition:transform .18s,border-color .18s,background .18s;
+  }
+  .tool-card:hover { transform:translateY(-3px); border-color:rgba(255,255,255,.28); background:rgba(255,255,255,.105); }
+  .tool-icon { display:grid; place-items:center; width:40px; height:40px; margin-bottom:22px; border-radius:12px; background:rgba(255,255,255,.1); font-size:19px; }
+  .tool-card strong { display:block; margin-bottom:7px; font-size:16px; }
+  .tool-card small { display:block; color:var(--muted); line-height:1.5; }
+  .notice { display:flex; gap:10px; margin:24px 2px 0; color:var(--muted); font-size:13px; line-height:1.55; }
+  .notice span { color:#ffc3e3; }
+  footer { margin-top:38px; padding-top:20px; border-top:1px solid var(--line); color:#80798a; font-size:12px; }
+  @media (max-width:700px) {
+    .shell { padding:34px 16px 28px; }
+    .tools { grid-template-columns:1fr; }
+    .tool-card { min-height:0; }
+    .section-head { align-items:start; flex-direction:column; gap:5px; }
+  }
+  @media (prefers-reduced-motion:reduce) { .tool-card { transition:none; } }
+</style>
 </head>
 <body>
-<div id="hud">
-  <div class="card" id="status">WebXR 확인 중…</div>
-  <div class="card" id="metrics">pose: -</div>
-  <div id="crosshair"></div>
-  <div id="message">START AR을 누른 뒤 천천히 주변 바닥/책상을 비춰주세요.</div>
-  <div id="scanFlash"></div>
-  <div id="controls">
-    <button class="ctrl primary" id="scanBtn" disabled>SCAN</button>
-    <button class="ctrl" id="newRoundBtn" disabled>다시 숨기기</button>
-    <button class="ctrl" id="extendBtn" disabled>+20초 스캔</button>
-    <button class="ctrl warn" id="markBtn" disabled>기준점 저장</button>
-    <button class="ctrl warn" id="checkBtn" disabled>복귀 오차 확인</button>
-    <button class="ctrl" id="operatorBtn" style="display:none">운영자 뷰</button>
-  </div>
-  <div id="operatorOverlay" style="position:absolute; inset:0; z-index:20; display:none; background:#0b0b0b; pointer-events:auto;">
-    <canvas id="operatorCanvas" style="width:100%; height:100%; display:block;"></canvas>
-    <div class="card" id="operatorStatus" style="z-index:21; white-space:pre-line;">운영자 공간지도 · 복셀 0
-고정 -
-Ninja -
-플레이어 - · 경로 0점</div>
-    <button class="ctrl primary" id="operatorCloseBtn" style="position:absolute; right:12px; top:12px;">게임으로</button>
-  </div>
-</div>
+<main class="shell">
+  <p class="eyebrow">WebXR Hidden Game</p>
+  <h1>하츄핑을 찾아<br/>잡아보세요.</h1>
+  <p class="intro">휴대폰으로 공간을 비추면 하츄핑이 숨어요. 방 안을 탐색하고, 도망치는 하츄핑을 화면 중앙에 담아 검거하세요.</p>
 
-<div id="fallback">
-  <div class="box">
-    <h2>WebXR AR을 시작할 수 없습니다.</h2>
-    <p>ARCore 지원 Android + 최신 Chrome + HTTPS 주소인지 확인해 주세요.</p>
-    <p id="fallbackDetail"></p>
-  </div>
-</div>
+  <a class="game-card" href="./v4-chase.html" aria-label="하츄핑 도망 모드 게임 시작">
+    <div>
+      <span class="badge">추천 · 공개 데모</span>
+      <h2>하츄핑 도망 모드</h2>
+      <p>공간 스캔부터 숨바꼭질, 추격과 검거까지 이어지는 기본 게임 모드입니다.</p>
+    </div>
+    <div class="cta"><span>게임 시작</span><span class="cta-icon" aria-hidden="true">→</span></div>
+  </a>
 
-<script type="module" src="./src/main.js"></script>
+  <div class="section-head">
+    <h2>개발자·진단 도구</h2>
+    <span>공간 인식과 가림 처리를 확인합니다</span>
+  </div>
+  <div class="tools">
+    <a class="tool-card" href="./app.html?occlusion=cpu">
+      <span class="tool-icon" aria-hidden="true">◫</span>
+      <strong>CPU 동적 가림</strong>
+      <small>실제 사물 뒤로 캐릭터가 가려지는 통합 모드</small>
+    </a>
+    <a class="tool-card" href="./app.html?depth=cloud">
+      <span class="tool-icon" aria-hidden="true">⌁</span>
+      <strong>공간 복원</strong>
+      <small>깊이 정보를 3D 포인트로 복원하는 진단 모드</small>
+    </a>
+    <a class="tool-card" href="./app.html?voxel=debug">
+      <span class="tool-icon" aria-hidden="true">▦</span>
+      <strong>키프레임 복셀</strong>
+      <small>복셀 재구성과 관측 품질을 확인하는 진단 모드</small>
+    </a>
+  </div>
+
+  <p class="notice"><span aria-hidden="true">●</span> AR 실행은 ARCore를 지원하는 Android 기기의 최신 Chrome과 HTTPS 환경이 필요합니다.</p>
+  <footer>WebXR Hidden Ninja · Computer Vision Mini Project</footer>
+</main>
 </body>
 </html>

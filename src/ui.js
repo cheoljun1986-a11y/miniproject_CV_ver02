@@ -148,7 +148,7 @@ export function createUI(documentRoot = document) {
     operatorCloseBtn: documentRoot.querySelector('#operatorCloseBtn'),
     operatorStatus: documentRoot.querySelector('#operatorStatus'),
     // Chase mode elements exist only on the chase page; every use below is
-    // guarded so index.html keeps behaving exactly as before.
+    // guarded so app.html keeps behaving exactly as before.
     chaseBtn: documentRoot.querySelector('#chaseBtn'),
     chasePanel: documentRoot.querySelector('#chasePanel'),
     chaseGaugeFill: documentRoot.querySelector('#chaseGaugeFill'),
