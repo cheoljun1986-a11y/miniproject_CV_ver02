@@ -99,6 +99,26 @@ export const CHASE_GRID_MAX_TILES = 6000;
 export const CHASE_PATH_MAX_POINTS = 256;
 export const CHASE_GRID_REBUILD_GAP_MS = 250;
 
+// RANSAC floor plane (?floor=ransac). Fitted once when the map is frozen, then
+// used to correct the floor height and fill sparse-scan gaps in the chase grid.
+// Values validated offline against four on-device scans (results/*.json): the
+// fit lands on a near-flat floor ~0.9-1.4 m below head height and lifts walkable
+// cells ~50-90% with no ceiling/tabletop misfits.
+export const FLOOR_RANSAC_ITERATIONS = 200;
+export const FLOOR_RANSAC_DISTANCE_M = 0.06;      // inlier band ≈ one voxel
+export const FLOOR_RANSAC_MAX_TILT_DEG = 10;      // reject walls / steep surfaces
+export const FLOOR_RANSAC_MIN_INLIERS = 40;       // below this, keep the histogram
+export const FLOOR_RANSAC_KEEP_FRACTION = 0.35;   // a chosen plane must be this
+                                                  // substantial vs the best one
+// Only fit to voxels in a low band, so a ceiling or tall shelf cannot win the
+// plane. The band starts at a robust low height (a low percentile, ignoring
+// sub-floor floaters) and reaches FLOOR_BAND_M above it.
+export const FLOOR_BAND_M = 0.6;
+export const FLOOR_BAND_LOW_PERCENTILE = 0.05;
+// How far, in chase cells, the fitted floor is dilated into unobserved cells.
+// 2 cells (~0.4 m) bridges sparse gaps without conjuring floor across real holes.
+export const FLOOR_FILL_RADIUS_CELLS = 2;
+
 // Static voxel occluder (?occluder=voxel). Built once from the scan and left
 // alone, unlike the per-frame depth meshes above.
 export const VOXEL_OCCLUDER_MIN_OBSERVATIONS = 3;

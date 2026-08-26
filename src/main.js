@@ -9,6 +9,7 @@ import {
   resolveFusionMode,
   usesKeyframeTerrain,
   usesLegacyTerrain,
+  usesRansacFloor,
   usesSpaceMapping,
   usesVoxelOccluder,
 } from './app-mode.js';
@@ -74,7 +75,16 @@ import {
   CHASE_RETARGET_MS,
   CHASE_SLAB_HEIGHT_M,
   CHASE_STUCK_MS,
+  FLOOR_RANSAC_ITERATIONS,
+  FLOOR_RANSAC_DISTANCE_M,
+  FLOOR_RANSAC_MAX_TILT_DEG,
+  FLOOR_RANSAC_MIN_INLIERS,
+  FLOOR_RANSAC_KEEP_FRACTION,
+  FLOOR_BAND_M,
+  FLOOR_BAND_LOW_PERCENTILE,
+  FLOOR_FILL_RADIUS_CELLS,
 } from './config.js';
+import { fitFloorPlane } from './plane-fit.js';
 import { CpuDepthOccluder } from './cpu-depth-occluder.js';
 import { DepthCloud } from './depth-cloud.js';
 import { loadHiddenModel } from './hidden-model-loader.js';
@@ -121,6 +131,7 @@ const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE) || VOXEL_OCCLUDER_ON;
 const KEYFRAME_TERRAIN_MODE = usesKeyframeTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
 const LEGACY_TERRAIN_MODE = usesLegacyTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
 const MANUAL_INPUT_MODE = resolveInputMode(location.search) === 'manual';
+const RANSAC_FLOOR_MODE = usesRansacFloor(location.search);
 
 const ui = createUI();
 let scene;
@@ -565,6 +576,10 @@ function toggleMapBuild() {
 function freezeMap() {
   mapBuilding = false;
   mapFrozen = true;
+  // Fit the floor once, on the finished map, before anything reads walkability.
+  // A conservative TSDF scan leaves a sparse, mis-levelled floor; the plane
+  // corrects its height and fills the gaps so the chase has ground to run on.
+  if (RANSAC_FLOOR_MODE) applyRansacFloor();
   const { walkable } = chaseGrid.stats();
   const candidateCount = gridCandidatePool(chaseGrid).length;
   game.setControls({ newRound: false });
@@ -576,6 +591,25 @@ function freezeMap() {
   ui.setMessage(candidateCount > 0
     ? `설 수 있는 자리 ${candidateCount}곳 — 도망 모드를 누르면 하츄핑이 도망칩니다.`
     : '설 수 있는 곳이 없습니다 — 맵 다시 만들기로 더 넓게 스캔해주세요.');
+}
+
+// Fit the dominant floor plane to the frozen map's voxels and hand it to the
+// chase grid. A failed fit (too few points, no dominant plane) leaves the grid
+// on its built-in histogram floor, so the game still works.
+function applyRansacFloor() {
+  if (!chaseGrid) return;
+  const points = chaseGrid.floorBandVoxelPoints({
+    bandM: FLOOR_BAND_M,
+    lowPercentile: FLOOR_BAND_LOW_PERCENTILE,
+  });
+  const plane = fitFloorPlane(points, {
+    iterations: FLOOR_RANSAC_ITERATIONS,
+    distanceThreshold: FLOOR_RANSAC_DISTANCE_M,
+    maxTiltDeg: FLOOR_RANSAC_MAX_TILT_DEG,
+    minInliers: FLOOR_RANSAC_MIN_INLIERS,
+    keepFraction: FLOOR_RANSAC_KEEP_FRACTION,
+  });
+  if (plane) chaseGrid.applyFloorPlane(plane, { fillRadius: FLOOR_FILL_RADIUS_CELLS });
 }
 
 // ── chase mode ────────────────────────────────────────────────

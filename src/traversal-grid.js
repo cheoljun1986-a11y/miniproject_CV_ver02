@@ -75,6 +75,10 @@ export class TraversalGrid {
     this.floorSlab = null;
     this.floorDirty = true;
     this.standGen = 0;
+    // Optional RANSAC floor plane (see applyFloorPlane). When set it overrides
+    // the histogram floor detection and can fill sparse floor gaps.
+    this.floorPlane = null;
+    this.floorPlaneRefY = null;
   }
 
   // ── coordinate helpers ────────────────────────────────────
@@ -159,6 +163,14 @@ export class TraversalGrid {
   // Recomputed only when a new low slab appears, and every cached level list is
   // invalidated when the answer moves, because the standable ceiling moves too.
   resolveFloorSlab() {
+    // A fitted floor plane is the authority when present: the histogram below is
+    // exactly what mislabels a tabletop as the floor, which the plane fixes.
+    if (this.floorPlane && this.floorPlaneRefY !== null) {
+      const slab = Math.max(0, Math.min(this.slabCount - 1, this.slabOf(this.floorPlaneRefY)));
+      if (slab !== this.floorSlab) { this.floorSlab = slab; this.standGen += 1; }
+      this.floorDirty = false;
+      return this.floorSlab;
+    }
     if (!this.floorDirty) return this.floorSlab;
     this.floorDirty = false;
     // Absolute floor of 8 cells was tuned for hit counting. A fused map emits
@@ -215,7 +227,124 @@ export class TraversalGrid {
     this.slabCells.fill(0);
     this.floorSlab = null;
     this.floorDirty = true;
+    this.floorPlane = null;
+    this.floorPlaneRefY = null;
     this.standGen += 1;
+  }
+
+  // ── RANSAC floor plane ─────────────────────────────────────
+  // Every occupied voxel as a world point, for fitting the floor plane. One
+  // point per occupied slab at its top (where a body would stand). Read this
+  // BEFORE applyFloorPlane so the fit sees only real observations.
+  occupiedVoxelPoints() {
+    const points = [];
+    for (const cell of this.cells.values()) {
+      for (let slab = 0; slab < this.slabCount; slab += 1) {
+        if (this.hasSlab(cell, slab)) {
+          points.push([this.centerX(cell.cx), this.slabTopY(slab), this.centerZ(cell.cz)]);
+        }
+      }
+    }
+    return points;
+  }
+
+  // Occupied voxels within a low band, for fitting the floor plane. The floor is
+  // the lowest large surface, so fitting the whole cloud lets a ceiling or a
+  // tall shelf — more voxels, higher up — win the plane. Anchoring to a robust
+  // low height (a low percentile, so a stray sub-floor floater cannot drag it
+  // down) and keeping only points within bandM above it isolates the floor.
+  floorBandVoxelPoints({ bandM = 0.5, lowPercentile = 0.1 } = {}) {
+    const points = this.occupiedVoxelPoints();
+    if (!points.length) return points;
+    const ys = points.map((p) => p[1]).sort((a, b) => a - b);
+    const y0 = ys[Math.floor(lowPercentile * (ys.length - 1))];
+    return points.filter((p) => p[1] <= y0 + bandM);
+  }
+
+  // Any occupied slab in [startSlab, startSlab + count)?
+  solidInBand(cell, startSlab, count) {
+    const end = Math.min(this.slabCount, startSlab + count);
+    for (let slab = Math.max(0, startSlab); slab < end; slab += 1) {
+      if (this.hasSlab(cell, slab)) return true;
+    }
+    return false;
+  }
+
+  // Add a floor voxel the map never observed, to bridge a sparse-scan gap.
+  // Marked synthetic for diagnostics; otherwise it is an ordinary occupied slab.
+  addSyntheticFloor(cx, cz, slab) {
+    const key = cellKey(cx, cz);
+    let cell = this.cells.get(key);
+    if (!cell) {
+      cell = {
+        cx, cz, lo: UNSEEN, hi: UNSEEN, votes: new Uint16Array(this.slabCount),
+        levels: null, levelsGen: -1, synthetic: true,
+      };
+      this.cells.set(key, cell);
+    }
+    if (this.hasSlab(cell, slab)) return;
+    if (cell.votes[slab] < 0xffff) cell.votes[slab] += 1;
+    if (slab < 32) cell.lo |= 1 << slab;
+    else cell.hi |= 1 << (slab - 32);
+    this.slabCells[slab] += 1;
+    cell.levels = null;
+  }
+
+  // Adopt a fitted floor plane (or null to clear). Two effects:
+  //   1. Height correction — resolveFloorSlab uses the plane, not the histogram.
+  //   2. Bounded sparse fill — cells within fillRadius of an observed floor cell
+  //      gain a floor voxel at the plane height, UNLESS something solid blocks
+  //      the body column just above (furniture / wall) or they sit beyond the
+  //      radius (a real hole or unscanned void, left untouched).
+  applyFloorPlane(plane, { fillRadius = 2, bodyHeightSlabs = this.headroomSlabs } = {}) {
+    this.floorPlane = plane || null;
+    if (!plane) {
+      this.floorPlaneRefY = null;
+      this.floorDirty = true;
+      this.standGen += 1;
+      this.revision += 1;
+      return;
+    }
+
+    // Floor reference height = the plane at the observed centroid.
+    let sx = 0; let sz = 0; let nc = 0;
+    for (const cell of this.cells.values()) {
+      sx += this.centerX(cell.cx); sz += this.centerZ(cell.cz); nc += 1;
+    }
+    this.floorPlaneRefY = plane.heightAt(nc ? sx / nc : 0, nc ? sz / nc : 0);
+
+    const planeSlabAt = (cx, cz) => this.slabOf(plane.heightAt(this.centerX(cx), this.centerZ(cz)));
+
+    // Seeds: observed cells that carry a floor voxel in the plane's slab.
+    const seeds = [];
+    for (const cell of this.cells.values()) {
+      if (this.hasSlab(cell, planeSlabAt(cell.cx, cell.cz))) seeds.push([cell.cx, cell.cz]);
+    }
+
+    // Bounded dilation of the observed floor.
+    const done = new Set();
+    for (const [scx, scz] of seeds) {
+      for (let dz = -fillRadius; dz <= fillRadius; dz += 1) {
+        for (let dx = -fillRadius; dx <= fillRadius; dx += 1) {
+          const cx = scx + dx; const cz = scz + dz;
+          const key = cellKey(cx, cz);
+          if (done.has(key)) continue;
+          done.add(key);
+          const slab = planeSlabAt(cx, cz);
+          if (slab < 0 || slab >= this.slabCount) continue;
+          const cell = this.cells.get(key);
+          if (cell) {
+            if (this.hasSlab(cell, slab)) continue; // already floor here
+            if (this.solidInBand(cell, slab + 1, bodyHeightSlabs)) continue; // under something
+          }
+          this.addSyntheticFloor(cx, cz, slab);
+        }
+      }
+    }
+
+    this.floorDirty = true;
+    this.standGen += 1;
+    this.revision += 1;
   }
 
   // ── reading ───────────────────────────────────────────────

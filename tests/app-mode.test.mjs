@@ -86,8 +86,8 @@ test('the voxel occluder forces CPU-readable depth', () => {
 });
 
 const {
-  TERRAIN_SOURCES, FUSION_MODES, resolveTerrainSource, resolveFusionMode,
-  usesKeyframeTerrain, usesLegacyTerrain,
+  TERRAIN_SOURCES, FUSION_MODES, FLOOR_MODES, resolveTerrainSource, resolveFusionMode,
+  resolveFloorMode, usesRansacFloor, usesKeyframeTerrain, usesLegacyTerrain,
 } = await import('../src/app-mode.js');
 
 test('the keyframe accumulator is the default game terrain; legacy is opt-out', () => {
@@ -101,6 +101,14 @@ test('TSDF is the default fusion; hit counting is opt-out', () => {
   assert.equal(resolveFusionMode(''), FUSION_MODES.TSDF);
   assert.equal(resolveFusionMode('?fusion=tsdf'), FUSION_MODES.TSDF);
   assert.equal(resolveFusionMode('?fusion=count'), FUSION_MODES.COUNT);
+});
+
+test('the histogram floor is the default; RANSAC floor is opt-in', () => {
+  assert.equal(resolveFloorMode(''), FLOOR_MODES.HISTOGRAM);
+  assert.equal(resolveFloorMode('?occlusion=cpu'), FLOOR_MODES.HISTOGRAM);
+  assert.equal(resolveFloorMode('?floor=ransac'), FLOOR_MODES.RANSAC);
+  assert.equal(usesRansacFloor('?occlusion=cpu&floor=ransac'), true);
+  assert.equal(usesRansacFloor('?occlusion=cpu'), false);
 });
 
 test('exactly one terrain accumulator runs, and only in the game map modes', () => {

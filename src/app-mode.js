@@ -91,6 +91,25 @@ export function resolveFusionMode(search = '') {
     : FUSION_MODES.TSDF;
 }
 
+// How the frozen map decides where the floor is and where Hachuping may stand.
+//   histogram — the built-in slab-vote floor detection (default).
+//   ransac    — fit the dominant floor plane, correct the floor height, and fill
+//               sparse-scan gaps. Opt in with ?floor=ransac for on-device A/B.
+export const FLOOR_MODES = Object.freeze({
+  HISTOGRAM: 'histogram',
+  RANSAC: 'ransac',
+});
+
+export function resolveFloorMode(search = '') {
+  return new URLSearchParams(search).get('floor') === 'ransac'
+    ? FLOOR_MODES.RANSAC
+    : FLOOR_MODES.HISTOGRAM;
+}
+
+export function usesRansacFloor(search = '') {
+  return resolveFloorMode(search) === FLOOR_MODES.RANSAC;
+}
+
 export function usesKeyframeTerrain(mode, search = '') {
   return usesDepthCloud(mode) && resolveTerrainSource(search) === TERRAIN_SOURCES.KEYFRAME;
 }

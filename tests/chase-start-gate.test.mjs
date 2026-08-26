@@ -19,8 +19,28 @@ import {
   CHASE_CELL_SIZE_M,
   CHASE_SLAB_HEIGHT_M,
   CHASE_MIN_WALKABLE_CELLS,
+  FLOOR_RANSAC_ITERATIONS,
+  FLOOR_RANSAC_DISTANCE_M,
+  FLOOR_RANSAC_MAX_TILT_DEG,
+  FLOOR_RANSAC_MIN_INLIERS,
+  FLOOR_RANSAC_KEEP_FRACTION,
+  FLOOR_BAND_M,
+  FLOOR_BAND_LOW_PERCENTILE,
+  FLOOR_FILL_RADIUS_CELLS,
 } from '../src/config.js';
 import { gridCandidatePool } from '../src/grid-candidates.js';
+import { fitFloorPlane } from '../src/plane-fit.js';
+
+// Deterministic RNG so the RANSAC-based regression test never flakes.
+function mulberry32(seed) {
+  return function next() {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 function loadRoomGrid() {
   const path = fileURLToPath(new URL('./fixtures/room-scan-keyframe.json', import.meta.url));
@@ -48,4 +68,30 @@ test('a real room scan clears the walkable gate so the chase can start', () => {
     `a walked room yields ${walkable} walkable cells but the chase needs ${CHASE_MIN_WALKABLE_CELLS}; `
     + 'the gate is tuned above what the default terrain reaches, so the chase never starts',
   );
+});
+
+test('the RANSAC floor lifts walkable coverage past even the old 120-cell gate', () => {
+  const grid = loadRoomGrid();
+  const before = grid.stats().walkable;
+
+  const points = grid.floorBandVoxelPoints({
+    bandM: FLOOR_BAND_M,
+    lowPercentile: FLOOR_BAND_LOW_PERCENTILE,
+  });
+  const plane = fitFloorPlane(points, {
+    iterations: FLOOR_RANSAC_ITERATIONS,
+    distanceThreshold: FLOOR_RANSAC_DISTANCE_M,
+    maxTiltDeg: FLOOR_RANSAC_MAX_TILT_DEG,
+    minInliers: FLOOR_RANSAC_MIN_INLIERS,
+    keepFraction: FLOOR_RANSAC_KEEP_FRACTION,
+    rng: mulberry32(20260826),
+  });
+  assert.ok(plane, 'expected a floor plane on a real room scan');
+  assert.ok(plane.slope < Math.tan((FLOOR_RANSAC_MAX_TILT_DEG * Math.PI) / 180) + 1e-9, 'floor stays near-horizontal');
+
+  grid.applyFloorPlane(plane, { fillRadius: FLOOR_FILL_RADIUS_CELLS });
+  const after = grid.stats().walkable;
+
+  assert.ok(after > before, `RANSAC fill should grow walkable cells (${before} -> ${after})`);
+  assert.ok(after >= 120, `RANSAC floor should recover the old 120-cell gate (got ${after})`);
 });
