@@ -43,6 +43,7 @@ import {
 import { visibleFraction } from './line-of-sight.js';
 import { ChaseLog } from './chase-log.js';
 import { gridCandidatePool } from './grid-candidates.js';
+import { MapAnchor } from './map-anchor.js';
 import { forwardFromQuaternion } from './game-rules.js';
 import {
   CHASE_BODY_HEIGHT_M,
@@ -144,6 +145,11 @@ let chaseArrowGate = null;
 // changing under Hachuping's feet and errors from accumulating into the map.
 let mapBuilding = false;
 let mapFrozen = false;
+// The nail the map hangs on. Created at the origin when building starts; every
+// stored coordinate (grid cells, Hachuping) lives in ITS frame, and rendering
+// converts back out. When ARCore corrects its drift the map follows the nail.
+let mapAnchor = null;
+let mapAnchorState = 'idle';
 let lastMapStatusTime = -Infinity;
 let lastTileBuildAt = -Infinity;
 let lastOperatorStatusTime = -Infinity;
@@ -277,6 +283,7 @@ async function init() {
         maxStandAboveFloor: CHASE_MAX_STAND_ABOVE_FLOOR_M,
       });
       chaseLog = new ChaseLog();
+      mapAnchor = new MapAnchor();
       chaseArrowGate = makeArrowGate();
       chaseRunner = new ChaseRunner({
         grid: chaseGrid,
@@ -296,7 +303,7 @@ async function init() {
         depthSource,
         // Same contract VoxelMap.onSolid had: one cell touched per confirmed
         // voxel, never a full grid rebuild.
-        onSolid: chaseGrid ? (center) => chaseGrid.observe(center) : null,
+        onSolid: chaseGrid ? (center) => chaseGrid.observe(toMapSpace(center)) : null,
       });
     }
     if (LEGACY_TERRAIN_MODE) {
@@ -306,7 +313,7 @@ async function init() {
         maxSolid: VOXEL_MAX_SOLID,
         maxPending: VOXEL_MAX_PENDING,
         // One cell touched per confirmed voxel — never a full grid rebuild.
-        onSolid: chaseGrid ? (center) => chaseGrid.observe(center) : null,
+        onSolid: chaseGrid ? (center) => chaseGrid.observe(toMapSpace(center)) : null,
       });
       depthCloud = new DepthCloud({
         scene,
@@ -411,6 +418,8 @@ async function init() {
     chaseFedRevision = -1;
     mapBuilding = false;
     mapFrozen = false;
+    mapAnchor?.reset();
+    mapAnchorState = 'idle';
     ui.setMapButton('맵 생성', true);
     sessionId = formatSessionId(new Date());
     lastBackupAt = performance.now();
@@ -441,6 +450,8 @@ async function init() {
     voxelOccluder?.reset();
     mapBuilding = false;
     mapFrozen = false;
+    mapAnchor?.reset();
+    mapAnchorState = 'idle';
     ui.setMapButton('맵 생성', true);
     operatorVisible = false;
     ui.setOperatorVisible(false);
@@ -485,6 +496,9 @@ function toggleMapBuild() {
   if (chaseActive) stopChase('도망 모드를 껐습니다.');
   mapBuilding = true;
   mapFrozen = false;
+  // A rebuild is a new map: pin a fresh nail in the CURRENT corrected frame.
+  mapAnchor?.reset();
+  mapAnchor?.beginTracking();
   voxelMap?.reset();
   voxelTerrain?.reset();
   chaseGrid.reset();
@@ -507,7 +521,7 @@ function freezeMap() {
   ui.setMapButton('맵 다시 만들기', true);
   ui.setStatus(`지도 확정 — 설 수 있는 칸 ${walkable}`);
   ui.setMessage(candidateCount > 0
-    ? `숨을 자리 후보 ${candidateCount}곳. 다시 숨기기 또는 도망 모드를 누르세요.`
+    ? `설 수 있는 자리 ${candidateCount}곳 — 도망 모드를 누르면 하츄핑이 도망칩니다.`
     : '설 수 있는 곳이 없습니다 — 맵 다시 만들기로 더 넓게 스캔해주세요.');
 }
 
@@ -600,15 +614,20 @@ function updateChase(time, viewerPose) {
 
   // Losing tracking must not hand Hachuping a free head start.
   chaseRunner.setFrozen(!viewerPose);
+  // All chase LOGIC runs in map (anchor) space: the grid, Hachuping, and the
+  // player's position converted into it. Only RENDERING converts back out, so
+  // a drift correction moves the whole map together instead of leaving
+  // Hachuping and the grid behind.
+  const playerMap = viewerPose ? toMapSpace(viewerPose.position) : null;
   const state = chaseRunner.update(dt, {
-    playerPosition: viewerPose ? viewerPose.position : null,
+    playerPosition: playerMap,
     now: time,
     speedMultiplier: captureGauge.speedMultiplier(),
   });
   if (state.position) {
     game.setTargetWorldPosition(
-      [state.position[0], state.visualY, state.position[2]],
-      state.headingAngle,
+      toRenderSpace([state.position[0], state.visualY, state.position[2]]),
+      state.headingAngle + (mapAnchor?.yaw() ?? 0),
     );
   }
 
@@ -617,16 +636,19 @@ function updateChase(time, viewerPose) {
     return;
   }
 
+  // Distance and aim compare like with like: the player's real position vs
+  // Hachuping's RENDERED position — what the player actually sees on screen.
+  const renderPos = toRenderSpace(state.position);
   const forward = forwardFromQuaternion(viewerPose.quaternion);
-  const dx = state.position[0] - viewerPose.position[0];
-  const dy = state.position[1] - viewerPose.position[1];
-  const dz = state.position[2] - viewerPose.position[2];
+  const dx = renderPos[0] - viewerPose.position[0];
+  const dy = renderPos[1] - viewerPose.position[1];
+  const dz = renderPos[2] - viewerPose.position[2];
   const distance = Math.hypot(dx, dy, dz);
-  const angleDeg = angleToTargetDeg(forward, viewerPose.position, state.position);
+  const angleDeg = angleToTargetDeg(forward, viewerPose.position, renderPos);
   // How much of Hachuping the scanned terrain actually leaves visible. Graded
   // rather than yes/no: half a character behind a chair leg still counts, it
   // just fills slower.
-  const visibility = visibleFraction(chaseGrid, viewerPose.position, state.position, {
+  const visibility = visibleFraction(chaseGrid, playerMap, state.position, {
     bodyHeightM: HIDDEN_MODEL_HEIGHT_M,
   });
   const capture = captureGauge.update(dt, { distance, angleDeg, visibility });
@@ -635,7 +657,7 @@ function updateChase(time, viewerPose) {
   ui.setChaseHint(`${captureGauge.hint()}  ·  ${distance.toFixed(1)}m`);
   ui.setChaseArrow(chaseArrowGate(angleDeg)
     ? screenAngleFromViewDirection(
-      directionInViewSpace(viewerPose.quaternion, viewerPose.position, state.position),
+      directionInViewSpace(viewerPose.quaternion, viewerPose.position, renderPos),
     )
     : null);
 
@@ -942,4 +964,16 @@ function onResize() {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+}
+
+
+// ── map-anchor space helpers ──────────────────────────────────
+// Everything the map stores lives in the anchor's frame; these are identity
+// until an anchor exists, so every caller can use them unconditionally.
+function toMapSpace(point) {
+  return mapAnchor ? mapAnchor.toAnchor(point) : point;
+}
+
+function toRenderSpace(point) {
+  return mapAnchor ? mapAnchor.toWorld(point) : point;
 }

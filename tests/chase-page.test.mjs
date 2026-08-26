@@ -312,3 +312,17 @@ test('index.html is untouched by the map flow — no map button there', async ()
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   assert.doesNotMatch(html, /id="mapBtn"/);
 });
+
+test('chase-only: the hide-and-seek buttons are gone from the chase page', async () => {
+  const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /id="scanBtn"/);
+  assert.doesNotMatch(html, /id="newRoundBtn"/);
+  assert.match(html, /id="mapBtn"/);
+  assert.match(html, /id="chaseBtn"/);
+});
+
+test('index.html keeps its hide-and-seek buttons', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="scanBtn"/);
+  assert.match(html, /id="newRoundBtn"/);
+});

@@ -20,6 +20,7 @@ const LABELS = {
   frozen: '추적 끊김',
   unfrozen: '추적 복구',
   captured: '검거',
+  'map-anchor': '지도 anchor',
 };
 
 export class ChaseLog {
