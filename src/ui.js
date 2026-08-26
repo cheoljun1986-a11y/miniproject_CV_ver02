@@ -68,6 +68,56 @@ ${formatPosition('Ninja', ninjaPosition)}
 ${formatPosition('플레이어', playerPosition)} · 경로 ${pathPointCount}점`;
 }
 
+// Everything Phase 2 diagnosis needs to read off the phone in one card: how
+// much material the scan gathered, where the depth samples went, and how the
+// observation histogram responds to the threshold slider.
+export function formatVoxelDebugStatus({
+  scanning = false,
+  scanLeftSec = 0,
+  keyframeCount = 0,
+  maxKeyframes = 0,
+  elapsedMs = 0,
+  cellCount = 0,
+  displayedCount = 0,
+  truncated = false,
+  histogram = null,
+  colorMode = '',
+  params = null,
+  buildMs = 0,
+  rejected = null,
+  imported = false,
+}) {
+  const h = histogram ?? { one: 0, two: 0, three: 0, fourPlus: 0 };
+  const r = rejected ?? { zero: 0, range: 0, gradient: 0, accepted: 0 };
+  const p = params ?? { nearM: 0, farM: 0, gradientMaxJumpM: 0, voxelSize: 0, minObservations: 1 };
+
+  const source = imported ? 'JSON 불러옴' : scanning ? `스캔 중 ${scanLeftSec.toFixed(0)}s` : '스캔 완료';
+  const truncatedTag = truncated ? ' ⚠상한' : '';
+
+  return `복셀 디버그 · ${source} · 키프레임 ${keyframeCount}/${maxKeyframes} · 경과 ${(elapsedMs / 1000).toFixed(1)}s
+복셀 ${cellCount} (표시 ${displayedCount})${truncatedTag} · 재구성 ${Math.round(buildMs)}ms
+관측 1회 ${h.one} · 2회 ${h.two} · 3+회 ${h.three + h.fourPlus}
+클립 ${p.nearM.toFixed(2)}–${p.farM.toFixed(2)}m · 그래디언트 ${p.gradientMaxJumpM.toFixed(2)}m · 크기 ${p.voxelSize.toFixed(2)}m · 임계 ${p.minObservations}
+버림  0값 ${r.zero} · 범위 ${r.range} · 경사 ${r.gradient} · 수용 ${r.accepted}
+색상 ${colorMode}`;
+}
+
+// The panel (z-25) sits above #operatorOverlay (z-20), so both are on screen at
+// once. Sending the full block to both duplicates six lines; the orbit view gets
+// this one-liner instead so the numbers stay readable without the repetition.
+export function formatVoxelDebugSummary({
+  cellCount = 0,
+  displayedCount = 0,
+  clusterCount = null,
+  keyframeCount = 0,
+  maxKeyframes = 0,
+  buildMs = 0,
+}) {
+  const clusters = clusterCount === null ? '' : ` · 클러스터 ${clusterCount}`;
+  return `복셀 ${cellCount} (표시 ${displayedCount})${clusters}`
+    + ` · 키프레임 ${keyframeCount}/${maxKeyframes} · 재구성 ${Math.round(buildMs)}ms`;
+}
+
 export function createUI(documentRoot = document) {
   const elements = {
     status: documentRoot.querySelector('#status'),
@@ -224,6 +274,9 @@ export function createUI(documentRoot = document) {
     },
     flash,
     bindOperator,
+    setMetricsVisible(visible) {
+      elements.metrics.style.display = visible ? '' : 'none';
+    },
     setOperatorButtonVisible(visible) {
       elements.operatorBtn.style.display = visible ? '' : 'none';
     },
