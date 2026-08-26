@@ -21,6 +21,7 @@ import {
   NINJA_CAMOUFLAGE_OPACITY,
   OPERATOR_RENDER_GAP_MS,
   OPERATOR_STATUS_GAP_MS,
+  SCAN_BACKUP_INTERVAL_MS,
   TRAIL_MAX_POINTS,
   TRAIL_MIN_STEP_M,
   VOXEL_DEBUG_MAX_INSTANCES,
@@ -62,6 +63,9 @@ import { NinjaGame } from './ninja-game.js';
 import * as ninjaModel from './ninja-model.js';
 import { OperatorView } from './operator-view.js';
 import { PlayerTrail } from './player-trail.js';
+import {
+  ScanUploader, formatSessionId, shouldBackup, uploadName,
+} from './scan-uploader.js';
 import { SpatialMapper } from './spatial-mapper.js';
 import {
   createUI,
@@ -70,6 +74,7 @@ import {
   formatVoxelDebugStatus,
   formatVoxelDebugSummary,
 } from './ui.js';
+import { cellsFromSolidVoxels, voxelCellsToJSON } from './voxel-cells-codec.js';
 import { confirmedCellPositions } from './voxel-grid.js';
 import { VoxelDebugController } from './voxel-debug-controller.js';
 import { createVoxelDebugPanel } from './voxel-debug-panel.js';
@@ -135,6 +140,15 @@ let voxelOverlay = null;
 let voxelPanel = null;
 let voxelOccluder = null;
 let chaseFedRevision = -1;
+
+// ── scan backup ───────────────────────────────────────────────
+// One file per AR session in results/ on the dev server, refreshed on an
+// interval and finalised at session end. Nothing here is load-bearing: with
+// no /upload endpoint every attempt fails quietly.
+let uploader = null;
+let sessionId = null;
+let lastBackupAt = -Infinity;
+let backedUpRevision = -1;
 
 init();
 
@@ -226,6 +240,7 @@ async function init() {
     depthSource = new CpuDepthFrameSource({
       getSession: () => xrSession.getSession(),
     });
+    uploader = new ScanUploader({ onStatus: (text) => ui.setMessage(text) });
     if (ui.hasChaseControls()) {
       chaseGrid = new TraversalGrid({
         cellSize: CHASE_CELL_SIZE_M,
@@ -326,6 +341,7 @@ async function init() {
           voxelOccluder?.setVisible(true);
         },
         occluder: voxelOccluder,
+        onUpload: () => backupScan('manual'),
       });
       // Nothing on the legacy metrics card applies while the game is idle, and
       // the panel already reports everything else.
@@ -363,11 +379,17 @@ async function init() {
     voxelOverlay?.clear();
     voxelOccluder?.reset();
     chaseFedRevision = -1;
+    sessionId = formatSessionId(new Date());
+    lastBackupAt = performance.now();
+    backedUpRevision = -1;
     voxelDebug?.startScan(performance.now());
     await xrSession.start();
     if (autoStartsGame(APP_MODE)) game.startSession();
   });
   renderer.xr.addEventListener('sessionend', () => {
+    // Serialised before anything below resets it. The page outlives the XR
+    // session, so the upload itself can finish after the resets.
+    backupScan('final');
     detachOccluder();
     depthSource?.reset();
     cpuDepthOccluder?.reset();
@@ -575,6 +597,7 @@ function render(time, frame) {
     if (viewerPose) playerTrail?.record(viewerPose.position);
     updateChase(time, viewerPose);
     if (operatorVisible) buildChaseTiles(time);
+    maybeBackupGameMap(time);
 
     const ninjaPosition = game.getTargetPosition();
     const spaceMap = voxelMap ?? voxelTerrain;
@@ -692,6 +715,60 @@ function maybeBuildVoxelOccluder() {
   // In game mode it should start occluding as soon as it exists; in the
   // diagnostic the panel owns the toggle so the wireframe stays inspectable.
   if (!VOXEL_DEBUG_MODE) voxelOccluder.setVisible(true);
+}
+
+// ── scan backup ───────────────────────────────────────────────
+// The game map as voxel-cells JSON from whichever accumulator is live, or the
+// diagnostic's raw keyframes. null when there is nothing worth a file.
+function exportScan() {
+  const playerPath = playerTrail?.getPoints() ?? [];
+  if (voxelTerrain) {
+    if (voxelTerrain.getCellCount() === 0) return null;
+    return { kind: 'game', text: voxelTerrain.exportJSON({ playerPath, sessionId }) };
+  }
+  if (voxelMap) {
+    const solid = voxelMap.getSolidVoxels();
+    if (solid.length === 0) return null;
+    return {
+      kind: 'game',
+      text: JSON.stringify(voxelCellsToJSON({
+        cells: cellsFromSolidVoxels(solid, VOXEL_SIZE_M, VOXEL_SOLID_MIN_HITS),
+        voxelSize: VOXEL_SIZE_M,
+        playerPath,
+        sessionId,
+        source: 'legacy',
+      })),
+    };
+  }
+  if (voxelDebug && voxelDebug.getStats().keyframeCount > 0 && !voxelDebug.isImported()) {
+    return { kind: 'scan', text: voxelDebug.exportJSON() };
+  }
+  return null;
+}
+
+function backupScan(reason) {
+  if (!uploader || !sessionId) return;
+  const scan = exportScan();
+  if (!scan) return;
+  backedUpRevision = (voxelMap ?? voxelTerrain)?.getRevision() ?? backedUpRevision;
+  lastBackupAt = performance.now();
+  uploader.upload(uploadName(scan.kind, sessionId), scan.text, {
+    label: reason === 'final' ? '최종 저장' : reason === 'manual' ? '수동 저장' : '자동 백업',
+  });
+}
+
+// Interval backup for the game map only. The diagnostic's keyframe JSON is
+// tens of MB, so it goes at session end and on the panel button.
+function maybeBackupGameMap(time) {
+  const spaceMap = voxelMap ?? voxelTerrain;
+  if (!spaceMap || !uploader || uploader.isBusy()) return;
+  if (!shouldBackup({
+    now: time,
+    lastBackupAt,
+    intervalMs: SCAN_BACKUP_INTERVAL_MS,
+    dirty: spaceMap.getRevision() !== backedUpRevision,
+  })) return;
+  backupScan('interval');
 }
 
 function updateMetrics(viewerPose) {

@@ -12,6 +12,7 @@ import { filterDepthGrid } from './depth-grid-filter.js';
 import { depthSampleToWorld } from './depth-math.js';
 import { KeyframeCapture } from './keyframe-capture.js';
 import { KeyframeGate } from './keyframe-gate.js';
+import { voxelCellsToJSON } from './voxel-cells-codec.js';
 import { DEFAULT_VOXEL_DEBUG_PARAMS } from './voxel-debug-params.js';
 import { VoxelGrid, cellCenterPosition } from './voxel-grid.js';
 
@@ -191,6 +192,20 @@ export class VoxelTerrain {
 
   getStats() {
     return { ...this.stats, keyframes: this.keyframeCount, cells: this.getCellCount() };
+  }
+
+  // Every cell, not just confirmed ones: the observation count is in the
+  // record, so the viewer's threshold slider still works on the export.
+  exportJSON({ playerPath = [], sessionId = null } = {}) {
+    return JSON.stringify(voxelCellsToJSON({
+      cells: this.grid.getCells(),
+      voxelSize: this.params.voxelSize,
+      keyframeCount: this.keyframeCount,
+      playerPath,
+      sessionId,
+      source: 'keyframe',
+      stats: this.getStats(),
+    }));
   }
 
   reset() {

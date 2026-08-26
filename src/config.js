@@ -111,3 +111,9 @@ export const VOXEL_TERRAIN_MAX_CELLS = 200000;
 // growing the moment the player enters a new room.
 export const VOXEL_TERRAIN_EVICT_BATCH = 20000;
 export const VOXEL_TERRAIN_MAX_SOLID = 60000; // operator-view instance cap
+
+// Scan backup to the dev server (serve.py, POST /upload). The game map is
+// re-sent on this interval and once more at session end, so a tab that dies
+// mid-run still leaves a file at most this stale in results/. The diagnostic
+// scan (tens of MB) is sent only at session end and on demand.
+export const SCAN_BACKUP_INTERVAL_MS = 30000;

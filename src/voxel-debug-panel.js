@@ -22,6 +22,7 @@ export function createVoxelDebugPanel({
   onOperatorToggle = null,
   onStartGame = null,
   occluder = null,
+  onUpload = null,
   documentRoot = document,
 }) {
   const panel = el('div', [
@@ -174,6 +175,8 @@ export function createVoxelDebugPanel({
     fileInput.value = '';
   });
   button('JSON 불러오기', () => fileInput.click());
+  // Mid-scan checkpoint to the dev server; the session end sends one anyway.
+  if (onUpload) button('서버로 전송', () => onUpload());
 
   body.append(buttons, fileInput);
   root.appendChild(panel);

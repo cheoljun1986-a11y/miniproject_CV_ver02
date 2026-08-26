@@ -133,3 +133,18 @@ test('reset clears everything and bumps the revision', () => {
   assert.ok(terrain.getRevision() > revision);
   assert.equal(terrain.update({}, {}, 5, pose(0)), true, 'the gate baseline was cleared');
 });
+
+test('exportJSON carries every cell with its observation count and the trail', async () => {
+  const { voxelCellsFromJSON } = await import('../src/voxel-cells-codec.js');
+  const { terrain } = rig();
+  terrain.update({}, {}, 0, pose(0));
+  terrain.update({}, {}, 1, pose(1));
+  const json = JSON.parse(terrain.exportJSON({ playerPath: [[0, 0, 0]], sessionId: 's1' }));
+  assert.equal(json.kind, 'voxel-cells');
+  assert.equal(json.source, 'keyframe');
+  assert.equal(json.keyframeCount, 2);
+  assert.equal(json.cells.length, 12);
+  const back = voxelCellsFromJSON(json);
+  assert.ok(back.grid.getCells().every((c) => c.observationCount === 2));
+  assert.deepEqual(back.meta.playerPath, [[0, 0, 0]]);
+});

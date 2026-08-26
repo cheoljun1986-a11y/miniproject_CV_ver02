@@ -70,7 +70,7 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 | 12 | 08-26 00:20 ~ 01:11 | **키프레임 복셀 복원 + 진단 모드** (`private/baencho`) | 복셀 "3회 관측" 규칙이 시점이 아니라 샘플을 세어 근거리에서 무력화 | 키프레임 단위 중복 제거, 원본 보존·재필터, 정적 복셀 occluder 실험 |
 | 13 | 08-26 | **키프레임 복원을 게임 지형으로** (`private/baencho/keyframe-terrain`) | 12단계의 수정이 진단 모드에만 있고, 게임은 여전히 결함 있는 `VoxelMap`을 사용 | `VoxelTerrain` — 세션 내내 키프레임을 즉시 복셀로 누적. `?terrain=keyframe`으로 선택, 기본은 기존 경로 |
 
-자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 152개 → 251개 → 263개**
+자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 152개 → 251개 → 273개**
 
 ---
 
@@ -483,6 +483,25 @@ JSON 내보내기 크기(~40MB)가 실질 상한이다. 재구성이 수 초로 
 ⚠️ 실기기 미검증. 확인 항목: 키프레임 처리 시간(`getLastIngestMs`)이 프레임 예산 안인지, 도망 모드
 시작까지 걸어야 하는 거리, 기본 경로 대비 허공 노이즈 감소.
 
+#### 게임 복셀맵 추출과 서버 자동 백업
+
+게임 누적기는 원본 키프레임이 없으므로 **복셀 셀 자체**를 내보낸다 (`voxel-cells-codec.js`,
+`{kind:'voxel-cells', cells:[[ix,iy,iz,관측횟수,평균x,y,z],…]}`, 6만 셀 ≈ 2MB). 기본 경로(`VoxelMap`)와
+키프레임 경로 모두 같은 형식이고, `viewer.html`에 드롭하면 관측 임계값·색상 모드·표면 메시·플레이어
+경로를 볼 수 있다(재필터 슬라이더는 원본이 없어 비활성).
+
+폰에서 파일을 내려받아 옮기는 대신 **PC 개발 서버로 자동 전송**한다 (`serve.py` + `scan-uploader.js`).
+
+| 시점 | 게임 모드 | 진단 모드 (`?voxel=debug`) |
+|---|---|---|
+| 30초마다 (지도가 바뀐 경우만) | ✅ 같은 파일 덮어쓰기 | – (40MB라 제외) |
+| 세션 종료 (`STOP AR`·뒤로가기) | ✅ 최종본 | ✅ 키프레임 JSON |
+| 수동 | – | 패널 `서버로 전송` 버튼 |
+
+파일은 `results/<game|scan>-<세션시작시각>.json` — 한 세션 = 한 파일. 탭이 죽어도 최근 30초 이내
+상태가 남는다. `/upload`가 없는 호스트(GitHub Pages)에서는 조용히 실패하고 게임은 그대로 진행된다.
+`serve.py`는 터널이 열린 개발용이라 이름 화이트리스트·크기 상한·JSON 검증만 한다.
+
 ---
 
 ## 5. depth 모드
@@ -515,7 +534,7 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
 - **three.js 0.180** (렌더링, WebXR 매니저, 내장 depth-sensing 오클루전, GLTFLoader)
 - WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, (옵션) `anchors`, `local-floor`
 - **정적 호스팅**: GitHub Pages (백엔드 없음). CDN(three.js)만 외부 의존.
-- 테스트: Node.js `node:test` — **263개** (순수 로직·게임 상태·WebXR 경계·depth 소비자·통행 격자·복셀 진단)
+- 테스트: Node.js `node:test` — **273개** (순수 로직·게임 상태·WebXR 경계·depth 소비자·통행 격자·복셀 진단)
 
 ## 7. 실행 / 테스트 방법
 
@@ -550,10 +569,12 @@ WebXR depth 세션 활성화 문제로 분류한다.
 
 ### 로컬 실행
 ```bash
-python -m http.server 8000
-# http://localhost:8000  (단, WebXR는 HTTPS 또는 실기기 필요)
-node --test tests/*.test.mjs   # 자동 테스트 263개
+python serve.py                # http://localhost:8000 — 정적 파일 + POST /upload → results/
+cloudflared tunnel --url http://localhost:8000   # 폰용 HTTPS 주소 (WebXR는 HTTPS 필수)
+node --test tests/*.test.mjs   # 자동 테스트 273개
 ```
+
+`python -m http.server`도 여전히 동작하지만 그 경우 스캔 자동 백업은 꺼진다(404로 조용히 실패).
 
 ## 8. 현재 상태 / 검증
 
@@ -572,7 +593,7 @@ node --test tests/*.test.mjs   # 자동 테스트 263개
 | 키프레임 복셀 진단 모드 | ✅ 구현·자동 테스트 / 갤럭시 1·2차 진단 완료 |
 | 키프레임 지형 (`?terrain=keyframe`) | ✅ 구현·자동 테스트 / **실기기 미검증**, 기본은 기존 경로 |
 | 정적 복셀 occluder | ⚠️ 실험 (`?occluder=voxel`) / 체감 효과 미미, 기본 꺼짐 |
-| 자동 테스트 | ✅ **263개 통과** |
+| 자동 테스트 | ✅ **273개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 
@@ -659,7 +680,11 @@ src/
   voxel-occluder.js   깊이 전용 정적 occluder 메시 (테스트됨)
   --- 키프레임 지형 (13단계) ---
   voxel-terrain.js    게임용 누적기: 키프레임 즉시 복셀화·확정 셀 → 통행 격자 (테스트됨)
-tests/                자동 테스트 (node:test) 263개
+  voxel-cells-codec.js 완성된 복셀맵 JSON 코덱 — 게임 내보내기·viewer 불러오기 (테스트됨)
+  scan-uploader.js    POST /upload 전송·세션 ID·백업 주기 판정 (테스트됨)
+serve.py              개발 서버: 정적 파일 + /upload → results/ (python -m http.server 대체)
+results/              폰이 보낸 스캔 JSON (git 제외)
+tests/                자동 테스트 (node:test) 273개
 docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 ```
 
