@@ -13,12 +13,15 @@
 `hcp.glb` 모델을 그대로 유지하면서 **닌자 발견 뒤 실제 손으로 하는 가위바위보**를 추가한다.
 
 - 브랜치 코드: <https://github.com/cheoljun1986-a11y/miniproject_CV_ver02/tree/private/junsung>
+- **private/junsung 모바일 실행(현재 테스트 터널):** <https://proposal-visits-phd-rome.trycloudflare.com/?v=e19f879>
 - 비교 기준: `cj_develop`
 - 정상 실행 쿼리: `?occlusion=cpu`
 - PC/비상 진단용 수동 입력: `?occlusion=cpu&input=manual`
 
 > 현재 GitHub Pages가 `main`을 배포한다면 브랜치 코드가 공개 데모 주소에 바로 나타나지 않는다.
 > `private/junsung`을 Pages 배포 브랜치로 지정하거나 병합한 뒤 위 쿼리 주소로 테스트해야 한다.
+> 위 테스트 터널은 이 개발 PC의 로컬 서버와 `cloudflared`가 실행 중일 때만 열리며,
+> 터널을 다시 시작하면 주소가 바뀔 수 있다.
 
 ### 게임 흐름
 
