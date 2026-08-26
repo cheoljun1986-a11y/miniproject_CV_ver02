@@ -42,7 +42,7 @@
 ## Components
 - Existing components to reuse: 기존 AR HUD와 `src/ui.js`의 UI 제어 함수.
 - New/changed components: 공개 데모 카드, 진단 도구 카드, 지원 환경 안내.
-- Variants and states: 주요 게임 카드 1종, 진단 카드 3종, 키보드 포커스 상태.
+- Variants and states: 주요 게임 카드 1종, 진단 카드 2종, 키보드 포커스 상태.
 - Token/component ownership: 메인페이지 CSS 사용자 정의 속성은 `index.html`에서 소유한다.
 
 ## Accessibility

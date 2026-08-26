@@ -8,9 +8,10 @@ test('GitHub Pages entrypoint presents the mode launcher', async () => {
 
   assert.equal(moduleScripts.length, 0);
   assert.match(html, /href="\.\/v4-chase\.html"/);
-  assert.match(html, /href="\.\/app\.html\?occlusion=cpu"/);
+  assert.doesNotMatch(html, /href="\.\/app\.html\?occlusion=cpu"/);
   assert.match(html, /href="\.\/app\.html\?depth=cloud"/);
   assert.match(html, /href="\.\/app\.html\?voxel=debug"/);
+  assert.equal([...html.matchAll(/class="tool-card"/g)].length, 2);
 });
 
 test('legacy root query links redirect to the application page', async () => {
