@@ -14,9 +14,17 @@ export const CAPTURE_RADIUS_M = 1.2;
 export const CAPTURE_ANGLE_DEG = 20;
 export const CAPTURE_SECONDS = 5;
 export const CAPTURE_DECAY_PER_S = 0.12;
-// A single noise voxel drifting through the sight line must not make the gauge
-// stutter, so an obstruction has to persist before it counts as cover.
-export const CAPTURE_OCCLUDED_GRACE_S = 0.3;
+// Visibility is graded, not a switch. Partly seeing the character should still
+// count — a chair leg across the middle is not the same as a wall.
+//   at or above FULL  → fills at the normal rate
+//   between the two   → fills proportionally slower
+//   at or below HIDDEN → does not fill at all
+export const CAPTURE_VISIBLE_FULL = 0.6;
+export const CAPTURE_VISIBLE_HIDDEN = 0.15;
+// Depth noise makes a sample flicker between blocked and clear. Easing the
+// measured value over roughly a quarter second absorbs that without the gauge
+// visibly lurching.
+export const CAPTURE_VISIBILITY_EASE_PER_S = 4;
 
 // The arrow that points offscreen used one threshold for both directions, so a
 // target hovering near it blinked every frame. Turn on later than off.
@@ -82,14 +90,18 @@ export class CaptureGauge {
     seconds = CAPTURE_SECONDS,
     decayPerSecond = CAPTURE_DECAY_PER_S,
     requireHold = false,
-    occludedGraceSeconds = CAPTURE_OCCLUDED_GRACE_S,
+    visibleFull = CAPTURE_VISIBLE_FULL,
+    visibleHidden = CAPTURE_VISIBLE_HIDDEN,
+    visibilityEasePerSecond = CAPTURE_VISIBILITY_EASE_PER_S,
   } = {}) {
     this.radius = radius;
     this.angleDeg = angleDeg;
     this.fillPerSecond = 1 / seconds;
     this.decayPerSecond = decayPerSecond;
     this.requireHold = requireHold;
-    this.occludedGraceSeconds = occludedGraceSeconds;
+    this.visibleFull = visibleFull;
+    this.visibleHidden = visibleHidden;
+    this.visibilityEasePerSecond = visibilityEasePerSecond;
     this.reset();
   }
 
@@ -99,26 +111,45 @@ export class CaptureGauge {
     this.inRange = false;
     this.onScreen = false;
     this.holding = !this.requireHold;
+    this.visibility = 1;
+    this.visibleScale = 1;
     this.visible = true;
-    this.occludedFor = 0;
+  }
+
+  // Fraction of the fill rate this much visibility earns.
+  scaleForVisibility(visibility) {
+    const span = this.visibleFull - this.visibleHidden;
+    if (span <= 0) return visibility > this.visibleHidden ? 1 : 0;
+    return Math.min(1, Math.max(0, (visibility - this.visibleHidden) / span));
   }
 
   // dt in seconds. Returns the current state; `captured` latches until reset.
-  // `occluded` says the terrain puts something solid between camera and target,
-  // which with the voxel occluder on is exactly when the player can see nothing.
+  //
+  // `visibility` is how much of the character the terrain leaves in view, 0..1.
+  // `occluded` is the older boolean form and maps onto the same axis, so a
+  // caller that only knows "blocked / not blocked" still works.
   update(dt, {
-    distance = Infinity, angleDeg = 180, holding = false, occluded = false,
+    distance = Infinity, angleDeg = 180, holding = false,
+    occluded = false, visibility = null,
   } = {}) {
     this.inRange = distance <= this.radius;
     this.onScreen = angleDeg <= this.angleDeg;
     this.holding = this.requireHold ? Boolean(holding) : true;
-    this.occludedFor = occluded ? this.occludedFor + dt : 0;
-    this.visible = this.occludedFor < this.occludedGraceSeconds;
+
+    const measured = visibility === null
+      ? (occluded ? 0 : 1)
+      : Math.min(1, Math.max(0, visibility));
+    const ease = Math.min(1, this.visibilityEasePerSecond * dt);
+    this.visibility += (measured - this.visibility) * ease;
+    this.visibleScale = this.scaleForVisibility(this.visibility);
+    this.visible = this.visibleScale > 0;
 
     if (this.captured) return this.getState();
 
     const filling = this.inRange && this.onScreen && this.holding && this.visible;
-    const step = filling ? this.fillPerSecond * dt : -this.decayPerSecond * dt;
+    const step = filling
+      ? this.fillPerSecond * dt * this.visibleScale
+      : -this.decayPerSecond * dt;
     this.value = Math.min(1, Math.max(0, this.value + step));
     if (this.value >= 1) this.captured = true;
     return this.getState();
@@ -140,6 +171,8 @@ export class CaptureGauge {
       onScreen: this.onScreen,
       holding: this.holding,
       visible: this.visible,
+      visibility: this.visibility,
+      visibleScale: this.visibleScale,
       filling: this.inRange && this.onScreen && this.holding
         && this.visible && !this.captured,
     };
@@ -152,6 +185,8 @@ export class CaptureGauge {
     if (!this.onScreen) return '화면 중앙에 맞추세요';
     if (!this.holding) return 'SCAN 을 누르고 계세요';
     if (!this.visible) return '가려졌습니다 — 옆으로 돌아가세요';
+    // Still progressing, just slowly — say so rather than let it look stalled.
+    if (this.visibleScale < 0.9) return '일부 가려짐 — 조금 느립니다';
     return '검거 중';
   }
 }

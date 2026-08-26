@@ -37,7 +37,7 @@ import {
   CaptureGauge, angleToTargetDeg, directionInViewSpace, makeArrowGate,
   screenAngleFromViewDirection,
 } from './capture-gauge.js';
-import { segmentBlocked } from './line-of-sight.js';
+import { visibleFraction } from './line-of-sight.js';
 import { ChaseLog } from './chase-log.js';
 import { forwardFromQuaternion } from './game-rules.js';
 import {
@@ -502,10 +502,13 @@ function updateChase(time, viewerPose) {
   const dz = state.position[2] - viewerPose.position[2];
   const distance = Math.hypot(dx, dy, dz);
   const angleDeg = angleToTargetDeg(forward, viewerPose.position, state.position);
-  // Aiming at where Hachuping is should not count while a scanned obstacle
-  // stands in the way — with the occluder on, that is a blank patch of sofa.
-  const occluded = segmentBlocked(chaseGrid, viewerPose.position, state.position);
-  const capture = captureGauge.update(dt, { distance, angleDeg, occluded });
+  // How much of Hachuping the scanned terrain actually leaves visible. Graded
+  // rather than yes/no: half a character behind a chair leg still counts, it
+  // just fills slower.
+  const visibility = visibleFraction(chaseGrid, viewerPose.position, state.position, {
+    bodyHeightM: HIDDEN_MODEL_HEIGHT_M,
+  });
+  const capture = captureGauge.update(dt, { distance, angleDeg, visibility });
 
   ui.setChaseGauge(capture.value);
   ui.setChaseHint(`${captureGauge.hint()}  ·  ${distance.toFixed(1)}m`);

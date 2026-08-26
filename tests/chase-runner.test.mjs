@@ -357,3 +357,68 @@ test('an escape does not crawl at the far-away idle speed', () => {
   }
   assert.ok(state.speed >= 0.3, `expected escape pace, got ${state.speed}`);
 });
+
+// ── graded capture visibility ────────────────────────────────
+
+test('a partly visible target still fills the gauge, just slower', () => {
+  const full = new CaptureGauge();
+  const partial = new CaptureGauge();
+  for (let i = 0; i < 20; i += 1) {
+    full.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 1 });
+    partial.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 0.4 });
+  }
+  assert.ok(partial.value > 0, 'partial cover must not stop capture outright');
+  assert.ok(partial.value < full.value, 'but it should be slower than clear sight');
+});
+
+test('a fully hidden target does not fill at all', () => {
+  const gauge = new CaptureGauge();
+  for (let i = 0; i < 30; i += 1) {
+    gauge.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 0 });
+  }
+  assert.equal(gauge.value, 0);
+  assert.equal(gauge.getState().visible, false);
+});
+
+test('visibility above the full threshold fills at the ordinary rate', () => {
+  const clear = new CaptureGauge();
+  const mostly = new CaptureGauge();
+  for (let i = 0; i < 25; i += 1) {
+    clear.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 1 });
+    mostly.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 0.8 });
+  }
+  assert.ok(Math.abs(clear.value - mostly.value) < 1e-9);
+});
+
+test('a one-frame flicker of cover barely dents the gauge', () => {
+  const gauge = new CaptureGauge();
+  for (let i = 0; i < 20; i += 1) {
+    gauge.update(1 / 60, { distance: 0.5, angleDeg: 2, visibility: 1 });
+  }
+  const before = gauge.value;
+  gauge.update(1 / 60, { distance: 0.5, angleDeg: 2, visibility: 0 });
+  assert.ok(gauge.value > before * 0.9, 'noise must not reset progress');
+  assert.equal(gauge.getState().visible, true);
+});
+
+test('the boolean occluded flag still works for callers that only know blocked', () => {
+  const gauge = new CaptureGauge();
+  for (let i = 0; i < 30; i += 1) {
+    gauge.update(0.1, { distance: 0.5, angleDeg: 2, occluded: true });
+  }
+  assert.equal(gauge.value, 0);
+});
+
+test('the hint distinguishes partly hidden from fully hidden', () => {
+  const partial = new CaptureGauge();
+  for (let i = 0; i < 20; i += 1) {
+    partial.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 0.35 });
+  }
+  assert.match(partial.hint(), /일부 가려짐/);
+
+  const hidden = new CaptureGauge();
+  for (let i = 0; i < 20; i += 1) {
+    hidden.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 0 });
+  }
+  assert.match(hidden.hint(), /가려졌습니다/);
+});
