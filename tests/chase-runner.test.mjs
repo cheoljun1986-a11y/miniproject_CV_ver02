@@ -152,7 +152,7 @@ test('the gauge only fills when all three conditions hold', () => {
   const gauge = new CaptureGauge({ requireHold: true });
   gauge.update(1, { distance: 0.8, angleDeg: 5, holding: false });
   assert.equal(gauge.value, 0);
-  // Out of range: the capture radius is 3m, so this has to sit beyond it.
+  // Out of range: the capture radius is 2m, so this has to sit beyond it.
   gauge.update(1, { distance: 6.0, angleDeg: 5, holding: true });
   assert.equal(gauge.value, 0);
   gauge.update(1, { distance: 0.8, angleDeg: 60, holding: true });

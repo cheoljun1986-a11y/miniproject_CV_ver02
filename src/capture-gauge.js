@@ -11,9 +11,10 @@
 // hold every time that happens makes the game feel broken rather than hard.
 
 // Raised from 1.2m: on device you had to be almost on top of Hachuping before
-// the gauge moved, which turned the chase into a shoving match. Framing it
-// from across the room now counts.
-export const CAPTURE_RADIUS_M = 3.0;
+// the gauge moved, which turned the chase into a shoving match. 2m is the
+// range the designer specified — an earlier commit shipped 3.0 without that
+// instruction on record, which this corrects.
+export const CAPTURE_RADIUS_M = 2.0;
 export const CAPTURE_ANGLE_DEG = 20;
 export const CAPTURE_SECONDS = 5;
 export const CAPTURE_DECAY_PER_S = 0.12;
