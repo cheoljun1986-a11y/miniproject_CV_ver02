@@ -131,6 +131,7 @@ export class NinjaGame {
       return false;
     }
 
+    this.clearSurfaceMarkers();
     this.ui.setStatus(`스캔 완료 — 후보 ${pool.length}개`);
     this.ui.setMessage('후보 중 한 곳에 Ninja를 숨기는 중…');
     return this.hideNewTarget();
@@ -217,6 +218,7 @@ export class NinjaGame {
   startDuel() {
     if (!this.target) return false;
     this.phase = 'duel-countdown';
+    this.target.object.visible = false;
     this.setControls({ scan: false });
     this.ui.setStatus('Ninja와 가위바위보!');
     this.ui.setMessage('화면 중앙에 한 손을 준비하세요.');
@@ -252,6 +254,7 @@ export class NinjaGame {
     if (!this.target) return;
     this.target.found = true;
     this.phase = 'found';
+    this.target.object.visible = true;
     this.model.revealNinja(this.target.object);
     this.setControls({ scan: false });
     this.ui.setStatus('DETECTED!');

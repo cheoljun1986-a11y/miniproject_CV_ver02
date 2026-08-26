@@ -42,6 +42,7 @@ function createHarness() {
     createNinja() {
       return {
         opacity: 0.13,
+        visible: true,
         matrixAutoUpdate: true,
         matrixWorldNeedsUpdate: false,
         matrix: {
@@ -142,6 +143,7 @@ test('a detected scan starts a duel while the field ninja stays camouflaged', ()
   assert.equal(game.getState().phase, 'duel-countdown');
   assert.equal(sceneObjects[0].revealed, undefined);
   assert.equal(sceneObjects[0].opacity, 0.13);
+  assert.equal(sceneObjects[0].visible, false);
   assert.equal(duelStarts.length, 1);
 });
 
@@ -154,6 +156,7 @@ test('winning the duel captures and reveals the current ninja', () => {
   assert.equal(game.resolveDuel('win'), true);
   assert.equal(game.getState().phase, 'found');
   assert.equal(sceneObjects[0].revealed, true);
+  assert.equal(sceneObjects[0].visible, true);
 });
 
 test('drawing keeps the same target for another countdown', () => {
@@ -169,6 +172,21 @@ test('drawing keeps the same target for another countdown', () => {
   assert.equal(sceneObjects[0], firstObject);
   assert.deepEqual(game.getTargetPosition(), firstPosition);
   assert.equal(sceneObjects[0].opacity, 0.13);
+  assert.equal(sceneObjects[0].visible, false);
+});
+
+test('successful mapping removes candidate markers before the hunt', () => {
+  const { game, sceneObjects } = createHarness();
+  game.startSession();
+
+  game.update(1000, {}, { position: [-0.3, 0, -2], upY: 1, matrix: [0] });
+  game.update(2000, {}, { position: [0, 0, -2], upY: 1, matrix: [1] });
+  game.update(3000, {}, { position: [0.3, 0, -2], upY: 1, matrix: [2] });
+  assert.equal(sceneObjects.filter((object) => object.marker).length, 3);
+
+  assert.equal(game.finishMapping(), true);
+  assert.equal(game.getState().phase, 'hunt');
+  assert.equal(sceneObjects.filter((object) => object.marker).length, 0);
 });
 
 test('starting another hunt after a win removes the captured ninja and avoids its position', () => {
