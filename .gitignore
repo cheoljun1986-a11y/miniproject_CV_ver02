@@ -1,0 +1,5 @@
+# Runtime scan uploads written by serve.py (dev-server backups, not source)
+results/
+
+# Local temp/working files (pptx extraction, research scratch)
+.tmp/
