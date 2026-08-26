@@ -172,7 +172,7 @@ test('formatOperatorStatus reports map, anchor, ninja, and player state', () => 
 
   assert.equal(
     output,
-    '운영자 공간지도 · 복셀 123\n'
+    '운영자 공간지도 · 복셀 123 · 카메라 ?\n'
       + '고정 anchor (추적 일시 손실)\n'
       + 'Ninja  x 1.00  y 2.00  z -3.00\n'
       + '플레이어  x 0.10  y 1.60  z -0.20 · 경로 9점',
@@ -227,4 +227,16 @@ test('voxel debug summary omits clusters before Phase 4 has run', () => {
   assert.equal(formatVoxelDebugSummary({
     cellCount: 100, displayedCount: 100, keyframeCount: 3, maxKeyframes: 40, buildMs: 4,
   }), '복셀 100 (표시 100) · 키프레임 3/40 · 재구성 4ms');
+});
+
+test('formatOperatorStatus reports camera access once a frame confirms it', () => {
+  assert.match(formatOperatorStatus({ cameraAccess: true }), /카메라 O/);
+});
+
+test('formatOperatorStatus reports camera access the browser refused', () => {
+  assert.match(formatOperatorStatus({ cameraAccess: false }), /카메라 X/);
+});
+
+test('formatOperatorStatus marks camera access unknown before the first frame', () => {
+  assert.match(formatOperatorStatus({ cameraAccess: null }), /카메라 \?/);
 });

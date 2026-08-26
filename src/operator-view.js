@@ -11,6 +11,13 @@ import {
 } from './config.js';
 import { cellMeanPosition } from './voxel-grid.js';
 import { voxelColorRGB } from './voxel-color-modes.js';
+import { framePoints } from './operator-framing.js';
+
+const CAMERA_FOV_DEG = 60;
+
+// Direction the auto-framed camera sits in relative to the map's center: above
+// and to one side, so floors and walls both read.
+const CAMERA_DIRECTION = [0.45, 0.7, 0.55];
 
 const MAX_FRUSTUMS = 32;
 const FRUSTUM_DEPTH_M = 0.25;
@@ -56,6 +63,10 @@ export class OperatorView {
     this.camera.position.set(2, 3, 4);
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
+    // Auto-framing follows the map until the operator takes over the camera.
+    this.autoFrame = true;
+    this.framedRevision = -1;
+    this.controls.addEventListener('start', () => { this.autoFrame = false; });
 
     this.voxels = new THREE.InstancedMesh(
       new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize),
@@ -254,6 +265,30 @@ export class OperatorView {
     this.camera.updateProjectionMatrix();
   }
 
+  // Keep the reconstruction in view as it grows. The map is anchored to wherever
+  // the session started, so it can end up far from the camera's initial spot.
+  // Reframes only when the map actually changed, and stops for good once the
+  // operator drags the camera themselves.
+  applyAutoFrame(solidVoxels, voxelRevision) {
+    if (!this.autoFrame || voxelRevision === this.framedRevision) return;
+
+    const framing = framePoints(
+      solidVoxels.map(({ position }) => position),
+      CAMERA_FOV_DEG,
+    );
+    if (!framing) return;
+    this.framedRevision = voxelRevision;
+
+    const [tx, ty, tz] = framing.target;
+    const length = Math.hypot(...CAMERA_DIRECTION);
+    this.controls.target.set(tx, ty, tz);
+    this.camera.position.set(
+      tx + (CAMERA_DIRECTION[0] / length) * framing.distance,
+      ty + (CAMERA_DIRECTION[1] / length) * framing.distance,
+      tz + (CAMERA_DIRECTION[2] / length) * framing.distance,
+    );
+  }
+
   render({
     solidVoxels, voxelRevision, ninjaPos, playerPos, playerPath,
     gridTiles = null, gridRevision = -1, cellSize = 0.2,
@@ -347,6 +382,7 @@ export class OperatorView {
     this.pathGeometry.setDrawRange(0, pathCount);
     this.pathGeometry.attributes.position.needsUpdate = true;
 
+    this.applyAutoFrame(solidVoxels, voxelRevision);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }

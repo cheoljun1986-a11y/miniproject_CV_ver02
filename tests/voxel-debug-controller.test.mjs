@@ -50,7 +50,9 @@ function scan(controller, count = 3) {
 }
 
 test('capture only happens inside the scan window', () => {
-  const { controller } = makeController();
+  // The window is pinned here: the default is long enough to cover a room,
+  // and this test is about the window closing, not about its length.
+  const { controller } = makeController({ scanSeconds: 20 });
   assert.equal(controller.update({}, {}, 0, pose(0)), false, 'no scan started yet');
 
   controller.startScan(0);
