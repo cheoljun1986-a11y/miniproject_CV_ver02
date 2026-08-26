@@ -349,3 +349,52 @@ test('the chase page instructions describe the automatic start', async () => {
   assert.match(html, /맵 생성 종료/);
   assert.doesNotMatch(html, /도망 모드를 누르/);
 });
+
+// ── respawn: a bad round costs a button press, not a rescan ──
+test('the chase page carries a respawn button, hidden until a chase runs', async () => {
+  const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
+  assert.match(html, /id="respawnBtn"/);
+  // It ships hidden; startChase reveals it.
+  assert.match(html, /id="respawnBtn"[^>]*display:\s*none/);
+});
+
+test('respawn is wired as a command and toggled with the chase panel', async () => {
+  const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(src, /onRespawn:\s*\(\)\s*=>\s*respawnHachuping\(\)/);
+  assert.match(src, /ui\.setRespawnVisible\(true\)/);
+  assert.match(src, /ui\.setRespawnVisible\(false\)/);
+});
+
+test('respawn keeps the map but resets the capture gauge', async () => {
+  const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  const fn = src.slice(src.indexOf('function respawnHachuping('));
+  const body = fn.slice(0, fn.indexOf('\n}\n'));
+  // A near-complete capture must not carry over onto a brand new target.
+  assert.match(body, /captureGauge\.reset\(\)/);
+  // And the terrain must survive: no grid or map rebuild in here.
+  assert.doesNotMatch(body, /chaseGrid\.reset\(\)/);
+  assert.doesNotMatch(body, /voxelMap\?\.reset\(\)/);
+});
+
+test('the respawn button is bound through bindCommands like the others', () => {
+  const doc = stubDocument([...BASE_IDS, ...CHASE_IDS, 'mapBtn', 'respawnBtn']);
+  const ui = createUI(doc);
+  let respawned = 0;
+  ui.bindCommands({ onRespawn() { respawned += 1; } });
+  const button = doc.elements.get('respawnBtn');
+  const click = button.listeners.find(([type]) => type === 'click');
+  click[1]({ stopPropagation() {} });
+  assert.equal(respawned, 1);
+});
+
+test('the landing page points at the chase page and describes its real flow', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /href="\.\/v4-chase\.html"/);
+  // The chase card's own copy must not promise a hide-and-seek round: that
+  // step is gone from this page and players would hunt for absent buttons.
+  // The site title may still say 숨바꼭질 — app.html really does have one.
+  const card = html.slice(html.indexOf('href="./v4-chase.html"'));
+  const body = card.slice(0, card.indexOf('</a>'));
+  assert.doesNotMatch(body, /숨바꼭질/);
+  assert.match(body, /검거/);
+});

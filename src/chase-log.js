@@ -21,6 +21,7 @@ const LABELS = {
   unfrozen: '추적 복구',
   captured: '검거',
   'map-anchor': '지도 anchor',
+  respawn: '하츄핑 재생성',
 };
 
 export class ChaseLog {

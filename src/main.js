@@ -274,6 +274,7 @@ async function init() {
     onMark: () => game.saveCheckpoint(),
     onCheck: () => game.checkReturnError(),
     onMap: () => toggleMapBuild(),
+    onRespawn: () => respawnHachuping(),
   });
   // No hold handlers: capture now needs only range plus aim, so SCAN keeps its
   // ordinary tap behaviour and never sees a long press.
@@ -587,6 +588,7 @@ function resetChaseState() {
   chaseArrowGate = makeArrowGate();
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
+  ui.setRespawnVisible(false);
   ui.setScanVisible(true);
 }
 
@@ -599,6 +601,7 @@ function stopChase(message) {
   game.setTargetOpacity(NINJA_CAMOUFLAGE_OPACITY);
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
+  ui.setRespawnVisible(false);
   ui.setScanVisible(true);
   // The round is over; the only way on is a fresh map.
   ui.setMapButton('맵 다시 만들기', true);
@@ -638,6 +641,7 @@ function startChase() {
   game.setExternalControl(true);
   game.setTargetOpacity(1);
   ui.setChaseVisible(true);
+  ui.setRespawnVisible(true);
   ui.setChaseGauge(0);
   ui.setScanVisible(false);
   ui.setStatus('하츄핑이 도망칩니다');
@@ -1010,6 +1014,37 @@ function onResize() {
   renderer.setSize(innerWidth, innerHeight);
 }
 
+
+// Drops Hachuping somewhere new on the SAME frozen map. Used when a chase
+// goes wrong — stuck in geometry, buried under the floor, wandered somewhere
+// unreachable — so a bad round costs a button press instead of a rescan.
+function respawnHachuping() {
+  if (!chaseActive || !chaseRunner || !chaseGrid) return false;
+
+  game.clearTarget();
+  if (!game.hideNewTarget()) {
+    ui.setMessage('놓을 자리를 찾지 못했습니다 — 맵을 다시 만들어주세요.');
+    return false;
+  }
+  const target = game.getTargetPosition();
+  if (!target || !chaseRunner.start(toMapSpace(target), performance.now())) {
+    ui.setMessage('하츄핑이 설 자리를 찾지 못했습니다.');
+    return false;
+  }
+
+  // A respawn is a fresh round on the same terrain: the gauge must not carry
+  // over, or a nearly-complete capture would finish on a brand new target.
+  captureGauge.reset();
+  chaseArrowGate = makeArrowGate();
+  lastChaseTime = null;
+  game.setExternalControl(true);
+  game.setTargetOpacity(1);
+  ui.setChaseGauge(0);
+  ui.setChaseArrow(null);
+  chaseLog?.push(performance.now(), 'respawn');
+  ui.setMessage('하츄핑을 다시 놓았습니다.');
+  return true;
+}
 
 // ── map-anchor space helpers ──────────────────────────────────
 // Everything the map stores lives in the anchor's frame; these are identity
