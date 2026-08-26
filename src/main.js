@@ -37,8 +37,8 @@ import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
 import { TraversalGrid, nodeKey } from './traversal-grid.js';
 import { ChaseRunner } from './chase-runner.js';
 import {
-  CaptureGauge, angleToTargetDeg, directionInViewSpace, makeArrowGate,
-  screenAngleFromViewDirection,
+  CAPTURE_RADIUS_M, CaptureGauge, angleToTargetDeg, directionInViewSpace,
+  makeArrowGate, screenAngleFromViewDirection,
 } from './capture-gauge.js';
 import { visibleFraction } from './line-of-sight.js';
 import { ChaseLog } from './chase-log.js';
@@ -145,6 +145,8 @@ let chaseArrowGate = null;
 // changing under Hachuping's feet and errors from accumulating into the map.
 let mapBuilding = false;
 let mapFrozen = false;
+// How solid the character looks while terrain says it is behind something.
+const GHOST_OPACITY = 0.5;
 // The nail the map hangs on. Created at the origin when building starts; every
 // stored coordinate (grid cells, Hachuping) lives in ITS frame, and rendering
 // converts back out. When ARCore corrects its drift the map follows the nail.
@@ -555,6 +557,7 @@ function stopChase(message) {
   chaseLog?.push(performance.now(), 'stop');
   chaseRunner.stop();
   game.setExternalControl(false);
+  game.setTargetGhost(false);
   game.setTargetOpacity(NINJA_CAMOUFLAGE_OPACITY);
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
@@ -602,7 +605,7 @@ function startChase() {
   ui.setChaseGauge(0);
   ui.setScanVisible(false);
   ui.setStatus('하츄핑이 도망칩니다');
-  ui.setMessage('1.2m 안까지 쪽아가 화면 중앙에 5초간 담아두세요.');
+  ui.setMessage(`${CAPTURE_RADIUS_M}m 안에서 화면 중앙에 5초간 담아두세요.`);
   return true;
 }
 
@@ -655,6 +658,9 @@ function updateChase(time, viewerPose) {
     bodyHeightM: HIDDEN_MODEL_HEIGHT_M,
   });
   const capture = captureGauge.update(dt, { distance, angleDeg, visibility });
+  // Behind terrain: show a ghost through the obstacle rather than nothing. The
+  // grid is 20cm and so is Hachuping, so one noisy cell can hide it outright.
+  game.setTargetGhost(!capture.visible, GHOST_OPACITY);
 
   ui.setChaseGauge(capture.value);
   ui.setChaseHint(`${captureGauge.hint()}  ·  ${distance.toFixed(1)}m`);
@@ -993,6 +999,7 @@ function respawnHachuping() {
   captureGauge.reset();
   chaseArrowGate = makeArrowGate();
   lastChaseTime = null;
+  game.setTargetGhost(false);
   game.setExternalControl(true);
   game.setTargetOpacity(1);
   ui.setChaseGauge(0);

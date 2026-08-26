@@ -4,6 +4,10 @@ import assert from 'node:assert/strict';
 import { TraversalGrid } from '../src/traversal-grid.js';
 import { gridCandidatePool } from '../src/grid-candidates.js';
 
+// Terrain here is drawn one voxel per surface, because these tests are about
+// geometry and routing, not about how much evidence a foothold needs. The
+// footing threshold has its own tests.
+
 function floor(grid, extent = 1.0) {
   for (let x = 0; x <= extent; x += 0.1) {
     for (let z = 0; z <= extent; z += 0.1) grid.observe([x, 0.02, z]);
@@ -11,7 +15,7 @@ function floor(grid, extent = 1.0) {
 }
 
 test('every standable level becomes a hiding candidate', () => {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   floor(grid);
   grid.observe([0.5, 0.72, 0.5]); // a tabletop adds a second level in its cell
   const pool = gridCandidatePool(grid);
@@ -21,7 +25,7 @@ test('every standable level becomes a hiding candidate', () => {
 });
 
 test('entries carry a position on the surface and an upward-facing matrix', () => {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   floor(grid);
   const [entry] = gridCandidatePool(grid);
   assert.equal(entry.pos.length, 3);
@@ -32,7 +36,7 @@ test('entries carry a position on the surface and an upward-facing matrix', () =
 });
 
 test('an oversized pool is thinned evenly, not truncated at one corner', () => {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   for (let x = 0; x <= 6; x += 0.1) {
     for (let z = 0; z <= 6; z += 0.1) grid.observe([x, 0.02, z]);
   }
@@ -45,5 +49,5 @@ test('an oversized pool is thinned evenly, not truncated at one corner', () => {
 
 test('an empty or missing grid yields an empty pool', () => {
   assert.deepEqual(gridCandidatePool(null), []);
-  assert.deepEqual(gridCandidatePool(new TraversalGrid()), []);
+  assert.deepEqual(gridCandidatePool(new TraversalGrid({ minSlabVoxels: 1 })), []);
 });

@@ -52,6 +52,12 @@ export class TraversalGrid {
     // A handful of stray depth points below the real floor would otherwise
     // drag the ceiling up with them.
     floorMinCells = 8,
+    // How many distinct 5cm voxels a 20x20x10cm slab needs before it counts as
+    // something to stand on. One was enough before, so a single stray depth
+    // point conjured a whole 20x20cm foothold in mid-air. A fully observed flat
+    // floor leaves 16 voxels in its slab, so 4 clears real surfaces comfortably
+    // while rejecting isolated noise.
+    minSlabVoxels = 4,
   } = {}) {
     this.cellSize = cellSize;
     this.slabHeight = slabHeight;
@@ -63,6 +69,7 @@ export class TraversalGrid {
     this.maxDropDown = maxDropDown;
     this.maxStandAboveFloor = maxStandAboveFloor;
     this.floorMinCells = floorMinCells;
+    this.minSlabVoxels = Math.max(1, minSlabVoxels);
     this.cells = new Map();
     this.revision = 0;
     this.slabCells = new Int32Array(64);
@@ -109,19 +116,22 @@ export class TraversalGrid {
     const key = cellKey(cx, cz);
     let cell = this.cells.get(key);
     if (!cell) {
-      cell = { cx, cz, lo: UNSEEN, hi: UNSEEN, levels: null, levelsGen: -1 };
+      cell = {
+        cx, cz, lo: UNSEEN, hi: UNSEEN, levels: null, levelsGen: -1,
+        counts: new Uint8Array(this.slabCount),
+      };
       this.cells.set(key, cell);
     }
 
-    if (slab < 32) {
-      const bit = 1 << slab;
-      if ((cell.lo & bit) !== 0) return false;
-      cell.lo |= bit;
-    } else {
-      const bit = 1 << (slab - 32);
-      if ((cell.hi & bit) !== 0) return false;
-      cell.hi |= bit;
-    }
+    // Each call is one distinct confirmed voxel, so counting calls counts
+    // voxels. The slab only becomes standable on the call that reaches the
+    // threshold; earlier ones just accumulate evidence.
+    if (cell.counts[slab] >= this.minSlabVoxels) return false; // already solid
+    if (cell.counts[slab] < 255) cell.counts[slab] += 1;
+    if (cell.counts[slab] < this.minSlabVoxels) return false;
+
+    if (slab < 32) cell.lo |= 1 << slab;
+    else cell.hi |= 1 << (slab - 32);
     this.slabCells[slab] += 1;
     if (this.floorSlab === null || slab <= this.floorSlab) this.floorDirty = true;
     cell.levels = null; // recompute lazily

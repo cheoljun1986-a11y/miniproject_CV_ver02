@@ -10,7 +10,10 @@
 // target briefly disappears behind furniture, and restarting a five second
 // hold every time that happens makes the game feel broken rather than hard.
 
-export const CAPTURE_RADIUS_M = 1.2;
+// Raised from 1.2m: on device you had to be almost on top of Hachuping before
+// the gauge moved, which turned the chase into a shoving match. Framing it
+// from across the room now counts.
+export const CAPTURE_RADIUS_M = 3.0;
 export const CAPTURE_ANGLE_DEG = 20;
 export const CAPTURE_SECONDS = 5;
 export const CAPTURE_DECAY_PER_S = 0.12;
@@ -18,9 +21,14 @@ export const CAPTURE_DECAY_PER_S = 0.12;
 // count — a chair leg across the middle is not the same as a wall.
 //   at or above FULL  → fills at the normal rate
 //   between the two   → fills proportionally slower
-//   at or below HIDDEN → does not fill at all
+//   at or below HIDDEN → fills at the slow floor below
 export const CAPTURE_VISIBLE_FULL = 0.6;
 export const CAPTURE_VISIBLE_HIDDEN = 0.15;
+// Even a fully blocked sight line still fills, just slowly. The terrain is a
+// 20cm grid and Hachuping is 20cm wide, so a single cell of reconstruction
+// noise hides it completely; refusing to fill at all made those false
+// positives feel like the game had frozen.
+export const CAPTURE_HIDDEN_FILL_SCALE = 0.25;
 // Depth noise makes a sample flicker between blocked and clear. Easing the
 // measured value over roughly a quarter second absorbs that without the gauge
 // visibly lurching.
@@ -93,6 +101,7 @@ export class CaptureGauge {
     visibleFull = CAPTURE_VISIBLE_FULL,
     visibleHidden = CAPTURE_VISIBLE_HIDDEN,
     visibilityEasePerSecond = CAPTURE_VISIBILITY_EASE_PER_S,
+    hiddenFillScale = CAPTURE_HIDDEN_FILL_SCALE,
   } = {}) {
     this.radius = radius;
     this.angleDeg = angleDeg;
@@ -102,6 +111,7 @@ export class CaptureGauge {
     this.visibleFull = visibleFull;
     this.visibleHidden = visibleHidden;
     this.visibilityEasePerSecond = visibilityEasePerSecond;
+    this.hiddenFillScale = hiddenFillScale;
     this.reset();
   }
 
@@ -119,8 +129,11 @@ export class CaptureGauge {
   // Fraction of the fill rate this much visibility earns.
   scaleForVisibility(visibility) {
     const span = this.visibleFull - this.visibleHidden;
-    if (span <= 0) return visibility > this.visibleHidden ? 1 : 0;
-    return Math.min(1, Math.max(0, (visibility - this.visibleHidden) / span));
+    const graded = span <= 0
+      ? (visibility > this.visibleHidden ? 1 : 0)
+      : Math.min(1, Math.max(0, (visibility - this.visibleHidden) / span));
+    // Never returns 0: hidden is slow, not impossible.
+    return Math.max(this.hiddenFillScale, graded);
   }
 
   // dt in seconds. Returns the current state; `captured` latches until reset.
@@ -142,11 +155,11 @@ export class CaptureGauge {
     const ease = Math.min(1, this.visibilityEasePerSecond * dt);
     this.visibility += (measured - this.visibility) * ease;
     this.visibleScale = this.scaleForVisibility(this.visibility);
-    this.visible = this.visibleScale > 0;
+    this.visible = this.visibility > this.visibleHidden;
 
     if (this.captured) return this.getState();
 
-    const filling = this.inRange && this.onScreen && this.holding && this.visible;
+    const filling = this.inRange && this.onScreen && this.holding;
     const step = filling
       ? this.fillPerSecond * dt * this.visibleScale
       : -this.decayPerSecond * dt;
@@ -173,8 +186,7 @@ export class CaptureGauge {
       visible: this.visible,
       visibility: this.visibility,
       visibleScale: this.visibleScale,
-      filling: this.inRange && this.onScreen && this.holding
-        && this.visible && !this.captured,
+      filling: this.inRange && this.onScreen && this.holding && !this.captured,
     };
   }
 
@@ -184,7 +196,7 @@ export class CaptureGauge {
     if (!this.inRange) return '더 가까이';
     if (!this.onScreen) return '화면 중앙에 맞추세요';
     if (!this.holding) return 'SCAN 을 누르고 계세요';
-    if (!this.visible) return '가려졌습니다 — 옆으로 돌아가세요';
+    if (!this.visible) return '가려짐 — 매우 느림';
     // Still progressing, just slowly — say so rather than let it look stalled.
     if (this.visibleScale < 0.9) return '일부 가려짐 — 조금 느립니다';
     return '검거 중';

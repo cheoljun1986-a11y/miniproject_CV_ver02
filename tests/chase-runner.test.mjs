@@ -8,6 +8,10 @@ import {
 } from '../src/chase-runner.js';
 import { CaptureGauge, angleToTargetDeg } from '../src/capture-gauge.js';
 
+// Terrain here is drawn one voxel per surface, because these tests are about
+// geometry and routing, not about how much evidence a foothold needs. The
+// footing threshold has its own tests.
+
 function room(grid, width = 6, depth = 6, step = 0.1) {
   for (let x = 0; x <= width; x += step) {
     for (let z = 0; z <= depth; z += step) grid.observe([x, 0.02, z]);
@@ -40,12 +44,12 @@ test('its top speed stays well under a walking player', () => {
 
 // ── movement ─────────────────────────────────────────────────
 test('start fails when nothing has been mapped', () => {
-  const runner = new ChaseRunner({ grid: new TraversalGrid() });
+  const runner = new ChaseRunner({ grid: new TraversalGrid({ minSlabVoxels: 1 }) });
   assert.equal(runner.start([0, 0, 0]), false);
 });
 
 test('it actually moves once the chase begins', () => {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   room(grid);
   const runner = new ChaseRunner({ grid, random: () => 0.5 });
   assert.equal(runner.start([3, 0, 3], 0), true);
@@ -56,7 +60,7 @@ test('it actually moves once the chase begins', () => {
 });
 
 test('it never leaves the mapped floor', () => {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   room(grid, 4, 4);
   const runner = new ChaseRunner({ grid, random: () => 0.5 });
   runner.start([2, 0, 2], 0);
@@ -71,7 +75,7 @@ test('it never leaves the mapped floor', () => {
 });
 
 test('a frozen runner holds still', () => {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   room(grid);
   const runner = new ChaseRunner({ grid, random: () => 0.5 });
   runner.start([3, 0, 3], 0);
@@ -82,7 +86,7 @@ test('a frozen runner holds still', () => {
 });
 
 test('it does not sit in one corner — it covers ground', () => {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   room(grid, 6, 6);
   const runner = new ChaseRunner({ grid, random: () => 0.5 });
   runner.start([3, 0, 3], 0);
@@ -102,7 +106,7 @@ test('it does not sit in one corner — it covers ground', () => {
 
 // Floor on the left, a 40cm ledge on the right. The only way across is up.
 function floorAndLedge() {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   for (let x = 0; x <= 1.3; x += 0.1) {
     for (let z = 0; z <= 1.3; z += 0.1) grid.observe([x, 0.02, z]);
   }
@@ -148,7 +152,8 @@ test('the gauge only fills when all three conditions hold', () => {
   const gauge = new CaptureGauge({ requireHold: true });
   gauge.update(1, { distance: 0.8, angleDeg: 5, holding: false });
   assert.equal(gauge.value, 0);
-  gauge.update(1, { distance: 3.0, angleDeg: 5, holding: true });
+  // Out of range: the capture radius is 3m, so this has to sit beyond it.
+  gauge.update(1, { distance: 6.0, angleDeg: 5, holding: true });
   assert.equal(gauge.value, 0);
   gauge.update(1, { distance: 0.8, angleDeg: 60, holding: true });
   assert.equal(gauge.value, 0);
@@ -235,7 +240,7 @@ test('the arrow points up when the target is above centre', async () => {
 // ── stability work: terrain swaps, stuck recovery, smoothing ──
 const STAB_FLOOR = 0.02;
 function stabilityRoom() {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   room(grid);
   return grid;
 }
@@ -371,13 +376,18 @@ test('a partly visible target still fills the gauge, just slower', () => {
   assert.ok(partial.value < full.value, 'but it should be slower than clear sight');
 });
 
-test('a fully hidden target does not fill at all', () => {
-  const gauge = new CaptureGauge();
+test('a fully hidden target still fills, but far slower than a clear one', () => {
+  // The grid is 20cm and so is Hachuping: one noisy cell hides it outright, so
+  // refusing to fill made false positives feel like a frozen game.
+  const hidden = new CaptureGauge();
+  const clear = new CaptureGauge();
   for (let i = 0; i < 30; i += 1) {
-    gauge.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 0 });
+    hidden.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 0 });
+    clear.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 1 });
   }
-  assert.equal(gauge.value, 0);
-  assert.equal(gauge.getState().visible, false);
+  assert.ok(hidden.value > 0, 'hidden must still make progress');
+  assert.ok(hidden.value < clear.value * 0.5, 'but clearly slower than in the open');
+  assert.equal(hidden.getState().visible, false);
 });
 
 test('visibility above the full threshold fills at the ordinary rate', () => {
@@ -401,12 +411,15 @@ test('a one-frame flicker of cover barely dents the gauge', () => {
   assert.equal(gauge.getState().visible, true);
 });
 
-test('the boolean occluded flag still works for callers that only know blocked', () => {
-  const gauge = new CaptureGauge();
+test('the boolean occluded flag maps onto the same slow-fill path', () => {
+  const flagged = new CaptureGauge();
+  const graded = new CaptureGauge();
   for (let i = 0; i < 30; i += 1) {
-    gauge.update(0.1, { distance: 0.5, angleDeg: 2, occluded: true });
+    flagged.update(0.1, { distance: 0.5, angleDeg: 2, occluded: true });
+    graded.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 0 });
   }
-  assert.equal(gauge.value, 0);
+  assert.ok(Math.abs(flagged.value - graded.value) < 1e-9);
+  assert.equal(flagged.getState().visible, false);
 });
 
 test('the hint distinguishes partly hidden from fully hidden', () => {
@@ -420,5 +433,5 @@ test('the hint distinguishes partly hidden from fully hidden', () => {
   for (let i = 0; i < 20; i += 1) {
     hidden.update(0.1, { distance: 0.5, angleDeg: 2, visibility: 0 });
   }
-  assert.match(hidden.hint(), /가려졌습니다/);
+  assert.match(hidden.hint(), /매우 느림/);
 });

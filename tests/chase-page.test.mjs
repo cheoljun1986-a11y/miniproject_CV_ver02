@@ -398,3 +398,28 @@ test('the landing page points at the chase page and describes its real flow', as
   assert.doesNotMatch(body, /숨바꼭질/);
   assert.match(body, /검거/);
 });
+
+// ── occluded targets ghost through instead of vanishing ──────
+test('main.js ghosts the model when the terrain says it is hidden', async () => {
+  const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(src, /setTargetGhost\(!capture\.visible, GHOST_OPACITY\)/);
+  // And it must go solid again when the round ends or the target moves.
+  assert.match(src, /setTargetGhost\(false\)/);
+});
+
+test('the ghost draws through real geometry, which is the whole point', async () => {
+  const src = await readFile(new URL('../src/ninja-model.js', import.meta.url), 'utf8');
+  const fn = src.slice(src.indexOf('export function setNinjaGhost'));
+  const body = fn.slice(0, fn.indexOf('\n}\n'));
+  // Occlusion is a depth-buffer effect; only disabling depthTest lets the
+  // hidden model show at all.
+  assert.match(body, /depthTest = !ghosted/);
+  assert.match(body, /opacity = ghosted \? opacity : 1/);
+});
+
+test('the on-screen range instruction follows the capture radius constant', async () => {
+  const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  // A hard-coded "1.2m" outlived the constant once already.
+  assert.match(src, /\$\{CAPTURE_RADIUS_M\}m/);
+  assert.doesNotMatch(src, /1\.2m 안까지/);
+});

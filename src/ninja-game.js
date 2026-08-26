@@ -268,6 +268,13 @@ export class NinjaGame {
     return this.target?.object ?? null;
   }
 
+  // Render the target through walls as a faint ghost, or back to solid.
+  setTargetGhost(ghosted, opacity) {
+    if (!this.target) return false;
+    this.model.setNinjaGhost?.(this.target.object, ghosted, opacity);
+    return true;
+  }
+
   setTargetOpacity(opacity) {
     if (!this.target) return false;
     this.model.setNinjaOpacity(this.target.object, opacity);

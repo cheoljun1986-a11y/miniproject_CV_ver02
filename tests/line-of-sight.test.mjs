@@ -5,7 +5,7 @@ import { TraversalGrid } from '../src/traversal-grid.js';
 import { segmentBlocked } from '../src/line-of-sight.js';
 
 function floorGrid() {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   for (let x = -2; x <= 2; x += 0.2) {
     for (let z = -2; z <= 2; z += 0.2) grid.observe([x, -1.4, z]);
   }
@@ -27,7 +27,7 @@ test('a wall between camera and target blocks it', () => {
 });
 
 test('unscanned space never blocks — absence of data is not an obstacle', () => {
-  const grid = new TraversalGrid();
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
   assert.equal(segmentBlocked(grid, [0, 0, 0], [0, 0, 3]), false);
 });
 
@@ -64,6 +64,10 @@ test('a missing grid or endpoint is handled rather than throwing', () => {
 
 import { visibleFraction } from '../src/line-of-sight.js';
 import { CAPTURE_VISIBLE_HIDDEN } from '../src/capture-gauge.js';
+
+// Terrain here is drawn one voxel per surface, because these tests are about
+// geometry and routing, not about how much evidence a foothold needs. The
+// footing threshold has its own tests.
 
 test('nothing in the way means fully visible', () => {
   const grid = floorGrid();
@@ -109,7 +113,7 @@ test('the sideways samples follow the view direction, not the world axes', () =>
 });
 
 test('an unscanned room is treated as fully visible', () => {
-  assert.equal(visibleFraction(new TraversalGrid(), [0, 0, 0], [0, 0, 2]), 1);
+  assert.equal(visibleFraction(new TraversalGrid({ minSlabVoxels: 1 }), [0, 0, 0], [0, 0, 2]), 1);
 });
 
 test('a missing grid does not throw', () => {
