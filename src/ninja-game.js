@@ -141,7 +141,8 @@ export class NinjaGame {
     if (!this.getSession() || !viewerPose) return false;
     const pool = this.mapper.getPool();
     if (!pool.length) return false;
-    const available = pool.filter((candidate) => candidate !== excludeCandidate);
+    const previousCandidate = excludeCandidate ?? this.target?.candidate ?? null;
+    const available = pool.filter((candidate) => candidate !== previousCandidate);
     const candidates = available.length ? available : pool;
 
     this.clearTarget();
@@ -172,7 +173,7 @@ export class NinjaGame {
     this.setControls({ scan: true, newRound: true });
     this.ui.setStatus('Ninja가 숨었습니다');
     this.ui.setMessage('걸어다니며 찾으세요. 의심되는 방향을 화면 중앙에 두고 SCAN을 누르세요.');
-    if (!available.length && excludeCandidate) {
+    if (!available.length && previousCandidate) {
       this.ui.setStatus('다른 숨을 위치 후보가 부족합니다');
       this.ui.setMessage('같은 후보에 다시 숨었습니다. 공간을 더 스캔하면 다음에는 다른 위치로 이동합니다.');
     }
@@ -237,6 +238,7 @@ export class NinjaGame {
       return true;
     }
     if (outcome === 'draw') {
+      this.model.setNinjaOpacity(this.target.object, NINJA_CAMOUFLAGE_OPACITY);
       this.phase = 'duel-countdown';
       return true;
     }

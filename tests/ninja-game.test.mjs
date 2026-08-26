@@ -168,6 +168,25 @@ test('drawing keeps the same target for another countdown', () => {
   assert.equal(game.getState().phase, 'duel-countdown');
   assert.equal(sceneObjects[0], firstObject);
   assert.deepEqual(game.getTargetPosition(), firstPosition);
+  assert.equal(sceneObjects[0].opacity, 0.13);
+});
+
+test('starting another hunt after a win removes the captured ninja and avoids its position', () => {
+  const { game, mapper, sceneObjects } = createHarness();
+  addHorizontalCandidate(mapper, [0, 0, -2]);
+  addHorizontalCandidate(mapper, [0.3, 0, -2]);
+  game.hideNewTarget();
+  game.triggerScan();
+  game.resolveDuel('win');
+  const capturedObject = sceneObjects[0];
+  const capturedPosition = game.getTargetPosition();
+
+  assert.equal(game.hideNewTarget(), true);
+  assert.equal(capturedObject.disposed, true);
+  assert.equal(sceneObjects.length, 1);
+  assert.notEqual(sceneObjects[0], capturedObject);
+  assert.notDeepEqual(game.getTargetPosition(), capturedPosition);
+  assert.equal(sceneObjects[0].opacity, 0.13);
 });
 
 test('losing relocates to a different mapped candidate', () => {
