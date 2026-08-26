@@ -24,3 +24,18 @@ test('guide exposes presentation controls and accessible progress', async () => 
   assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(html, /@media print/);
 });
+
+test('guide contains the exact worked coordinate example', async () => {
+  const html = await readFile(guideUrl, 'utf8');
+  for (const value of [
+    '640 × 480', 'fx = fy = 600 px', '(440, 300)', '2.0 m',
+    '(0.4, −0.2, −2.0) m', '(3.0, 1.3, 0.9) m',
+  ]) assert.ok(html.includes(value), `missing ${value}`);
+  assert.match(html, /\+X[^<]*오른쪽/);
+  assert.match(html, /\+Y[^<]*위/);
+  assert.match(html, /−Z[^<]*앞/);
+  assert.match(html, /CV 좌표계[^<]*\+Z/);
+  assert.match(html, /window\.GuideMath/);
+  assert.match(html, /data-example-step="pixel"/);
+  assert.match(html, /id="example-result"[^>]*aria-live="polite"/);
+});
