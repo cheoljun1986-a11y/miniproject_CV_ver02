@@ -48,8 +48,8 @@ export function segmentBlocked(grid, from, to, {
 // Samples sit on the vertical axis and on the horizontal axis perpendicular to
 // the view direction, which is the silhouette the camera actually faces.
 export function visibleFraction(grid, from, to, {
-  bodyHeightM = 0.5,
-  bodyRadiusM = 0.15,
+  bodyHeightM = 0.34,
+  bodyRadiusM = 0.10,
   ...segmentOptions
 } = {}) {
   if (!grid || !from || !to) return 1;

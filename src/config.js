@@ -12,7 +12,10 @@ export const NINJA_VERTICAL_OFFSET_M = 0.12;
 // Scanned glTF model the game hides. Relative so GitHub Pages subpaths resolve.
 // The built-in ninja is drawn instead when the file is missing or fails to load.
 export const HIDDEN_MODEL_URL = './hcp.glb';
-export const HIDDEN_MODEL_HEIGHT_M = 0.5;
+// Body shrunk from 30x30x50cm to a 20cm-wide footprint that matches one
+// traversal cell exactly. Height keeps the model's proportions: 50 * (20/30)
+// = 33.3cm, rounded UP to the next whole centimetre.
+export const HIDDEN_MODEL_HEIGHT_M = 0.34;
 
 // Depth point-cloud reconstruction (?depth=cloud mode).
 export const DEPTH_CLOUD_SAMPLE_GAP_MS = 200; // read depth at most this often
@@ -71,7 +74,7 @@ export const CHASE_CELL_SIZE_M = 0.20;      // top-down grid resolution
 export const CHASE_SLAB_HEIGHT_M = 0.10;    // vertical resolution per cell
 export const CHASE_GRID_MIN_Y = -3.0;       // 'local' origin sits ~1.4m above the floor
 export const CHASE_GRID_SLABS = 64;
-export const CHASE_BODY_HEIGHT_M = 0.5;     // headroom Hachuping needs
+export const CHASE_BODY_HEIGHT_M = 0.34;    // headroom = the body height above
 export const CHASE_MAX_STEP_UP_M = 0.15;    // above this it is a jump
 // 0.45 lets it hop a chair seat but not leap floor-to-desk in one go. The
 // first play test used 0.7, which chained floor-chair-desk into an aerial
