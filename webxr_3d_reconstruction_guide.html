@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f9fc">
+  <meta name="description" content="WebXR과 ARCore가 카메라 픽셀을 월드 좌표와 3D 공간으로 복원하는 과정을 설명하는 발표 자료">
+  <title>픽셀에서 월드까지 — WebXR 3D 공간 복원</title>
+  <style>
+    :root {
+      color-scheme:light;
+      --ink:#142033; --muted:#5d6878; --paper:#f7f9fc; --surface:#ffffff;
+      --line:#dbe3ef; --blue:#2563eb; --purple:#7c3aed; --orange:#e87918;
+      --green:#0f9168; --red:#cf3e4e;
+    }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-snap-type:y mandatory; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+    button { font:inherit; }
+    .slide { min-height:100svh; scroll-snap-align:start; padding:clamp(28px,5vw,72px); display:grid; align-content:center; }
+    .slide-inner { width:min(1180px,100%); margin:0 auto; }
+    .slide h1,.slide h2 { margin:0; max-width:980px; letter-spacing:-.045em; line-height:1.08; }
+    .slide h1 { font-size:clamp(42px,7vw,82px); }
+    .slide h2 { font-size:clamp(34px,5vw,62px); }
+    .eyebrow { margin:0 0 16px; color:var(--blue); font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+    .lede { max-width:820px; margin:22px 0 0; color:var(--muted); font-size:clamp(18px,2.1vw,25px); line-height:1.65; }
+    .presentation-nav { position:fixed; right:18px; bottom:18px; z-index:20; display:flex; align-items:center; gap:8px; padding:8px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.92); box-shadow:0 10px 32px rgba(20,32,51,.12); backdrop-filter:blur(14px); }
+    .presentation-nav button { min-width:44px; min-height:42px; border:0; border-radius:999px; background:#e8eef8; color:var(--ink); font-weight:800; cursor:pointer; }
+    #slide-progress { min-width:62px; text-align:center; font-variant-numeric:tabular-nums; font-weight:800; }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior:auto; }
+      *, *::before, *::after { animation:none!important; transition:none!important; }
+    }
+    @media print {
+      @page { size:landscape; margin:0; }
+      html { scroll-snap-type:none; }
+      .slide { min-height:100vh; break-after:page; }
+      .presentation-nav { display:none; }
+    }
+  </style>
+</head>
+<body>
+  <main id="deck">
+    <section class="slide" id="distance-problem" aria-labelledby="title-distance"><div class="slide-inner"><p class="eyebrow">01 · 시작 질문</p><h1 id="title-distance">한 장의 사진에는 거리가 없다</h1><p class="lede">사진 속 픽셀은 물체가 보이는 방향만 알려준다.</p></div></section>
+    <section class="slide" id="three-spaces"><div class="slide-inner"><p class="eyebrow">02 · 좌표계</p><h2>이미지·카메라·월드 좌표는 서로 다른 주소다</h2></div></section>
+    <section class="slide" id="world-ruler"><div class="slide-inner"><p class="eyebrow">03 · 기준</p><h2>월드 좌표는 방에 놓는 가상의 자다</h2></div></section>
+    <section class="slide" id="camera-intrinsics"><div class="slide-inner"><p class="eyebrow">04 · 방향</p><h2>K가 픽셀을 카메라 광선으로 바꾼다</h2></div></section>
+    <section class="slide" id="camera-point"><div class="slide-inner"><p class="eyebrow">05 · 깊이</p><h2>방향과 깊이를 합치면 카메라 3D 점이 된다</h2></div></section>
+    <section class="slide" id="world-transform"><div class="slide-inner"><p class="eyebrow">06 · 변환</p><h2>카메라 포즈를 곱하면 월드 주소가 된다</h2></div></section>
+    <section class="slide" id="my-coordinate"><div class="slide-inner"><p class="eyebrow">07 · 내 좌표</p><h2>내 좌표와 월드 좌표는 서로 왕복할 수 있다</h2></div></section>
+    <section class="slide" id="triangulation"><div class="slide-inner"><p class="eyebrow">08 · 삼각측량</p><h2>움직인 카메라는 두 눈처럼 깊이를 만든다</h2></div></section>
+    <section class="slide" id="vio-scale"><div class="slide-inner"><p class="eyebrow">09 · 추적</p><h2>시각 정보와 IMU가 미터 단위 포즈를 만든다</h2></div></section>
+    <section class="slide" id="traditional-sfm"><div class="slide-inner"><p class="eyebrow">10 · SfM</p><h2>전통적 SfM은 카메라와 구조를 함께 복원한다</h2></div></section>
+    <section class="slide" id="responsibility-boundary"><div class="slide-inner"><p class="eyebrow">11 · 역할 분담</p><h2>ARCore와 우리 코드의 책임은 다르다</h2></div></section>
+    <section class="slide" id="point-cloud"><div class="slide-inner"><p class="eyebrow">12 · 누적</p><h2>월드 점을 누적하면 포인트클라우드가 된다</h2></div></section>
+    <section class="slide" id="voxel-tsdf"><div class="slide-inner"><p class="eyebrow">13 · 융합</p><h2>복셀과 TSDF가 노이즈를 표면으로 정리한다</h2></div></section>
+    <section class="slide" id="anchors"><div class="slide-inner"><p class="eyebrow">14 · 고정</p><h2>좌표값 저장과 현실 장소 추적은 다르다</h2></div></section>
+    <section class="slide" id="failure-cases"><div class="slide-inner"><p class="eyebrow">15 · 한계</p><h2>깊이가 실패하는 장면은 미리 예측할 수 있다</h2></div></section>
+    <section class="slide" id="summary"><div class="slide-inner"><p class="eyebrow">16 · 정리</p><h2>픽셀에서 월드까지 한 문장으로 연결된다</h2></div></section>
+  </main>
+  <nav class="presentation-nav" aria-label="발표 장 이동">
+    <button id="prev-slide" type="button" aria-label="이전 장">↑</button>
+    <span id="slide-progress" aria-live="polite">1 / 16</span>
+    <button id="next-slide" type="button" aria-label="다음 장">↓</button>
+  </nav>
+  <script>
+    const slides = [...document.querySelectorAll('.slide')];
+    let current = 0;
+    function goToSlide(index) {
+      current = Math.max(0, Math.min(slides.length - 1, index));
+      slides[current].scrollIntoView({ behavior:'smooth', block:'start' });
+      document.getElementById('slide-progress').textContent = `${current + 1} / ${slides.length}`;
+    }
+    document.getElementById('prev-slide').addEventListener('click', () => goToSlide(current - 1));
+    document.getElementById('next-slide').addEventListener('click', () => goToSlide(current + 1));
+  </script>
+</body>
+</html>
