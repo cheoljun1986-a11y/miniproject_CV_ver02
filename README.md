@@ -3,21 +3,23 @@
 브라우저(WebXR)만으로 **ARCore 공간추적 + 실세계 오클루전 + 2D 영상의 3D 공간 복원**을
 검증하는 AR 숨바꼭질 미니프로젝트. 설치 없이 Android Chrome에서 HTTPS 주소만 열면 동작한다.
 
-- 공개 데모: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/>
-- CPU 동적 가림 + 통합 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?occlusion=cpu>
-- 공간 복원 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?depth=cloud>
+- 모드 선택: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/>
+- 공개 데모 (하츄핑 도망 모드): <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/v4-chase.html>
+- CPU 동적 가림 + 통합 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/app.html?occlusion=cpu>
+- 공간 복원 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/app.html?depth=cloud>
+- 키프레임 복셀 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/app.html?voxel=debug>
+
+기존 최상위 쿼리 주소(`/?occlusion=cpu` 등)는 같은 모드의 `app.html` 주소로 자동 이동한다.
 
 ## private/junsung 모바일 테스트
 
 - 브랜치 코드: <https://github.com/cheoljun1986-a11y/miniproject_CV_ver02/tree/private/junsung>
-- 모바일 실행(현재 로컬 터널): <https://proposal-visits-phd-rome.trycloudflare.com/>
-- 수동 가위바위보 진단: <https://proposal-visits-phd-rome.trycloudflare.com/?input=manual>
+- GitHub Pages 모바일 RPS: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/app.html?occlusion=cpu>
+- 모바일 RPS 실행(현재 로컬 터널): <https://proposal-visits-phd-rome.trycloudflare.com/?occlusion=cpu>
+- 수동 가위바위보 진단: <https://proposal-visits-phd-rome.trycloudflare.com/?occlusion=cpu&input=manual>
 
-GitHub Pages의 공개 주소는 main 기준이므로 private/junsung의 미병합 코드는 바로 반영되지
-않는다. 위 터널은 개발 PC의 로컬 서버와 cloudflared가 실행 중일 때만 사용할 수 있으며,
-터널을 다시 시작하면 주소가 바뀔 수 있다.
-- 하츄핑 도망 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/v4-chase.html>
-- 키프레임 복셀 진단 모드: <https://cheoljun1986-a11y.github.io/miniproject_CV_ver02/?voxel=debug>
+GitHub Pages 링크는 main 배포가 완료된 뒤 반영된다. 로컬 터널은 개발 PC의 로컬 서버와
+cloudflared가 실행 중일 때만 사용할 수 있으며, 터널을 다시 시작하면 주소가 바뀔 수 있다.
 
 > **이 문서는 발표 자료로 쓸 수 있도록 시계열로 정리했다.**
 > 3장 타임라인 표가 목차, 4장의 각 단계가 슬라이드 한 장에 대응한다.
@@ -80,7 +82,7 @@ feasibility 테스트에 가깝다. 특히 컴퓨터비전 관점에서 핵심�
 | 12 | 08-26 00:20 ~ 01:11 | **키프레임 복셀 복원 + 진단 모드** (`private/baencho`) | 복셀 "3회 관측" 규칙이 시점이 아니라 샘플을 세어 근거리에서 무력화 | 키프레임 단위 중복 제거, 원본 보존·재필터, 정적 복셀 occluder 실험 |
 | 13 | 08-26 | **키프레임 복원을 게임 지형으로** (`private/baencho/keyframe-terrain`) | 12단계의 수정이 진단 모드에만 있고, 게임은 여전히 결함 있는 `VoxelMap`을 사용 | `VoxelTerrain` — 세션 내내 키프레임을 즉시 복셀로 누적. `?terrain=keyframe`으로 선택, 기본은 기존 경로 |
 
-자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 152개 → 251개 → 282개**
+자동 테스트 수 변화: **42개 → 75개 → 83개 → 89개 → 152개 → 251개 → 282개 → 336개**
 
 ---
 
@@ -518,7 +520,7 @@ JSON 내보내기 크기(~40MB)가 실질 상한이다. 재구성이 수 초로 
 
 WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다.
 
-| | 기본 URL | `?occlusion=cpu` | `?depth=cloud` | `?voxel=debug` |
+| | `app.html` | `app.html?occlusion=cpu` | `app.html?depth=cloud` | `app.html?voxel=debug` |
 |---|---|---|---|---|
 | depth usage | `gpu-optimized` | `cpu-optimized` | `cpu-optimized` | `cpu-optimized` |
 | 하는 일 | three.js 내장 가림 | 동적 메시 가림 + 복셀 지도 | 복셀 공간 복원 진단 | 키프레임 복셀 진단 |
@@ -544,7 +546,7 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
 - **three.js 0.180** (렌더링, WebXR 매니저, 내장 depth-sensing 오클루전, GLTFLoader)
 - WebXR 기능: `hit-test`, `depth-sensing`, `dom-overlay`, (옵션) `anchors`, `local-floor`
 - **정적 호스팅**: GitHub Pages (백엔드 없음). CDN(three.js)만 외부 의존.
-- 테스트: Node.js `node:test` — **282개** (순수 로직·게임 상태·WebXR 경계·depth 소비자·통행 격자·복셀 진단)
+- 테스트: Node.js `node:test` — **336개** (순수 로직·게임 상태·WebXR 경계·depth 소비자·통행 격자·복셀 진단·정적 진입점)
 
 ## 7. 실행 / 테스트 방법
 
@@ -581,7 +583,7 @@ WebXR depth 세션 활성화 문제로 분류한다.
 ```bash
 python serve.py                # http://localhost:8000 — 정적 파일 + POST /upload → results/
 cloudflared tunnel --url http://localhost:8000   # 폰용 HTTPS 주소 (WebXR는 HTTPS 필수)
-node --test tests/*.test.mjs   # 자동 테스트 282개
+node --test tests/*.test.mjs   # 자동 테스트 336개
 ```
 
 `python -m http.server`도 여전히 동작하지만 그 경우 스캔 자동 백업은 꺼진다(404로 조용히 실패).
@@ -603,7 +605,7 @@ node --test tests/*.test.mjs   # 자동 테스트 282개
 | 키프레임 복셀 진단 모드 | ✅ 구현·자동 테스트 / 갤럭시 1·2차 진단 완료 |
 | 키프레임 지형 (`?terrain=keyframe`) | ✅ 구현·자동 테스트 / **실기기 미검증**, 기본은 기존 경로 |
 | 정적 복셀 occluder | ⚠️ 실험 (`?occluder=voxel`) / 체감 효과 미미, 기본 꺼짐 |
-| 자동 테스트 | ✅ **282개 통과** |
+| 자동 테스트 | ✅ **336개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 
@@ -641,7 +643,8 @@ node --test tests/*.test.mjs   # 자동 테스트 282개
 ## 10. 코드 구조
 
 ```
-index.html            진입점 (모듈 로더 + HUD DOM)
+index.html            모드 선택 메인페이지 + 기존 쿼리 주소 호환 리다이렉트
+app.html              기본·CPU 가림·공간 복원·복셀 진단 모듈 로더 + HUD DOM
 v4-chase.html         도망 모드 페이지 (?occlusion=cpu 자동 부착)
 v3-mapview.html       지도뷰 페이지
 hcp.glb               숨는 대상 3D 스캔 모델 (하츄핑, 3.7MB)
@@ -694,7 +697,7 @@ src/
   scan-uploader.js    POST /upload 전송·세션 ID·백업 주기 판정 (테스트됨)
 serve.py              개발 서버: 정적 파일 + /upload → results/ (python -m http.server 대체)
 results/              폰이 보낸 스캔 JSON (git 제외)
-tests/                자동 테스트 (node:test) 282개
+tests/                자동 테스트 (node:test) 336개
 docs/superpowers/     설계 문서(specs)와 구현 계획(plans)
 ```
 
