@@ -40,3 +40,24 @@ export const TRAIL_MIN_STEP_M = 0.15;
 export const TRAIL_MAX_POINTS = 300;
 export const OPERATOR_STATUS_GAP_MS = 200;
 export const OPERATOR_RENDER_GAP_MS = 100;
+
+// Chase mode (?mode=chase). Hachuping runs a legal route over the scanned
+// space and the player has to hold SCAN while staying close to catch it.
+export const CHASE_CELL_SIZE_M = 0.20;      // top-down grid resolution
+export const CHASE_SLAB_HEIGHT_M = 0.10;    // vertical resolution per cell
+export const CHASE_GRID_MIN_Y = -3.0;       // 'local' origin sits ~1.4m above the floor
+export const CHASE_GRID_SLABS = 64;
+export const CHASE_BODY_HEIGHT_M = 0.5;     // headroom Hachuping needs
+export const CHASE_MAX_STEP_UP_M = 0.15;    // above this it is a jump
+export const CHASE_MAX_JUMP_UP_M = 0.7;     // above this it cannot go at all
+export const CHASE_MAX_DROP_M = 1.2;
+// A ceiling looks exactly like a tabletop to the grid, so cap how high a
+// surface may be above the detected floor before it stops counting.
+export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 1.3;
+export const CHASE_MIN_WALKABLE_CELLS = 120; // refuse to start on a bare map
+export const CHASE_RETARGET_MS = 3000;
+export const CHASE_STUCK_MS = 4000;
+export const CHASE_RECENT_WINDOW_MS = 15000; // how long a visited cell stays penalised
+export const CHASE_GRID_MAX_TILES = 6000;
+export const CHASE_PATH_MAX_POINTS = 256;
+export const CHASE_GRID_REBUILD_GAP_MS = 250;
