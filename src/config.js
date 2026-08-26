@@ -121,6 +121,36 @@ export const VOXEL_TERRAIN_MAX_CELLS = 200000;
 export const VOXEL_TERRAIN_EVICT_BATCH = 20000;
 export const VOXEL_TERRAIN_MAX_SOLID = 60000; // operator-view instance cap
 
+// TSDF fusion (the keyframe terrain's default; ?fusion=count restores hit
+// counting for A/B). See tsdf-grid.js for what each knob trades.
+// ±2 voxels = ±10cm: wider than ARCore's near-range depth noise (~2-3cm at
+// 2m) so one plane fuses into one band, narrow enough that a table top and
+// the floor under it stay separate surfaces.
+export const TSDF_TRUNCATION_VOXELS = 2;
+// After this many frames a voxel's average becomes exponential, so a moved
+// chair is forgotten in ~30 frames instead of never.
+export const TSDF_MAX_WEIGHT = 32;
+// |tsdf| below this (in truncations) is surface. 0.3 x 10cm = a shell ~3cm
+// each side; 0.5 doubled the blocked chase cells on the test scans because
+// thick floors ate their own headroom.
+export const TSDF_SURFACE_BAND = 0.3;
+// Carve free space on every 3rd column and row: an 80x60 keyframe then
+// marches ~530 rays to the surface instead of 4800, keeping the per-keyframe
+// cost within a frame's budget on a phone.
+export const TSDF_CARVE_STRIDE = 3;
+export const TSDF_CARVE_START_M = 0.3;
+// A sample at L metres weighs min(1, ref / L): depth noise grows with range,
+// so a 4m sample needs twice the agreeing frames of a 2m one. Measured on two
+// room scans against plain counting: isolated floaters -35%, blocked chase
+// cells -40%, at the price of ~25% fewer far cells confirmed — which the
+// player walking the room fills in anyway.
+export const TSDF_DEPTH_WEIGHT_REF_M = 2.0;
+export const TSDF_DEPTH_WEIGHT_POWER = 1;
+// TSDF fuses sparse samples into continuous surfaces, so it can afford half
+// the depth resolution (80x60) and run ~4x cheaper per keyframe: ~5ms on a
+// desktop, versus ~18ms at full resolution.
+export const TSDF_KEYFRAME_MAX_SAMPLES = 4800;
+
 // Scan backup to the dev server (serve.py, POST /upload). The game map is
 // re-sent on this interval and once more at session end, so a tab that dies
 // mid-run still leaves a file at most this stale in results/. The diagnostic

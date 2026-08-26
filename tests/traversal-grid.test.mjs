@@ -245,3 +245,41 @@ test('a path across a room with a table goes under it, not over it', () => {
     assert.ok(world[1] < 0.4, `expected a ground route, but a step sits at y=${world[1]}`);
   }
 });
+
+// TSDF fusion can take a voxel back. The slab bit is reference counted, so a
+// retraction only clears it when no other voxel still supports that slab.
+test('unobserve releases a slab only when its last voxel is retracted', () => {
+  const grid = new TraversalGrid();
+  floorPatch(grid, 0, 1, 0, 1);
+  const cx = grid.cellX(0.1);
+  const cz = grid.cellZ(0.1);
+  const floorY = grid.levels(cx, cz)[0];
+  // A floater 30cm up steals the floor's headroom and reads as a ledge, so
+  // the only standable level moves up to it.
+  const floater = [0.1, 0.32, 0.1];
+  grid.observe(floater);
+  grid.observe([0.12, 0.33, 0.12]); // a second voxel in the same slab
+  assert.deepEqual(grid.levels(cx, cz).length, 1);
+  assert.ok(grid.levels(cx, cz)[0] > floorY + 0.2, 'standing on the floater');
+
+  assert.equal(grid.unobserve(floater), false, 'one vote remains');
+  assert.ok(grid.levels(cx, cz)[0] > floorY + 0.2);
+  assert.equal(grid.unobserve([0.12, 0.33, 0.12]), true, 'last vote clears the slab');
+  assert.equal(grid.levels(cx, cz)[0], floorY, 'back on the floor');
+  assert.equal(grid.unobserve(floater), false, 'nothing left to retract');
+});
+
+test('a cell whose every voxel is retracted reads as unseen, not blocked', () => {
+  const grid = new TraversalGrid();
+  const point = [2.1, 0.02, 2.1];
+  grid.observe(point);
+  const cx = grid.cellX(2.1);
+  const cz = grid.cellZ(2.1);
+  assert.equal(grid.isSeen(cx, cz), true);
+  const revision = grid.getRevision();
+  grid.unobserve(point);
+  assert.equal(grid.isSeen(cx, cz), false);
+  assert.equal(grid.isBlocked(cx, cz), false);
+  assert.ok(grid.getRevision() > revision);
+  assert.equal(grid.stats().seen, 0);
+});

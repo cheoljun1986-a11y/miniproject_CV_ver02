@@ -86,25 +86,32 @@ test('the voxel occluder forces CPU-readable depth', () => {
 });
 
 const {
-  TERRAIN_SOURCES, resolveTerrainSource, usesKeyframeTerrain, usesLegacyTerrain,
+  TERRAIN_SOURCES, FUSION_MODES, resolveTerrainSource, resolveFusionMode,
+  usesKeyframeTerrain, usesLegacyTerrain,
 } = await import('../src/app-mode.js');
 
-test('the legacy accumulator stays the default game terrain; keyframe is opt-in', () => {
-  assert.equal(resolveTerrainSource(''), TERRAIN_SOURCES.LEGACY);
-  assert.equal(resolveTerrainSource('?occlusion=cpu'), TERRAIN_SOURCES.LEGACY);
-  assert.equal(resolveTerrainSource('?terrain=legacy'), TERRAIN_SOURCES.LEGACY);
+test('the keyframe accumulator is the default game terrain; legacy is opt-out', () => {
+  assert.equal(resolveTerrainSource(''), TERRAIN_SOURCES.KEYFRAME);
+  assert.equal(resolveTerrainSource('?occlusion=cpu'), TERRAIN_SOURCES.KEYFRAME);
   assert.equal(resolveTerrainSource('?terrain=keyframe'), TERRAIN_SOURCES.KEYFRAME);
+  assert.equal(resolveTerrainSource('?terrain=legacy'), TERRAIN_SOURCES.LEGACY);
+});
+
+test('TSDF is the default fusion; hit counting is opt-out', () => {
+  assert.equal(resolveFusionMode(''), FUSION_MODES.TSDF);
+  assert.equal(resolveFusionMode('?fusion=tsdf'), FUSION_MODES.TSDF);
+  assert.equal(resolveFusionMode('?fusion=count'), FUSION_MODES.COUNT);
 });
 
 test('exactly one terrain accumulator runs, and only in the game map modes', () => {
   for (const mode of [APP_MODES.CPU_OCCLUSION, APP_MODES.CLOUD]) {
-    assert.equal(usesLegacyTerrain(mode, '?occlusion=cpu'), true);
-    assert.equal(usesKeyframeTerrain(mode, '?occlusion=cpu'), false);
-    assert.equal(usesKeyframeTerrain(mode, '?occlusion=cpu&terrain=keyframe'), true);
-    assert.equal(usesLegacyTerrain(mode, '?occlusion=cpu&terrain=keyframe'), false);
+    assert.equal(usesKeyframeTerrain(mode, '?occlusion=cpu'), true);
+    assert.equal(usesLegacyTerrain(mode, '?occlusion=cpu'), false);
+    assert.equal(usesLegacyTerrain(mode, '?occlusion=cpu&terrain=legacy'), true);
+    assert.equal(usesKeyframeTerrain(mode, '?occlusion=cpu&terrain=legacy'), false);
   }
   for (const mode of [APP_MODES.GPU_OCCLUSION, APP_MODES.VOXEL_DEBUG]) {
-    assert.equal(usesKeyframeTerrain(mode, '?terrain=keyframe'), false);
-    assert.equal(usesLegacyTerrain(mode, ''), false);
+    assert.equal(usesKeyframeTerrain(mode, ''), false);
+    assert.equal(usesLegacyTerrain(mode, '?terrain=legacy'), false);
   }
 });

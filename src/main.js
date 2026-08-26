@@ -6,6 +6,7 @@ import {
   autoStartsGame,
   depthUsageForSession,
   resolveAppMode,
+  resolveFusionMode,
   usesKeyframeTerrain,
   usesLegacyTerrain,
   usesSpaceMapping,
@@ -344,9 +345,13 @@ async function init() {
     if (KEYFRAME_TERRAIN_MODE) {
       voxelTerrain = new VoxelTerrain({
         depthSource,
+        fusion: resolveFusionMode(location.search),
         // Same contract VoxelMap.onSolid had: one cell touched per confirmed
-        // voxel, never a full grid rebuild.
+        // voxel, never a full grid rebuild. TSDF can also take a voxel back
+        // once enough rays have passed through it, so the chase grid must
+        // release that cell or a floater stays a wall forever.
         onSolid: chaseGrid ? (center) => chaseGrid.observe(toMapSpace(center)) : null,
+        onCleared: chaseGrid ? (center) => chaseGrid.unobserve(toMapSpace(center)) : null,
       });
     }
     if (LEGACY_TERRAIN_MODE) {

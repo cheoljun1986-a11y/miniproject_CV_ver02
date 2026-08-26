@@ -52,7 +52,13 @@ export class TraversalGrid {
     // A handful of stray depth points below the real floor would otherwise
     // drag the ceiling up with them.
     floorMinCells = 8,
+    // ... and at least this fraction of the busiest slab's cells. Measured on
+    // two room scans: 0.3 puts the floor on the slab holding the surface for
+    // both hit counting and TSDF, while 0.1 still let a sub-floor noise slab
+    // through for TSDF.
+    floorMinFraction = 0.3,
   } = {}) {
+    this.floorMinFraction = floorMinFraction;
     this.cellSize = cellSize;
     this.slabHeight = slabHeight;
     this.minY = minY;
@@ -109,22 +115,42 @@ export class TraversalGrid {
     const key = cellKey(cx, cz);
     let cell = this.cells.get(key);
     if (!cell) {
-      cell = { cx, cz, lo: UNSEEN, hi: UNSEEN, levels: null, levelsGen: -1 };
+      // votes: how many voxels back each slab bit, so a retracted voxel only
+      // clears the bit when it was the last one holding it up.
+      cell = { cx, cz, lo: UNSEEN, hi: UNSEEN, votes: new Uint16Array(this.slabCount), levels: null, levelsGen: -1 };
       this.cells.set(key, cell);
     }
 
-    if (slab < 32) {
-      const bit = 1 << slab;
-      if ((cell.lo & bit) !== 0) return false;
-      cell.lo |= bit;
-    } else {
-      const bit = 1 << (slab - 32);
-      if ((cell.hi & bit) !== 0) return false;
-      cell.hi |= bit;
-    }
+    if (cell.votes[slab] < 0xffff) cell.votes[slab] += 1;
+    if (this.hasSlab(cell, slab)) return false;
+    if (slab < 32) cell.lo |= 1 << slab;
+    else cell.hi |= 1 << (slab - 32);
     this.slabCells[slab] += 1;
     if (this.floorSlab === null || slab <= this.floorSlab) this.floorDirty = true;
     cell.levels = null; // recompute lazily
+    this.revision += 1;
+    return true;
+  }
+
+  // The inverse of observe, for accumulators that can take a voxel back
+  // (TSDF fusion clears a floater once enough rays pass through it). Returns
+  // true when the slab bit actually cleared. An empty cell is dropped so it
+  // reads as unseen again rather than blocked.
+  unobserve([x, y, z]) {
+    const slab = this.slabOf(y);
+    if (slab < 0 || slab >= this.slabCount) return false;
+    const cell = this.cells.get(cellKey(this.cellX(x), this.cellZ(z)));
+    if (!cell || cell.votes[slab] === 0) return false;
+    cell.votes[slab] -= 1;
+    if (cell.votes[slab] > 0) return false;
+
+    if (slab < 32) cell.lo &= ~(1 << slab);
+    else cell.hi &= ~(1 << (slab - 32));
+    this.slabCells[slab] -= 1;
+    if (cell.lo === UNSEEN && cell.hi === UNSEEN) this.cells.delete(cellKey(cell.cx, cell.cz));
+    // The floor may have lost support; let the next read decide.
+    this.floorDirty = true;
+    cell.levels = null;
     this.revision += 1;
     return true;
   }
@@ -135,9 +161,19 @@ export class TraversalGrid {
   resolveFloorSlab() {
     if (!this.floorDirty) return this.floorSlab;
     this.floorDirty = false;
+    // Absolute floor of 8 cells was tuned for hit counting. A fused map emits
+    // several times more voxels, so a slab of sub-floor noise clears 8 cells
+    // easily and drags the standable ceiling down with it (measured: 2 slabs
+    // low, 158 desk-top cells lost). The bar is therefore also relative to
+    // the busiest slab, which is the real floor or something as big.
+    let busiest = 0;
+    for (let slab = 0; slab < this.slabCount; slab += 1) {
+      if (this.slabCells[slab] > busiest) busiest = this.slabCells[slab];
+    }
+    const minCells = Math.max(this.floorMinCells, Math.ceil(busiest * this.floorMinFraction));
     let found = null;
     for (let slab = 0; slab < this.slabCount; slab += 1) {
-      if (this.slabCells[slab] >= this.floorMinCells) { found = slab; break; }
+      if (this.slabCells[slab] >= minCells) { found = slab; break; }
     }
     if (found === null) {
       for (let slab = 0; slab < this.slabCount; slab += 1) {

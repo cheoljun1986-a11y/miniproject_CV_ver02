@@ -76,6 +76,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { keyframeStoreFromJSON, rebuildVoxelGrid } from './src/keyframe-store.js';
+import { TsdfGrid } from './src/tsdf-grid.js';
+import {
+  TSDF_CARVE_START_M, TSDF_CARVE_STRIDE, TSDF_DEPTH_WEIGHT_POWER, TSDF_DEPTH_WEIGHT_REF_M,
+  TSDF_MAX_WEIGHT, TSDF_SURFACE_BAND, TSDF_TRUNCATION_VOXELS,
+} from './src/config.js';
 import { voxelCellsFromJSON } from './src/voxel-cells-codec.js';
 import { cellMeanPosition, selectCells } from './src/voxel-grid.js';
 import { buildOccluderGeometry } from './src/voxel-occluder-mesh.js';
@@ -152,6 +157,53 @@ let loadedCells = null; // { grid, meta } from voxelCellsFromJSON
 let params = { ...DEFAULT_VOXEL_DEBUG_PARAMS };
 let colorMode = VOXEL_COLOR_MODES.OBSERVATION;
 let mode = 'voxel'; // voxel | surface
+// How a keyframe scan is fused: 'count' is the diagnostic's hit counting,
+// 'tsdf' is what the game terrain runs (config.js knobs), at the same half
+// depth resolution the phone uses. Shown side by side so the two maps of one
+// scan can be judged against each other.
+let fusion = 'count';
+
+function halfResolution(k) {
+  const width = Math.ceil(k.width / 2);
+  const height = Math.ceil(k.height / 2);
+  const depths = new Float32Array(width * height);
+  for (let r = 0; r < height; r += 1) {
+    for (let c = 0; c < width; c += 1) depths[r * width + c] = k.depths[(r * 2) * k.width + c * 2];
+  }
+  return { ...k, width, height, depths };
+}
+
+function rebuildTsdf(keyframes) {
+  const grid = new TsdfGrid({
+    voxelSize: params.voxelSize,
+    minWeight: params.minObservations,
+    truncationVoxels: TSDF_TRUNCATION_VOXELS,
+    maxWeight: TSDF_MAX_WEIGHT,
+    surfaceBand: TSDF_SURFACE_BAND,
+    carveStride: TSDF_CARVE_STRIDE,
+    carveStartM: TSDF_CARVE_START_M,
+    depthWeightRefM: TSDF_DEPTH_WEIGHT_REF_M,
+    depthWeightPower: TSDF_DEPTH_WEIGHT_POWER,
+    maxCells: 4000000,
+  });
+  const stats = { rejectedZero: 0, rejectedRange: 0, rejectedGradient: 0, cleared: 0 };
+  for (const k of keyframes) {
+    const r = grid.integrate(halfResolution(k), {
+      nearM: params.nearM, farM: params.farM, gradientMaxJumpM: params.gradientMaxJumpM,
+    });
+    stats.rejectedZero += r.rejectedZero;
+    stats.rejectedRange += r.rejectedRange;
+    stats.rejectedGradient += r.rejectedGradient;
+    stats.cleared += r.becameClear;
+  }
+  // Solid cells only, in the VoxelGrid shape the drawing code reads. The
+  // observation threshold is already applied by minWeight above.
+  const solid = grid.getSolidCells();
+  return {
+    grid: { getCells: () => solid, getCellCount: () => solid.length, getHistogram: () => grid.getHistogram() },
+    stats: { ...stats, cells: grid.getSolidCount(), histogram: grid.getHistogram(), allCells: grid.getCellCount() },
+  };
+}
 
 function rebuild() {
   if (!store && !loadedCells) return;
@@ -162,13 +214,15 @@ function rebuild() {
     grid = loadedCells.grid;
     stats = { cells: grid.getCellCount(), histogram: grid.getHistogram() };
   } else {
-    ({ grid, stats } = rebuildVoxelGrid(store.getKeyframes(), {
-      voxelSize: params.voxelSize,
-      nearM: params.nearM,
-      farM: params.farM,
-      gradientMaxJumpM: params.gradientMaxJumpM,
-      now: () => performance.now(),
-    }));
+    ({ grid, stats } = fusion === 'tsdf'
+      ? rebuildTsdf(store.getKeyframes())
+      : rebuildVoxelGrid(store.getKeyframes(), {
+        voxelSize: params.voxelSize,
+        nearM: params.nearM,
+        farM: params.farM,
+        gradientMaxJumpM: params.gradientMaxJumpM,
+        now: () => performance.now(),
+      }));
   }
   const buildMs = performance.now() - t0;
 
@@ -184,7 +238,8 @@ function rebuild() {
   const head = loadedCells
     ? `게임 복셀맵 (${loadedCells.meta.source}) · 세션 ${loadedCells.meta.sessionId ?? '-'} · 키프레임 ${loadedCells.meta.keyframeCount}\n`
       + `복셀 ${stats.cells} (표시 ${shown.length})\n`
-    : `키프레임 ${store.getCount()} · 복셀 ${stats.cells} (표시 ${shown.length})\n`;
+    : `키프레임 ${store.getCount()} · ${fusion === 'tsdf' ? `TSDF solid ${stats.cells} / 셀 ${stats.allCells} · 철회 ${stats.cleared}` : `복셀 ${stats.cells}`} (표시 ${shown.length})
+`;
   const rejected = loadedCells
     ? ''
     : `버림  0값 ${stats.rejectedZero} · 범위 ${stats.rejectedRange} · 경사 ${stats.rejectedGradient}\n`;
@@ -304,6 +359,19 @@ function buildUI() {
   };
   modeBtn('복셀', 'voxel');
   modeBtn('표면 메시', 'surface');
+
+  // Fusion applies to raw keyframe scans only; a game map is already fused.
+  if (store) {
+    const fusionBtn = (text, value) => {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.className = fusion === value ? 'on' : '';
+      b.addEventListener('click', () => { fusion = value; rebuild(); buildUI(); });
+      modes.appendChild(b);
+    };
+    fusionBtn('카운트', 'count');
+    fusionBtn('TSDF', 'tsdf');
+  }
 
   const actions = document.getElementById('actions');
   actions.innerHTML = '';

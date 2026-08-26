@@ -30,16 +30,22 @@ function makeSource(view) {
 
 const pose = (x = 0) => ({ position: [x, 0, 0], quaternion: [0, 0, 0, 1] });
 
+// The count-fusion rig: these tests pin the hit-counting contract (cell
+// counts, one observation per keyframe) that ?fusion=count keeps. The TSDF
+// rig below covers the default path.
 function rig({ view = makeView(), minObservations = 3, ...rest } = {}) {
   const solids = [];
+  const cleared = [];
   const terrain = new VoxelTerrain({
     depthSource: makeSource(view),
     minObservations,
     minGapMs: 0,
+    fusion: 'count',
     onSolid: (c) => solids.push(c),
+    onCleared: (c) => cleared.push(c),
     ...rest,
   });
-  return { terrain, solids };
+  return { terrain, solids, cleared };
 }
 
 test('a keyframe is folded into the grid the moment it lands', () => {
@@ -147,4 +153,74 @@ test('exportJSON carries every cell with its observation count and the trail', a
   const back = voxelCellsFromJSON(json);
   assert.ok(back.grid.getCells().every((c) => c.observationCount === 2));
   assert.deepEqual(back.meta.playerPath, [[0, 0, 0]]);
+});
+
+// ── TSDF fusion (the default) ────────────────────────────────
+// The identity-matrix rig puts the camera at the origin looking down -Z, so a
+// keyframe at depth d is a wall at z = -d seen head-on.
+function tsdfRig({ view = makeView(1.5, 8, 6), minObservations = 3, ...rest } = {}) {
+  const solids = [];
+  const cleared = [];
+  const terrain = new VoxelTerrain({
+    depthSource: makeSource(view),
+    minObservations,
+    minGapMs: 0,
+    onSolid: (c) => solids.push(c),
+    onCleared: (c) => cleared.push(c),
+    ...rest,
+  });
+  return { terrain, solids, cleared };
+}
+
+test('tsdf is the default fusion and a wall becomes solid after minObservations frames', () => {
+  const { terrain, solids } = tsdfRig();
+  assert.equal(terrain.fusion, 'tsdf');
+  terrain.update({}, {}, 0, pose(0));
+  terrain.update({}, {}, 1, pose(1));
+  assert.equal(terrain.getSolidCount(), 0, 'two viewpoints confirm nothing');
+  terrain.update({}, {}, 2, pose(2));
+  assert.ok(terrain.getSolidCount() > 0);
+  assert.equal(solids.length, terrain.getSolidCount());
+  // Every solid voxel hugs the wall plane.
+  for (const { position } of terrain.getSolidVoxels()) {
+    assert.ok(Math.abs(position[2] + 1.5) <= 0.1, `z ${position[2]} is off the wall`);
+  }
+  assert.ok(terrain.getStats().carved > 0, 'free space in front of the wall was carved');
+});
+
+test('tsdf retracts a phantom once the real surface is seen through it', () => {
+  const { terrain, cleared } = tsdfRig({ tsdf: { carveStride: 1, carveStartM: 0 } });
+  // Three frames of a phantom wall at 0.5m ...
+  for (let i = 0; i < 3; i += 1) terrain.update({}, {}, i, pose(i));
+  const phantom = terrain.getSolidCount();
+  assert.ok(phantom > 0);
+  // ... then the real wall at 3m, many times, from the same spot.
+  terrain.capture.depthSource = makeSource(makeView(3.0, 8, 6));
+  for (let i = 3; i < 30; i += 1) terrain.update({}, {}, i, pose(i));
+  assert.ok(cleared.length >= phantom * 0.9, `cleared ${cleared.length} of ${phantom}`);
+  assert.equal(terrain.getStats().cleared, cleared.length);
+  // The solid list shrank to match, and no entry sits at the phantom depth.
+  assert.equal(terrain.getSolidVoxels().filter((v) => Math.abs(v.position[2] + 0.5) < 0.1).length, 0);
+  assert.equal(terrain.getSolidVoxels().length, terrain.solidIndex.size);
+});
+
+test('tsdf export carries only surface cells, in the shared voxel-cells shape', async () => {
+  const { voxelCellsFromJSON } = await import('../src/voxel-cells-codec.js');
+  const { terrain } = tsdfRig();
+  for (let i = 0; i < 3; i += 1) terrain.update({}, {}, i, pose(i));
+  const json = JSON.parse(terrain.exportJSON({ sessionId: 's2' }));
+  assert.equal(json.source, 'keyframe');
+  assert.ok(json.cells.length > 0);
+  assert.ok(json.cells.length < terrain.getCellCount(), 'free-space and inside cells are omitted');
+  const back = voxelCellsFromJSON(json);
+  assert.ok(back.grid.getCells().every((c) => c.observationCount >= 1));
+});
+
+test('tsdf reset drops the solid index with everything else', () => {
+  const { terrain } = tsdfRig({ minObservations: 1 });
+  terrain.update({}, {}, 0, pose(0));
+  assert.ok(terrain.solidIndex.size > 0);
+  terrain.reset();
+  assert.equal(terrain.solidIndex.size, 0);
+  assert.equal(terrain.getSolidCount(), 0);
 });
