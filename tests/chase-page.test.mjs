@@ -4,7 +4,9 @@ import { readFile } from 'node:fs/promises';
 
 import { createUI } from '../src/ui.js';
 
-const CHASE_IDS = ['chaseBtn', 'chasePanel', 'chaseGaugeFill', 'chaseHint', 'chaseArrow'];
+// chaseBtn is deliberately absent: the chase starts when the map is frozen,
+// so there is no mode to toggle.
+const CHASE_IDS = ['chasePanel', 'chaseGaugeFill', 'chaseHint', 'chaseArrow'];
 
 // ── page markup ──────────────────────────────────────────────
 test('the chase page carries every element the chase UI touches', async () => {
@@ -117,16 +119,18 @@ test('the chase page reports its controls and drives the gauge', () => {
   assert.match(doc.elements.get('chaseArrow').style.transform, /rotate\(0.5rad\)/);
 });
 
-test('the chase toggle button is wired', () => {
+test('the chase page is recognised by its gauge panel, not by a toggle', () => {
+  const doc = stubDocument([...BASE_IDS, ...CHASE_IDS]);
+  assert.equal(createUI(doc).hasChaseControls(), true);
+  // index.html has no chase panel and must stay out of the chase wiring.
+  assert.equal(createUI(stubDocument(BASE_IDS)).hasChaseControls(), false);
+});
+
+test('binding the chase with no toggle button present does not throw', () => {
   const doc = stubDocument([...BASE_IDS, ...CHASE_IDS]);
   const ui = createUI(doc);
-  let toggled = 0;
-  ui.bindChase({ onToggle() { toggled += 1; }, onHoldStart() {}, onHoldEnd() {} });
-
-  const button = doc.elements.get('chaseBtn');
-  const click = button.listeners.find(([type]) => type === 'click');
-  click[1]({ stopPropagation() {} });
-  assert.equal(toggled, 1);
+  ui.bindChase({ onToggle() {} });
+  assert.equal(doc.elements.has('chaseBtn'), false);
 });
 
 // ── anchor actually moves the rendered model ─────────────────
@@ -317,12 +321,31 @@ test('chase-only: the hide-and-seek buttons are gone from the chase page', async
   const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
   assert.doesNotMatch(html, /id="scanBtn"/);
   assert.doesNotMatch(html, /id="newRoundBtn"/);
+  // No chase toggle either: freezing the map starts it.
+  assert.doesNotMatch(html, /id="chaseBtn"/);
   assert.match(html, /id="mapBtn"/);
-  assert.match(html, /id="chaseBtn"/);
 });
 
 test('index.html keeps its hide-and-seek buttons', async () => {
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /id="scanBtn"/);
   assert.match(html, /id="newRoundBtn"/);
+});
+
+// ── the page has no idle state ───────────────────────────────
+test('main.js starts the chase from freezeMap, not from a button', async () => {
+  const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  // freezeMap must call startChase itself.
+  const freeze = src.slice(src.indexOf('function freezeMap('));
+  const body = freeze.slice(0, freeze.indexOf('\n}\n'));
+  assert.match(body, /startChase\(\)/);
+  // And the old opt-in toggle must be gone entirely.
+  assert.doesNotMatch(src, /function toggleChase/);
+  assert.doesNotMatch(src, /setChaseButton\('/);
+});
+
+test('the chase page instructions describe the automatic start', async () => {
+  const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
+  assert.match(html, /맵 생성 종료/);
+  assert.doesNotMatch(html, /도망 모드를 누르/);
 });

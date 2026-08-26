@@ -303,8 +303,11 @@ export function createUI(documentRoot = document) {
       return elements.operatorCanvas;
     },
     bindChase,
+    // Identifies the chase page. Keyed on the gauge panel rather than a
+    // button: the chase starts when the map is frozen, so the page carries no
+    // toggle to key off any more.
     hasChaseControls() {
-      return Boolean(elements.chaseBtn);
+      return Boolean(elements.chasePanel);
     },
     // Map-building lifecycle button; only the chase page has one.
     setMapButton(label, enabled) {

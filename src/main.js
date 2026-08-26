@@ -236,7 +236,8 @@ async function init() {
   });
   // No hold handlers: capture now needs only range plus aim, so SCAN keeps its
   // ordinary tap behaviour and never sees a long press.
-  ui.bindChase({ onToggle: toggleChase });
+  // No chase toggle any more: the chase starts when the map is frozen.
+  ui.bindChase({ onToggle: () => startChase() });
   addEventListener('resize', onResize);
 
   const supported = Boolean(navigator.xr)
@@ -517,9 +518,12 @@ function freezeMap() {
   mapFrozen = true;
   const { walkable } = chaseGrid.stats();
   const candidateCount = gridCandidatePool(chaseGrid).length;
-  game.setControls({ newRound: candidateCount > 0 });
+  game.setControls({ newRound: false });
   ui.setMapButton('맵 다시 만들기', true);
   ui.setStatus(`지도 확정 — 설 수 있는 칸 ${walkable}`);
+  // Freezing the map IS the start signal: this page is the chase, so there is
+  // nothing left to opt into once terrain exists.
+  if (candidateCount > 0 && startChase()) return;
   ui.setMessage(candidateCount > 0
     ? `설 수 있는 자리 ${candidateCount}곳 — 도망 모드를 누르면 하츄핑이 도망칩니다.`
     : '설 수 있는 곳이 없습니다 — 맵 다시 만들기로 더 넓게 스캔해주세요.');
@@ -540,7 +544,6 @@ function resetChaseState() {
   chaseArrowGate = makeArrowGate();
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
-  ui.setChaseButton('도망 모드', true);
   ui.setScanVisible(true);
 }
 
@@ -553,41 +556,37 @@ function stopChase(message) {
   game.setTargetOpacity(NINJA_CAMOUFLAGE_OPACITY);
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
-  ui.setChaseButton('도망 모드', true);
   ui.setScanVisible(true);
+  // The round is over; the only way on is a fresh map.
+  ui.setMapButton('맵 다시 만들기', true);
   if (message) ui.setMessage(message);
 }
 
-function toggleChase() {
-  if (!chaseRunner || !chaseGrid) return;
-  if (chaseActive) {
-    stopChase('도망 모드를 껐습니다.');
-    return;
-  }
+// Begins the chase on the frozen map. Returns false, with the reason on
+// screen, when the terrain cannot support one yet. This page has no idle
+// state to return to: freezing the map starts the game.
+function startChase() {
+  if (!chaseRunner || !chaseGrid) return false;
+  if (chaseActive) return true;
 
-  if (ui.hasMapButton() && !mapFrozen) {
-    ui.setMessage('먼저 맵 생성을 눌러 지도를 만들고, 맵 생성 종료로 확정하세요.');
-    return;
-  }
   const { walkable } = chaseGrid.stats();
   if (walkable < CHASE_MIN_WALKABLE_CELLS) {
     ui.setMessage(`지도가 아직 부족합니다 — 갈 수 있는 칸 ${walkable}/${CHASE_MIN_WALKABLE_CELLS}. 맵 다시 만들기로 더 걸으며 비춰주세요.`);
-    return;
+    return false;
   }
-  // No hide-and-seek round is required first: place Hachuping on the map now
-  // and let it run. The old flow forced scan → hide → find → chase, and the
-  // find step contributed nothing to the chase.
+  // Hachuping is placed straight onto the frozen map: no hide-and-seek round
+  // precedes the chase on this page.
   let target = game.getTargetPosition();
   if (!target) {
     if (!game.hideNewTarget()) {
       ui.setMessage('하츄핑을 놓을 자리를 찾지 못했습니다 — 맵을 더 넓게 만들어주세요.');
-      return;
+      return false;
     }
     target = game.getTargetPosition();
   }
-  if (!chaseRunner.start(target, performance.now())) {
+  if (!chaseRunner.start(toMapSpace(target), performance.now())) {
     ui.setMessage('하츄핑이 설 자리를 찾지 못했습니다. 주변 바닥을 더 비춰주세요.');
-    return;
+    return false;
   }
 
   captureGauge.reset();
@@ -597,10 +596,10 @@ function toggleChase() {
   game.setTargetOpacity(1);
   ui.setChaseVisible(true);
   ui.setChaseGauge(0);
-  ui.setChaseButton('도망 모드 끄기', true);
   ui.setScanVisible(false);
   ui.setStatus('하츄핑이 도망칩니다');
-  ui.setMessage('1.2m 안까지 쫓아가 화면 중앙에 5초간 담아두세요.');
+  ui.setMessage('1.2m 안까지 쪽아가 화면 중앙에 5초간 담아두세요.');
+  return true;
 }
 
 function updateChase(time, viewerPose) {
