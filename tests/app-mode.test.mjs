@@ -84,3 +84,27 @@ test('the voxel occluder forces CPU-readable depth', () => {
   assert.equal(depthUsageForSession(APP_MODES.CPU_OCCLUSION, true), 'cpu-optimized');
   assert.equal(depthUsageForSession(APP_MODES.VOXEL_DEBUG, false), 'cpu-optimized');
 });
+
+const {
+  TERRAIN_SOURCES, resolveTerrainSource, usesKeyframeTerrain, usesLegacyTerrain,
+} = await import('../src/app-mode.js');
+
+test('the legacy accumulator stays the default game terrain; keyframe is opt-in', () => {
+  assert.equal(resolveTerrainSource(''), TERRAIN_SOURCES.LEGACY);
+  assert.equal(resolveTerrainSource('?occlusion=cpu'), TERRAIN_SOURCES.LEGACY);
+  assert.equal(resolveTerrainSource('?terrain=legacy'), TERRAIN_SOURCES.LEGACY);
+  assert.equal(resolveTerrainSource('?terrain=keyframe'), TERRAIN_SOURCES.KEYFRAME);
+});
+
+test('exactly one terrain accumulator runs, and only in the game map modes', () => {
+  for (const mode of [APP_MODES.CPU_OCCLUSION, APP_MODES.CLOUD]) {
+    assert.equal(usesLegacyTerrain(mode, '?occlusion=cpu'), true);
+    assert.equal(usesKeyframeTerrain(mode, '?occlusion=cpu'), false);
+    assert.equal(usesKeyframeTerrain(mode, '?occlusion=cpu&terrain=keyframe'), true);
+    assert.equal(usesLegacyTerrain(mode, '?occlusion=cpu&terrain=keyframe'), false);
+  }
+  for (const mode of [APP_MODES.GPU_OCCLUSION, APP_MODES.VOXEL_DEBUG]) {
+    assert.equal(usesKeyframeTerrain(mode, '?terrain=keyframe'), false);
+    assert.equal(usesLegacyTerrain(mode, ''), false);
+  }
+});

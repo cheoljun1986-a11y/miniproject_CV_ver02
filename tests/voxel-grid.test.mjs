@@ -139,3 +139,31 @@ test('confirmed positions honour a non-zero origin', () => {
   });
   assert.ok(Math.abs(points[0][0] - 1.05) < 1e-9);
 });
+
+test('onConfirmed fires once per cell when the threshold is reached', () => {
+  const confirmed = [];
+  const grid = new VoxelGrid({ confirmMinObservations: 2, onConfirmed: (c) => confirmed.push(c.key) });
+  grid.observe(0.01, 0.01, 0.01, 1);
+  grid.observe(0.02, 0.02, 0.02, 1); // same frame, same cell: still one observation
+  assert.equal(confirmed.length, 0);
+  grid.observe(0.01, 0.01, 0.01, 2);
+  assert.deepEqual(confirmed, ['0,0,0']);
+  grid.observe(0.01, 0.01, 0.01, 3);
+  assert.equal(confirmed.length, 1);
+});
+
+test('evictUnconfirmed drops single-look cells oldest first and keeps confirmed ones', () => {
+  const grid = new VoxelGrid({ voxelSize: 1 });
+  grid.observe(0.5, 0, 0, 1); // cell A, seen once (oldest)
+  grid.observe(1.5, 0, 0, 1); // cell B
+  grid.observe(1.5, 0, 0, 2); // B confirmed twice
+  grid.observe(2.5, 0, 0, 2); // cell C, seen once
+  const revision = grid.getRevision();
+  assert.equal(grid.evictUnconfirmed(1), 1);
+  assert.equal(grid.getCell(0, 0, 0), null, 'oldest unconfirmed goes first');
+  assert.ok(grid.getCell(1, 0, 0));
+  assert.ok(grid.getCell(2, 0, 0));
+  assert.ok(grid.getRevision() > revision);
+  assert.equal(grid.evictUnconfirmed(5), 1);
+  assert.equal(grid.getCellCount(), 1);
+});

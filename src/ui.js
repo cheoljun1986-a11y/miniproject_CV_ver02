@@ -59,6 +59,7 @@ export function formatOperatorStatus({
   anchorState = null,
   voxelCount = 0,
   cameraAccess = null,
+  keyframeCount = null,
   ninjaPosition = null,
   playerPosition = null,
   pathPointCount = 0,
@@ -67,7 +68,8 @@ export function formatOperatorStatus({
   // session camera images, which decides if real-world voxel color is possible.
   // '?' until the first frame answers it.
   const cameraTag = cameraAccess === null ? '?' : (cameraAccess ? 'O' : 'X');
-  return `운영자 공간지도 · 복셀 ${voxelCount} · 카메라 ${cameraTag}
+  const keyframeTag = keyframeCount === null ? '' : ` · 키프레임 ${keyframeCount}`;
+  return `운영자 공간지도 · 복셀 ${voxelCount} · 카메라 ${cameraTag}${keyframeTag}
 ${formatAnchorStatus(anchorState)}
 ${formatPosition('Ninja', ninjaPosition)}
 ${formatPosition('플레이어', playerPosition)} · 경로 ${pathPointCount}점`;

@@ -45,13 +45,15 @@ export const OPERATOR_RENDER_GAP_MS = 100;
 // capture is gated on camera motion rather than a wall clock, and every filter
 // threshold below is a starting value the on-device sliders can re-tune without
 // a rescan.
-export const VOXEL_SCAN_SECONDS = 20;
+// The diagnostic scan runs until the panel's stop button, for practical
+// purposes: a room takes minutes to cover, and rebuild latency is acceptable
+// there because the mode exists to inspect the map, not to play on it.
+export const VOXEL_SCAN_SECONDS = 600;
 export const VOXEL_KEYFRAME_MIN_TRANSLATION_M = 0.20;
 export const VOXEL_KEYFRAME_MIN_ROTATION_DEG = 15;
-// Raised from 15 after on-device scans capped out at 6.6s and 9.5s of the 20s
-// window. More keyframes buy both room coverage and viewpoint overlap, which is
-// what lifts cells out of the single-observation bucket.
-export const VOXEL_KEYFRAME_MAX = 40;
+// Raw keyframes cost ~77KB each (160x120 float32), so 400 is ~31MB in memory
+// and ~40MB as exported JSON — the export size is what bounds this, not RAM.
+export const VOXEL_KEYFRAME_MAX = 400;
 export const VOXEL_KEYFRAME_MIN_GAP_MS = 250; // frame-budget guard, not a pose gate
 export const VOXEL_KEYFRAME_MAX_SAMPLES = 40000; // 160x120 native fits at stride 1
 export const VOXEL_DEBUG_MAX_CELLS = 200000;
@@ -93,3 +95,25 @@ export const VOXEL_OCCLUDER_POLYGON_OFFSET_UNITS = 1;
 // to be depth noise as a surface, and standing Hachuping on noise is worse
 // than leaving a gap in the map.
 export const VOXEL_TRAVERSAL_MIN_OBSERVATIONS = 3;
+
+// Keyframe terrain — opt-in game space map (?terrain=keyframe).
+// Same gate and filters as the diagnostic, but it runs for the whole session
+// with no keyframe cap and folds each keyframe into the grid the moment it
+// lands, keeping only the voxels. Memory therefore scales with room size, not
+// with time walked.
+export const VOXEL_TERRAIN_MIN_OBSERVATIONS = 3;
+// Wider than the diagnostic's 250ms: a keyframe costs a full-resolution depth
+// read plus filter and unproject, and mid-chase the camera never stops moving.
+export const VOXEL_TERRAIN_MIN_GAP_MS = 400;
+export const VOXEL_TERRAIN_MAX_CELLS = 200000;
+// When the cell cap is reached, cells seen only once are evicted first: they
+// are overwhelmingly depth noise, and the alternative is a map that stops
+// growing the moment the player enters a new room.
+export const VOXEL_TERRAIN_EVICT_BATCH = 20000;
+export const VOXEL_TERRAIN_MAX_SOLID = 60000; // operator-view instance cap
+
+// Scan backup to the dev server (serve.py, POST /upload). The game map is
+// re-sent on this interval and once more at session end, so a tab that dies
+// mid-run still leaves a file at most this stale in results/. The diagnostic
+// scan (tens of MB) is sent only at session end and on demand.
+export const SCAN_BACKUP_INTERVAL_MS = 30000;

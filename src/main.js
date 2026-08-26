@@ -6,7 +6,8 @@ import {
   autoStartsGame,
   depthUsageForSession,
   resolveAppMode,
-  usesDepthCloud,
+  usesKeyframeTerrain,
+  usesLegacyTerrain,
   usesSpaceMapping,
   usesVoxelOccluder,
 } from './app-mode.js';
@@ -20,10 +21,12 @@ import {
   NINJA_CAMOUFLAGE_OPACITY,
   OPERATOR_RENDER_GAP_MS,
   OPERATOR_STATUS_GAP_MS,
+  SCAN_BACKUP_INTERVAL_MS,
   TRAIL_MAX_POINTS,
   TRAIL_MIN_STEP_M,
   VOXEL_DEBUG_MAX_INSTANCES,
   VOXEL_OCCLUDER_MIN_OBSERVATIONS,
+  VOXEL_TERRAIN_MAX_SOLID,
   VOXEL_TRAVERSAL_MIN_OBSERVATIONS,
   VOXEL_MAX_SOLID,
   VOXEL_MAX_PENDING,
@@ -60,6 +63,9 @@ import { NinjaGame } from './ninja-game.js';
 import * as ninjaModel from './ninja-model.js';
 import { OperatorView } from './operator-view.js';
 import { PlayerTrail } from './player-trail.js';
+import {
+  ScanUploader, formatSessionId, shouldBackup, uploadName,
+} from './scan-uploader.js';
 import { SpatialMapper } from './spatial-mapper.js';
 import {
   createUI,
@@ -68,12 +74,14 @@ import {
   formatVoxelDebugStatus,
   formatVoxelDebugSummary,
 } from './ui.js';
+import { cellsFromSolidVoxels, voxelCellsToJSON } from './voxel-cells-codec.js';
 import { confirmedCellPositions } from './voxel-grid.js';
 import { VoxelDebugController } from './voxel-debug-controller.js';
 import { createVoxelDebugPanel } from './voxel-debug-panel.js';
 import { VoxelMap } from './voxel-map.js';
 import { VoxelOccluder } from './voxel-occluder.js';
 import { VoxelOverlay } from './voxel-overlay.js';
+import { VoxelTerrain } from './voxel-terrain.js';
 import { XRSessionController } from './xr-session.js';
 
 // A WebXR session uses one depth mode. CPU mode shares that single feed between
@@ -88,7 +96,11 @@ const VOXEL_DEBUG_MODE = APP_MODE === APP_MODES.VOXEL_DEBUG;
 const VOXEL_OCCLUDER_ON = usesVoxelOccluder(location.search);
 const KEYFRAME_SCAN_MODE = VOXEL_DEBUG_MODE || VOXEL_OCCLUDER_ON;
 const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE) || VOXEL_OCCLUDER_ON;
-const DEPTH_CLOUD_MODE = usesDepthCloud(APP_MODE);
+// The game's space map comes from one of two accumulators. The keyframe scan
+// modes already run their own capture and feed the chase grid from it
+// (maybeFeedChaseGrid), so neither terrain accumulator runs alongside them.
+const KEYFRAME_TERRAIN_MODE = usesKeyframeTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
+const LEGACY_TERRAIN_MODE = usesLegacyTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
 
 const ui = createUI();
 let scene;
@@ -106,7 +118,8 @@ let cameraAccess = null;
 let depthCloud = null;
 let occluder = null; // depth-sensing occlusion mesh (real world hides the ninja)
 let cpuDepthOccluder = null;
-let voxelMap = null;
+let voxelMap = null;      // legacy accumulator (default)
+let voxelTerrain = null;  // keyframe accumulator (?terrain=keyframe)
 let playerTrail = null;
 let operatorView = null;
 let operatorVisible = false;
@@ -130,6 +143,15 @@ let voxelOverlay = null;
 let voxelPanel = null;
 let voxelOccluder = null;
 let chaseFedRevision = -1;
+
+// ── scan backup ───────────────────────────────────────────────
+// One file per AR session in results/ on the dev server, refreshed on an
+// interval and finalised at session end. Nothing here is load-bearing: with
+// no /upload endpoint every attempt fails quietly.
+let uploader = null;
+let sessionId = null;
+let lastBackupAt = -Infinity;
+let backedUpRevision = -1;
 
 init();
 
@@ -221,6 +243,7 @@ async function init() {
     depthSource = new CpuDepthFrameSource({
       getSession: () => xrSession.getSession(),
     });
+    uploader = new ScanUploader({ onStatus: (text) => ui.setMessage(text) });
     if (ui.hasChaseControls()) {
       chaseGrid = new TraversalGrid({
         cellSize: CHASE_CELL_SIZE_M,
@@ -245,7 +268,15 @@ async function init() {
       minStep: TRAIL_MIN_STEP_M,
       maxPoints: TRAIL_MAX_POINTS,
     });
-    if (DEPTH_CLOUD_MODE && !KEYFRAME_SCAN_MODE) {
+    if (KEYFRAME_TERRAIN_MODE) {
+      voxelTerrain = new VoxelTerrain({
+        depthSource,
+        // Same contract VoxelMap.onSolid had: one cell touched per confirmed
+        // voxel, never a full grid rebuild.
+        onSolid: chaseGrid ? (center) => chaseGrid.observe(center) : null,
+      });
+    }
+    if (LEGACY_TERRAIN_MODE) {
       voxelMap = new VoxelMap({
         voxelSize: VOXEL_SIZE_M,
         solidMinHits: VOXEL_SOLID_MIN_HITS,
@@ -280,7 +311,9 @@ async function init() {
     try {
       operatorView = new OperatorView({
         canvas: ui.getOperatorCanvas(),
-        maxVoxels: VOXEL_DEBUG_MODE ? VOXEL_DEBUG_MAX_INSTANCES : VOXEL_MAX_SOLID,
+        maxVoxels: VOXEL_DEBUG_MODE
+          ? VOXEL_DEBUG_MAX_INSTANCES
+          : KEYFRAME_TERRAIN_MODE ? VOXEL_TERRAIN_MAX_SOLID : VOXEL_MAX_SOLID,
       });
       ui.setOperatorButtonVisible(true);
       ui.bindOperator({
@@ -311,6 +344,7 @@ async function init() {
           voxelOccluder?.setVisible(true);
         },
         occluder: voxelOccluder,
+        onUpload: () => backupScan('manual'),
       });
       // Nothing on the legacy metrics card applies while the game is idle, and
       // the panel already reports everything else.
@@ -341,6 +375,7 @@ async function init() {
     resetChaseState();
     depthCloud?.reset();
     voxelMap?.reset();
+    voxelTerrain?.reset();
     playerTrail?.reset();
     lastOperatorStatusTime = -Infinity;
     lastOperatorRenderTime = -Infinity;
@@ -351,17 +386,24 @@ async function init() {
     voxelOverlay?.clear();
     voxelOccluder?.reset();
     chaseFedRevision = -1;
+    sessionId = formatSessionId(new Date());
+    lastBackupAt = performance.now();
+    backedUpRevision = -1;
     voxelDebug?.startScan(performance.now());
     await xrSession.start();
     if (autoStartsGame(APP_MODE)) game.startSession();
   });
   renderer.xr.addEventListener('sessionend', () => {
+    // Serialised before anything below resets it. The page outlives the XR
+    // session, so the upload itself can finish after the resets.
+    backupScan('final');
     detachOccluder();
     depthSource?.reset();
     cpuDepthOccluder?.reset();
     resetChaseState();
     depthCloud?.reset();
     voxelMap?.reset();
+    voxelTerrain?.reset();
     playerTrail?.reset();
     lastOperatorStatusTime = -Infinity;
     lastOperatorRenderTime = -Infinity;
@@ -554,16 +596,21 @@ function render(time, frame) {
       maybeBuildVoxelOccluder();
       maybeFeedChaseGrid();
     }
-    if (!KEYFRAME_SCAN_MODE) {
-      depthCloud?.update(frame, localSpace, time);
+    if (KEYFRAME_TERRAIN_MODE) {
+      voxelTerrain.update(frame, localSpace, time, viewerPose);
+    }
+    if (LEGACY_TERRAIN_MODE) {
+      depthCloud.update(frame, localSpace, time);
     }
     if (viewerPose) playerTrail?.record(viewerPose.position);
     if (cameraAccess === null) cameraAccess = probeCameraAccess(frame, localSpace);
     updateChase(time, viewerPose);
     if (operatorVisible) buildChaseTiles(time);
+    maybeBackupGameMap(time);
 
     const ninjaPosition = game.getTargetPosition();
-    const voxelCount = voxelMap?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0;
+    const spaceMap = voxelMap ?? voxelTerrain;
+    const voxelCount = spaceMap?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0;
     if (time - lastOperatorStatusTime >= OPERATOR_STATUS_GAP_MS) {
       lastOperatorStatusTime = time;
       if (VOXEL_DEBUG_MODE) {
@@ -576,6 +623,7 @@ function render(time, frame) {
           anchorState: game.getAnchorState(),
           voxelCount,
           cameraAccess,
+          keyframeCount: voxelTerrain?.getKeyframeCount() ?? null,
           ninjaPosition,
           playerPosition: viewerPose?.position ?? null,
           pathPointCount: playerTrail?.getCount() ?? 0,
@@ -604,11 +652,11 @@ function render(time, frame) {
           playerPos: viewerPose?.position ?? null,
           playerPath: playerTrail.getPoints(),
         });
-      } else {
-        const voxelRevision = voxelMap.getRevision();
+      } else if (spaceMap) {
+        const voxelRevision = spaceMap.getRevision();
         if (voxelRevision !== operatorVoxelRevision) {
           operatorVoxelRevision = voxelRevision;
-          operatorSolidVoxels = voxelMap.getSolidVoxels();
+          operatorSolidVoxels = spaceMap.getSolidVoxels();
         }
         operatorView.render({
           gridTiles: chaseTiles,
@@ -679,6 +727,59 @@ function maybeBuildVoxelOccluder() {
   if (!VOXEL_DEBUG_MODE) voxelOccluder.setVisible(true);
 }
 
+// ── scan backup ───────────────────────────────────────────────
+// The game map as voxel-cells JSON from whichever accumulator is live, or the
+// diagnostic's raw keyframes. null when there is nothing worth a file.
+function exportScan() {
+  const playerPath = playerTrail?.getPoints() ?? [];
+  if (voxelTerrain) {
+    if (voxelTerrain.getCellCount() === 0) return null;
+    return { kind: 'game', text: voxelTerrain.exportJSON({ playerPath, sessionId }) };
+  }
+  if (voxelMap) {
+    const solid = voxelMap.getSolidVoxels();
+    if (solid.length === 0) return null;
+    return {
+      kind: 'game',
+      text: JSON.stringify(voxelCellsToJSON({
+        cells: cellsFromSolidVoxels(solid, VOXEL_SIZE_M, VOXEL_SOLID_MIN_HITS),
+        voxelSize: VOXEL_SIZE_M,
+        playerPath,
+        sessionId,
+        source: 'legacy',
+      })),
+    };
+  }
+  if (voxelDebug && voxelDebug.getStats().keyframeCount > 0 && !voxelDebug.isImported()) {
+    return { kind: 'scan', text: voxelDebug.exportJSON() };
+  }
+  return null;
+}
+
+function backupScan(reason) {
+  if (!uploader || !sessionId) return;
+  const scan = exportScan();
+  if (!scan) return;
+  backedUpRevision = (voxelMap ?? voxelTerrain)?.getRevision() ?? backedUpRevision;
+  lastBackupAt = performance.now();
+  uploader.upload(uploadName(scan.kind, sessionId), scan.text, {
+    label: reason === 'final' ? '최종 저장' : reason === 'manual' ? '수동 저장' : '자동 백업',
+  });
+}
+
+// Interval backup for the game map only. The diagnostic's keyframe JSON is
+// tens of MB, so it goes at session end and on the panel button.
+function maybeBackupGameMap(time) {
+  const spaceMap = voxelMap ?? voxelTerrain;
+  if (!spaceMap || !uploader || uploader.isBusy()) return;
+  if (!shouldBackup({
+    now: time,
+    lastBackupAt,
+    intervalMs: SCAN_BACKUP_INTERVAL_MS,
+    dirty: spaceMap.getRevision() !== backedUpRevision,
+  })) return;
+  backupScan('interval');
+
 // Answer whether the browser granted raw camera access, or null while no frame
 // has reported a view yet. XRView.camera exists only when camera-access was
 // granted, so it is the honest signal — enabledFeatures can list a feature the
@@ -726,7 +827,7 @@ function updateMetrics(viewerPose) {
       : GPU_OCCLUSION_MODE && renderer.xr.hasDepthSensing?.() ? 'gpu' : null,
     occlusionTriangles: cpuDepthOccluder?.getTriangleCount() ?? 0,
     voxelCount: SPACE_MAPPING_MODE
-      ? (voxelMap?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0)
+      ? (voxelMap?.getSolidCount() ?? voxelTerrain?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0)
       : null,
     depthUsage,
     depthDataFormat,

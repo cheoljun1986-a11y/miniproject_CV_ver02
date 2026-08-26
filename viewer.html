@@ -49,7 +49,8 @@
 <div id="drop">
   <div class="box">
     <b>스캔 JSON을 여기에 끌어다 놓으세요</b><br/>
-    폰의 <code>?voxel=debug</code>에서 <b>JSON 내보내기</b>로 받은 파일입니다.<br/><br/>
+    폰의 <code>?voxel=debug</code>에서 <b>JSON 내보내기</b>로 받은 파일, 또는<br/>
+    게임 세션이 <code>results/</code>에 남긴 <code>game-*.json</code> 복셀맵입니다.<br/><br/>
     <button id="pick">파일 선택</button>
     <input id="file" type="file" accept="application/json" style="display:none"/>
     <div class="hint">
@@ -75,6 +76,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { keyframeStoreFromJSON, rebuildVoxelGrid } from './src/keyframe-store.js';
+import { voxelCellsFromJSON } from './src/voxel-cells-codec.js';
 import { cellMeanPosition, selectCells } from './src/voxel-grid.js';
 import { buildOccluderGeometry } from './src/voxel-occluder-mesh.js';
 import { voxelColorRGB, VOXEL_COLOR_MODES } from './src/voxel-color-modes.js';
@@ -85,7 +87,7 @@ import { DEFAULT_VOXEL_DEBUG_PARAMS, VOXEL_DEBUG_CONTROLS, applyParam } from './
 // reconstructed — not a re-implementation that could drift.
 
 const MAX_VOXELS = 300000;
-const MAX_FRUSTUMS = 64;
+const MAX_PATH_POINTS = 512; // 400 keyframes or a 300-point player trail
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -131,7 +133,7 @@ scene.add(surface);
 
 // --- camera path -----------------------------------------------------------
 const pathGeom = new THREE.BufferGeometry();
-pathGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_FRUSTUMS * 3), 3));
+pathGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PATH_POINTS * 3), 3));
 pathGeom.setDrawRange(0, 0);
 const path = new THREE.Line(pathGeom, new THREE.LineBasicMaterial({ color: 0x66e0ff }));
 path.frustumCulled = false;
@@ -142,21 +144,32 @@ const _m = new THREE.Matrix4();
 const _c = new THREE.Color();
 const _s = new THREE.Vector3();
 
+// Two inputs. A keyframe scan (store) is rebuilt from raw depth on every
+// slider; a game map (loadedCells) is the finished grid, so only the
+// observation threshold still applies.
 let store = null;
+let loadedCells = null; // { grid, meta } from voxelCellsFromJSON
 let params = { ...DEFAULT_VOXEL_DEBUG_PARAMS };
 let colorMode = VOXEL_COLOR_MODES.OBSERVATION;
 let mode = 'voxel'; // voxel | surface
 
 function rebuild() {
-  if (!store) return;
+  if (!store && !loadedCells) return;
   const t0 = performance.now();
-  const { grid, stats } = rebuildVoxelGrid(store.getKeyframes(), {
-    voxelSize: params.voxelSize,
-    nearM: params.nearM,
-    farM: params.farM,
-    gradientMaxJumpM: params.gradientMaxJumpM,
-    now: () => performance.now(),
-  });
+  let grid;
+  let stats;
+  if (loadedCells) {
+    grid = loadedCells.grid;
+    stats = { cells: grid.getCellCount(), histogram: grid.getHistogram() };
+  } else {
+    ({ grid, stats } = rebuildVoxelGrid(store.getKeyframes(), {
+      voxelSize: params.voxelSize,
+      nearM: params.nearM,
+      farM: params.farM,
+      gradientMaxJumpM: params.gradientMaxJumpM,
+      now: () => performance.now(),
+    }));
+  }
   const buildMs = performance.now() - t0;
 
   const all = grid.getCells();
@@ -168,10 +181,17 @@ function rebuild() {
   drawPath();
 
   const h = stats.histogram;
+  const head = loadedCells
+    ? `게임 복셀맵 (${loadedCells.meta.source}) · 세션 ${loadedCells.meta.sessionId ?? '-'} · 키프레임 ${loadedCells.meta.keyframeCount}\n`
+      + `복셀 ${stats.cells} (표시 ${shown.length})\n`
+    : `키프레임 ${store.getCount()} · 복셀 ${stats.cells} (표시 ${shown.length})\n`;
+  const rejected = loadedCells
+    ? ''
+    : `버림  0값 ${stats.rejectedZero} · 범위 ${stats.rejectedRange} · 경사 ${stats.rejectedGradient}\n`;
   document.getElementById('stats').textContent =
-    `키프레임 ${store.getCount()} · 복셀 ${stats.cells} (표시 ${shown.length})\n`
+    head
     + `관측 1회 ${h.one} · 2회 ${h.two} · 3+회 ${h.three + h.fourPlus}\n`
-    + `버림  0값 ${stats.rejectedZero} · 범위 ${stats.rejectedRange} · 경사 ${stats.rejectedGradient}\n`
+    + rejected
     + `표면 ${geo.triangleCount.toLocaleString()} 삼각형 · 재구성 ${Math.round(buildMs)}ms\n`
     + (floor ? `바닥 y ${floor.floorY.toFixed(2)}m (신뢰 ${floor.confidence === Infinity ? '∞' : floor.confidence.toFixed(1)}배)` : '바닥 미검출');
 }
@@ -215,12 +235,18 @@ function drawSurface(cells) {
   return geo;
 }
 
+// Keyframe camera positions for a scan, the player trail for a game map.
+function pathPoints() {
+  if (loadedCells) return loadedCells.meta.playerPath;
+  return store.getKeyframes().map((k) => k.viewerPosition);
+}
+
 function drawPath() {
-  const kfs = store.getKeyframes();
+  const pts = pathPoints();
   const positions = pathGeom.attributes.position.array;
-  const n = Math.min(kfs.length, MAX_FRUSTUMS);
+  const n = Math.min(pts.length, MAX_PATH_POINTS);
   for (let i = 0; i < n; i += 1) {
-    const p = kfs[i].viewerPosition;
+    const p = pts[i];
     positions[i * 3] = p[0];
     positions[i * 3 + 1] = p[1];
     positions[i * 3 + 2] = p[2];
@@ -244,6 +270,11 @@ function buildUI() {
       type: 'range', min: control.min, max: control.max,
       step: control.step, value: params[control.id],
     });
+    // A game map has no depth to re-filter; only the threshold still means something.
+    if (loadedCells && control.rebuild) {
+      input.disabled = true;
+      row.style.opacity = '0.4';
+    }
     const value = document.createElement('span');
     value.className = 'value';
     const paint = (v) => {
@@ -302,12 +333,15 @@ function load(text) {
     alert('JSON을 읽을 수 없습니다.');
     return;
   }
-  const loaded = keyframeStoreFromJSON(parsed);
-  if (!loaded) {
+  const cells = voxelCellsFromJSON(parsed);
+  const loaded = cells ? null : keyframeStoreFromJSON(parsed);
+  if (!cells && !loaded) {
     alert('이 파일은 스캔 JSON 형식이 아닙니다.');
     return;
   }
+  loadedCells = cells;
   store = loaded;
+  if (cells) params = { ...params, voxelSize: cells.grid.voxelSize };
   document.getElementById('drop').classList.add('hidden');
   document.getElementById('panel').style.display = '';
   buildUI();
@@ -318,10 +352,13 @@ function load(text) {
 // Point the camera at whatever was scanned, rather than at the world origin —
 // the XR origin is wherever the phone started, which is rarely the middle.
 function frameToContent() {
-  const kfs = store.getKeyframes();
-  if (!kfs.length) return;
+  // A game map may carry no trail, so fall back to the cells themselves.
+  const pts = pathPoints().length
+    ? pathPoints()
+    : loadedCells ? loadedCells.grid.getCells().map(cellMeanPosition) : [];
+  if (!pts.length) return;
   const c = [0, 0, 0];
-  for (const k of kfs) for (let i = 0; i < 3; i += 1) c[i] += k.viewerPosition[i] / kfs.length;
+  for (const p of pts) for (let i = 0; i < 3; i += 1) c[i] += p[i] / pts.length;
   controls.target.set(c[0], c[1] - 0.6, c[2]);
   camera.position.set(c[0] + 2.6, c[1] + 1.8, c[2] + 2.6);
   controls.update();

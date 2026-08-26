@@ -16,10 +16,21 @@
 // back). rebuildVoxelGrid() in keyframe-store.js guarantees this ordering.
 
 export class VoxelGrid {
-  constructor({ voxelSize = 0.05, origin = [0, 0, 0], maxCells = 200000 } = {}) {
+  constructor({
+    voxelSize = 0.05,
+    origin = [0, 0, 0],
+    maxCells = 200000,
+    // Fired exactly once per cell, the moment its observationCount reaches
+    // confirmMinObservations. Lets an incremental consumer (the chase terrain)
+    // react per cell instead of re-walking getCells() after every keyframe.
+    confirmMinObservations = 3,
+    onConfirmed = null,
+  } = {}) {
     this.voxelSize = voxelSize;
     this.origin = [origin[0], origin[1], origin[2]];
     this.maxCells = maxCells;
+    this.confirmMinObservations = confirmMinObservations;
+    this.onConfirmed = onConfirmed;
     this.cells = new Map();
     this.revision = 0;
   }
@@ -62,9 +73,29 @@ export class VoxelGrid {
     if (cell.lastFrameId !== frameId) {
       cell.lastFrameId = frameId;
       cell.observationCount += 1;
+      if (this.onConfirmed && cell.observationCount === this.confirmMinObservations) {
+        this.onConfirmed(cell);
+      }
       return isNew ? 'new' : 'observed';
     }
     return 'accumulated';
+  }
+
+  // Frees room in a full grid by dropping single-observation cells, oldest
+  // first (Map preserves insertion order). Those are overwhelmingly depth
+  // noise; a real surface gets its second look as soon as the camera moves.
+  // Returns how many cells were removed.
+  evictUnconfirmed(count) {
+    let removed = 0;
+    for (const [key, cell] of this.cells) {
+      if (removed >= count) break;
+      if (cell.observationCount <= 1) {
+        this.cells.delete(key);
+        removed += 1;
+      }
+    }
+    if (removed > 0) this.revision += 1;
+    return removed;
   }
 
   getCell(ix, iy, iz) {
