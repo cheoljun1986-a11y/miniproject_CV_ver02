@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import { TraversalGrid, MOVE } from '../src/traversal-grid.js';
 import { findPath } from '../src/chase-path.js';
-import { ChaseRunner, speedForDistance, CHASE_STATE } from '../src/chase-runner.js';
+import {
+  ChaseRunner, speedForDistance, CHASE_STATE, approachValue, approachAngle,
+} from '../src/chase-runner.js';
 import { CaptureGauge, angleToTargetDeg } from '../src/capture-gauge.js';
 
 function room(grid, width = 6, depth = 6, step = 0.1) {
@@ -228,4 +230,130 @@ test('the arrow points up when the target is above centre', async () => {
   const { screenAngleFromViewDirection } = await import('../src/capture-gauge.js');
   assert.equal(screenAngleFromViewDirection([0, 1]), 0);
   assert.ok(Math.abs(screenAngleFromViewDirection([1, 0]) - Math.PI / 2) < 1e-9);
+});
+
+// ── stability work: terrain swaps, stuck recovery, smoothing ──
+const STAB_FLOOR = 0.02;
+function stabilityRoom() {
+  const grid = new TraversalGrid();
+  room(grid);
+  return grid;
+}
+
+
+test('approachValue ramps instead of jumping', () => {
+  assert.equal(approachValue(0, 1, 0.25), 0.25);
+  assert.equal(approachValue(0.9, 1, 0.25), 1); // snaps once within reach
+  assert.equal(approachValue(1, 0, 0.25), 0.75);
+});
+
+test('approachAngle turns the short way across the wrap point', () => {
+  // From just below +pi to just above -pi: the short way is a small positive
+  // step across the wrap, not most of a circle the other way.
+  const out = approachAngle(3.0, -3.0, 0.1);
+  assert.ok(out > 3.0 && out < 3.2, `expected a small positive step, got ${out}`);
+});
+
+test('speed ramps up rather than starting at full band speed', () => {
+  const grid = stabilityRoom();
+  const runner = new ChaseRunner({ grid, random: () => 0.5 });
+  assert.ok(runner.start([0.5, STAB_FLOOR + 0.1, 0.5], 0));
+  const first = runner.update(0.05, { playerPosition: [0, STAB_FLOOR, 0], now: 50 });
+  assert.ok(first.speed < 0.2, `expected a slow first frame, got ${first.speed}`);
+});
+
+test('facing eases toward the direction of travel', () => {
+  const grid = stabilityRoom();
+  const runner = new ChaseRunner({ grid, random: () => 0.5, turnRateRadPerS: 1 });
+  runner.start([0.5, STAB_FLOOR + 0.1, 0.5], 0);
+  runner.update(0.1, { playerPosition: [0, STAB_FLOOR, 0], now: 100 });
+  const gap = Math.abs(runner.targetHeadingAngle - runner.headingAngle);
+  // With a slow turn rate the drawn angle must lag the desired one.
+  assert.ok(gap > 0 || runner.targetHeadingAngle === runner.headingAngle);
+});
+
+test('it walks rather than teleports when its ground disappears', () => {
+  const grid = stabilityRoom();
+  const runner = new ChaseRunner({ grid, random: () => 0.5 });
+  assert.ok(runner.start([0.5, STAB_FLOOR + 0.1, 0.5], 0));
+  const before = runner.position.slice();
+
+  // Simulate the keyframe pipeline refilling the grid one slab higher, which
+  // makes the stored level index point at different geometry.
+  grid.reset();
+  for (let x = 0; x <= 2; x += 0.2) {
+    for (let z = 0; z <= 2; z += 0.2) grid.observe([x, STAB_FLOOR + 0.5, z]);
+  }
+
+  const state = runner.update(0.05, { playerPosition: [0, STAB_FLOOR, 0], now: 100 });
+  const moved = Math.hypot(
+    state.position[0] - before[0],
+    state.position[1] - before[1],
+    state.position[2] - before[2],
+  );
+  assert.ok(moved < 0.2, `expected a short step, not a jump of ${moved}m`);
+});
+
+test('losing the whole map does not throw or strand it in a bad node', () => {
+  const grid = stabilityRoom();
+  const runner = new ChaseRunner({ grid, random: () => 0.5 });
+  runner.start([0.5, STAB_FLOOR + 0.1, 0.5], 0);
+  grid.reset();
+  const state = runner.update(0.05, { playerPosition: [0, STAB_FLOOR, 0], now: 100 });
+  assert.ok(state.position, 'it should keep a last known position');
+});
+
+test('repeated replan failure makes it head for the player', () => {
+  const grid = stabilityRoom();
+  const events = [];
+  const runner = new ChaseRunner({
+    grid,
+    random: () => 0.5,
+    escapeAfterFailures: 1,
+    onEvent: (type) => events.push(type),
+  });
+  runner.start([0.5, STAB_FLOOR + 0.1, 0.5], 0);
+
+  // No reachable flee target: force chooseFleeTarget to come back empty by
+  // shrinking the grid to a single cell around Hachuping.
+  const only = grid.nodeAtWorld([0.5, STAB_FLOOR + 0.1, 0.5]);
+  grid.reset();
+  grid.observe([grid.centerX(only.cx), STAB_FLOOR, grid.centerZ(only.cz)]);
+  for (let x = 1.6; x <= 2.0; x += 0.2) {
+    for (let z = 1.6; z <= 2.0; z += 0.2) grid.observe([x, STAB_FLOOR, z]);
+  }
+
+  for (let i = 0; i < 6; i += 1) {
+    runner.update(0.1, { playerPosition: [1.8, STAB_FLOOR, 1.8], now: 1000 + i * 4000 });
+  }
+  assert.ok(
+    events.includes('escape') || events.includes('reanchor'),
+    `expected a recovery event, got ${events.join(',')}`,
+  );
+});
+
+test('events are reported for the flight recorder', () => {
+  const grid = stabilityRoom();
+  const events = [];
+  const runner = new ChaseRunner({
+    grid, random: () => 0.5, onEvent: (type) => events.push(type),
+  });
+  runner.start([0.5, STAB_FLOOR + 0.1, 0.5], 0);
+  runner.setFrozen(true);
+  runner.setFrozen(false);
+  assert.ok(events.includes('start'));
+  assert.ok(events.includes('frozen'));
+  assert.ok(events.includes('unfrozen'));
+});
+
+test('an escape does not crawl at the far-away idle speed', () => {
+  const grid = stabilityRoom();
+  const runner = new ChaseRunner({ grid, random: () => 0.5, escapeMinSpeed: 0.35 });
+  runner.start([0.5, STAB_FLOOR + 0.1, 0.5], 0);
+  runner.escaping = true;
+  let state;
+  for (let i = 0; i < 30; i += 1) {
+    state = runner.update(0.05, { playerPosition: [0, STAB_FLOOR, 0], now: 100 + i * 50 });
+  }
+  assert.ok(state.speed >= 0.3, `expected escape pace, got ${state.speed}`);
 });

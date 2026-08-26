@@ -14,6 +14,26 @@ export const CAPTURE_RADIUS_M = 1.2;
 export const CAPTURE_ANGLE_DEG = 20;
 export const CAPTURE_SECONDS = 5;
 export const CAPTURE_DECAY_PER_S = 0.12;
+// A single noise voxel drifting through the sight line must not make the gauge
+// stutter, so an obstruction has to persist before it counts as cover.
+export const CAPTURE_OCCLUDED_GRACE_S = 0.3;
+
+// The arrow that points offscreen used one threshold for both directions, so a
+// target hovering near it blinked every frame. Turn on later than off.
+export const ARROW_SHOW_ANGLE_DEG = 40;
+export const ARROW_HIDE_ANGLE_DEG = 30;
+
+// Stateful edge so callers do not each reinvent the debounce.
+export function makeArrowGate({
+  showDeg = ARROW_SHOW_ANGLE_DEG,
+  hideDeg = ARROW_HIDE_ANGLE_DEG,
+} = {}) {
+  let shown = false;
+  return (angleDeg) => {
+    if (shown ? angleDeg <= hideDeg : angleDeg >= showDeg) shown = !shown;
+    return shown;
+  };
+}
 
 export function angleToTargetDeg(viewerForward, viewerPosition, targetPosition) {
   const dx = targetPosition[0] - viewerPosition[0];
@@ -62,12 +82,14 @@ export class CaptureGauge {
     seconds = CAPTURE_SECONDS,
     decayPerSecond = CAPTURE_DECAY_PER_S,
     requireHold = false,
+    occludedGraceSeconds = CAPTURE_OCCLUDED_GRACE_S,
   } = {}) {
     this.radius = radius;
     this.angleDeg = angleDeg;
     this.fillPerSecond = 1 / seconds;
     this.decayPerSecond = decayPerSecond;
     this.requireHold = requireHold;
+    this.occludedGraceSeconds = occludedGraceSeconds;
     this.reset();
   }
 
@@ -77,17 +99,25 @@ export class CaptureGauge {
     this.inRange = false;
     this.onScreen = false;
     this.holding = !this.requireHold;
+    this.visible = true;
+    this.occludedFor = 0;
   }
 
   // dt in seconds. Returns the current state; `captured` latches until reset.
-  update(dt, { distance = Infinity, angleDeg = 180, holding = false } = {}) {
+  // `occluded` says the terrain puts something solid between camera and target,
+  // which with the voxel occluder on is exactly when the player can see nothing.
+  update(dt, {
+    distance = Infinity, angleDeg = 180, holding = false, occluded = false,
+  } = {}) {
     this.inRange = distance <= this.radius;
     this.onScreen = angleDeg <= this.angleDeg;
     this.holding = this.requireHold ? Boolean(holding) : true;
+    this.occludedFor = occluded ? this.occludedFor + dt : 0;
+    this.visible = this.occludedFor < this.occludedGraceSeconds;
 
     if (this.captured) return this.getState();
 
-    const filling = this.inRange && this.onScreen && this.holding;
+    const filling = this.inRange && this.onScreen && this.holding && this.visible;
     const step = filling ? this.fillPerSecond * dt : -this.decayPerSecond * dt;
     this.value = Math.min(1, Math.max(0, this.value + step));
     if (this.value >= 1) this.captured = true;
@@ -109,7 +139,9 @@ export class CaptureGauge {
       inRange: this.inRange,
       onScreen: this.onScreen,
       holding: this.holding,
-      filling: this.inRange && this.onScreen && this.holding && !this.captured,
+      visible: this.visible,
+      filling: this.inRange && this.onScreen && this.holding
+        && this.visible && !this.captured,
     };
   }
 
@@ -119,6 +151,7 @@ export class CaptureGauge {
     if (!this.inRange) return '더 가까이';
     if (!this.onScreen) return '화면 중앙에 맞추세요';
     if (!this.holding) return 'SCAN 을 누르고 계세요';
+    if (!this.visible) return '가려졌습니다 — 옆으로 돌아가세요';
     return '검거 중';
   }
 }

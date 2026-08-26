@@ -34,8 +34,11 @@ import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
 import { TraversalGrid, nodeKey } from './traversal-grid.js';
 import { ChaseRunner } from './chase-runner.js';
 import {
-  CaptureGauge, angleToTargetDeg, directionInViewSpace, screenAngleFromViewDirection,
+  CaptureGauge, angleToTargetDeg, directionInViewSpace, makeArrowGate,
+  screenAngleFromViewDirection,
 } from './capture-gauge.js';
+import { segmentBlocked } from './line-of-sight.js';
+import { ChaseLog } from './chase-log.js';
 import { forwardFromQuaternion } from './game-rules.js';
 import {
   CHASE_BODY_HEIGHT_M,
@@ -117,6 +120,8 @@ let chaseActive = false;
 let lastChaseTime = null;
 let chaseTiles = null;
 let chaseTilesRevision = -1;
+let chaseLog = null;
+let chaseArrowGate = null;
 let lastTileBuildAt = -Infinity;
 let lastOperatorStatusTime = -Infinity;
 let lastOperatorRenderTime = -Infinity;
@@ -230,11 +235,14 @@ async function init() {
         maxDropDown: CHASE_MAX_DROP_M,
         maxStandAboveFloor: CHASE_MAX_STAND_ABOVE_FLOOR_M,
       });
+      chaseLog = new ChaseLog();
+      chaseArrowGate = makeArrowGate();
       chaseRunner = new ChaseRunner({
         grid: chaseGrid,
         retargetMs: CHASE_RETARGET_MS,
         stuckMs: CHASE_STUCK_MS,
         recentWindowMs: CHASE_RECENT_WINDOW_MS,
+        onEvent: (type, detail) => chaseLog.push(performance.now(), type, detail),
       });
       captureGauge = new CaptureGauge();
     }
@@ -403,6 +411,8 @@ function resetChaseState() {
   chaseTiles = null;
   chaseTilesRevision = -1;
   lastTileBuildAt = -Infinity;
+  chaseLog?.clear();
+  chaseArrowGate = makeArrowGate();
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
   ui.setChaseButton('도망 모드', true);
@@ -412,6 +422,7 @@ function resetChaseState() {
 function stopChase(message) {
   if (!chaseRunner) return;
   chaseActive = false;
+  chaseLog?.push(performance.now(), 'stop');
   chaseRunner.stop();
   game.setExternalControl(false);
   game.setTargetOpacity(NINJA_CAMOUFLAGE_OPACITY);
@@ -491,17 +502,21 @@ function updateChase(time, viewerPose) {
   const dz = state.position[2] - viewerPose.position[2];
   const distance = Math.hypot(dx, dy, dz);
   const angleDeg = angleToTargetDeg(forward, viewerPose.position, state.position);
-  const capture = captureGauge.update(dt, { distance, angleDeg });
+  // Aiming at where Hachuping is should not count while a scanned obstacle
+  // stands in the way — with the occluder on, that is a blank patch of sofa.
+  const occluded = segmentBlocked(chaseGrid, viewerPose.position, state.position);
+  const capture = captureGauge.update(dt, { distance, angleDeg, occluded });
 
   ui.setChaseGauge(capture.value);
   ui.setChaseHint(`${captureGauge.hint()}  ·  ${distance.toFixed(1)}m`);
-  ui.setChaseArrow(angleDeg > 35
+  ui.setChaseArrow(chaseArrowGate(angleDeg)
     ? screenAngleFromViewDirection(
       directionInViewSpace(viewerPose.quaternion, viewerPose.position, state.position),
     )
     : null);
 
   if (capture.captured) {
+    chaseLog?.push(time, 'captured', `${distance.toFixed(2)}m`);
     stopChase(`검거 성공! ${distance.toFixed(2)}m 에서 잡았습니다.`);
     ui.setStatus('하츄핑 검거 완료');
     ui.setChaseGauge(1);
@@ -703,6 +718,7 @@ function updateMetrics(viewerPose) {
       ? 'cpu'
       : GPU_OCCLUSION_MODE && renderer.xr.hasDepthSensing?.() ? 'gpu' : null,
     occlusionTriangles: cpuDepthOccluder?.getTriangleCount() ?? 0,
+    chaseLogText: chaseLog?.formatRecent() ?? '',
     voxelCount: SPACE_MAPPING_MODE
       ? (voxelMap?.getSolidCount() ?? voxelDebug?.getCellCount() ?? 0)
       : null,

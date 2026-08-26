@@ -12,6 +12,7 @@ export function formatMetrics({
   occlusionOn = false,
   occlusionMode = null,
   occlusionTriangles = 0,
+  chaseLogText = '',
   pointCount = null,
   voxelCount = null,
   depthUsage = null,
@@ -38,7 +39,10 @@ depth format ${depthDataFormat ?? '-'}
 ${formatAnchorStatus(anchorState)}
 phase ${phase}${phase === 'mapping' ? ` (${mappingLeft.toFixed(1)}s)` : ''}
 scan ${scans}회 / miss ${misses}회
-복귀오차 ${lastReturnError ? `${lastReturnError.posErr.toFixed(2)}m, ${lastReturnError.angleErr.toFixed(1)}°` : '-'}`;
+복귀오차 ${lastReturnError ? `${lastReturnError.posErr.toFixed(2)}m, ${lastReturnError.angleErr.toFixed(1)}°` : '-'}${
+  // Flight recorder: only rendered while a chase has actually logged something,
+  // so ordinary sessions keep the card the size it was.
+  chaseLogText ? `\n── 도망 기록 ──\n${chaseLogText}` : ''}`;
 }
 
 export function formatAnchorStatus(state) {
