@@ -386,3 +386,15 @@ test('the respawn button is bound through bindCommands like the others', () => {
   click[1]({ stopPropagation() {} });
   assert.equal(respawned, 1);
 });
+
+test('the landing page points at the chase page and describes its real flow', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /href="\.\/v4-chase\.html"/);
+  // The chase card's own copy must not promise a hide-and-seek round: that
+  // step is gone from this page and players would hunt for absent buttons.
+  // The site title may still say 숨바꼭질 — app.html really does have one.
+  const card = html.slice(html.indexOf('href="./v4-chase.html"'));
+  const body = card.slice(0, card.indexOf('</a>'));
+  assert.doesNotMatch(body, /숨바꼭질/);
+  assert.match(body, /검거/);
+});
