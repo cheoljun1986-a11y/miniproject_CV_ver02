@@ -1,7 +1,7 @@
 import { VOXEL_DEBUG_CONTROLS } from './voxel-debug-params.js';
 
 // Built at runtime, only in ?voxel=debug, so nothing about this panel ships to
-// the production HUD. index.html stays untouched: createUI() querySelectors a
+// the production HUD. app.html stays untouched: createUI() querySelectors a
 // fixed list of 16 IDs with no null guards and has no Node coverage, so a dozen
 // new slider IDs there would only fail on a phone.
 

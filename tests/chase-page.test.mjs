@@ -28,10 +28,10 @@ test('the chase page forces a depth mode that accumulates a map', async () => {
   assert.match(html, /occlusion'?,\s*'cpu'/);
 });
 
-test('the team demo page has no chase elements, so chase stays off there', async () => {
-  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+test('the diagnostic application page has no chase elements, so chase stays off there', async () => {
+  const html = await readFile(new URL('../app.html', import.meta.url), 'utf8');
   for (const id of CHASE_IDS) {
-    assert.doesNotMatch(html, new RegExp(`id="${id}"`), `index.html gained #${id}`);
+    assert.doesNotMatch(html, new RegExp(`id="${id}"`), `app.html gained #${id}`);
   }
 });
 
@@ -326,8 +326,8 @@ test('chase-only: the hide-and-seek buttons are gone from the chase page', async
   assert.match(html, /id="mapBtn"/);
 });
 
-test('index.html keeps its hide-and-seek buttons', async () => {
-  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+test('app.html keeps its hide-and-seek buttons', async () => {
+  const html = await readFile(new URL('../app.html', import.meta.url), 'utf8');
   assert.match(html, /id="scanBtn"/);
   assert.match(html, /id="newRoundBtn"/);
 });
