@@ -1,0 +1,5 @@
+slides/generator/node_modules/
+slides/generator/package-lock.json
+slides/generator/package.json
+slides/generator/preview/
+slides/generator/out/
