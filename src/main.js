@@ -902,6 +902,7 @@ function maybeBackupGameMap(time) {
     dirty: spaceMap.getRevision() !== backedUpRevision,
   })) return;
   backupScan('interval');
+}
 
 // Answer whether the browser granted raw camera access, or null while no frame
 // has reported a view yet. XRView.camera exists only when camera-access was
