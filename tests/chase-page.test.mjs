@@ -345,7 +345,7 @@ test('app.html keeps its hide-and-seek buttons', async () => {
 test('main.js waits for the chase button after freezeMap', async () => {
   const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   const freeze = src.slice(src.indexOf('function freezeMap('));
-  const body = freeze.slice(0, freeze.indexOf('\n}\n'));
+  const body = freeze.slice(0, freeze.search(/\r?\n}\r?\n/));
   assert.doesNotMatch(body, /startChase\(\)/);
   assert.match(body, /setChaseButton/);
   assert.match(src, /bindChase\(\{\s*onToggle:\s*\(\)\s*=>\s*startChase\(\)/);
