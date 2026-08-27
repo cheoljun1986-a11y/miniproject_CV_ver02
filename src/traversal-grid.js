@@ -26,6 +26,42 @@ export function parseNodeKey(key) {
   return { cx: Number(cx), cz: Number(cz), level: Number(level) };
 }
 
+// Return whether a square character footprint is sufficiently covered by
+// supporting traversal cells. Coverage is area-weighted, so diagonal/edge
+// contacts do not become walkable merely because their center cell is seen.
+export function hasFootprintSupport({
+  centerX,
+  centerZ,
+  cellSize,
+  footprintSize = 0.2,
+  minCoverage = 0.5,
+  supportsCell,
+}) {
+  if (!(cellSize > 0) || !(footprintSize > 0) || typeof supportsCell !== 'function') return false;
+  const half = footprintSize / 2;
+  const minX = centerX - half;
+  const maxX = centerX + half;
+  const minZ = centerZ - half;
+  const maxZ = centerZ + half;
+  const firstX = Math.floor(minX / cellSize);
+  const lastX = Math.ceil(maxX / cellSize) - 1;
+  const firstZ = Math.floor(minZ / cellSize);
+  const lastZ = Math.ceil(maxZ / cellSize) - 1;
+  let covered = 0;
+  let area = 0;
+  for (let cx = firstX; cx <= lastX; cx += 1) {
+    const overlapX = Math.max(0, Math.min(maxX, (cx + 1) * cellSize) - Math.max(minX, cx * cellSize));
+    if (overlapX === 0) continue;
+    for (let cz = firstZ; cz <= lastZ; cz += 1) {
+      const overlapZ = Math.max(0, Math.min(maxZ, (cz + 1) * cellSize) - Math.max(minZ, cz * cellSize));
+      const overlap = overlapX * overlapZ;
+      if (overlap === 0) continue;
+      area += overlap;
+      if (supportsCell(cx, cz)) covered += overlap;
+    }
+  }
+  return area > 0 && covered / area >= minCoverage;
+}
 export const MOVE = Object.freeze({
   WALK: 'walk',
   JUMP: 'jump',
@@ -34,6 +70,8 @@ export const MOVE = Object.freeze({
 export class TraversalGrid {
   constructor({
     cellSize = 0.2,
+    footprintSize = 0.2,
+    footprintMinCoverage = 0.5,
     slabHeight = 0.1,
     // The 'local' reference space puts the origin at the phone when the session
     // started, so the floor sits roughly 1.4m BELOW y = 0. The band has to
@@ -55,10 +93,10 @@ export class TraversalGrid {
     // A handful of stray depth points below the real floor would otherwise
     // drag the ceiling up with them.
     floorMinCells = 8,
-    // How many distinct 5cm voxels a 20x20x10cm slab needs before it counts as
+    // How many distinct 5cm voxels a 10x10x10cm cell slab needs before it counts as
     // something to stand on. One was enough before, so a single stray depth
-    // point conjured a whole 20x20cm foothold in mid-air. A fully observed flat
-    // floor leaves 16 voxels in its slab, so 4 clears real surfaces comfortably
+    // point conjured a whole 10x10cm cell foothold in mid-air. The separate 20cm
+    // footprint gate checks area support; 4 observations fill one 10cm cell comfortably
     // while rejecting isolated noise.
     minSlabVoxels = 4,
     // A foothold this far above the floor must look like a real platform, not
@@ -88,6 +126,8 @@ export class TraversalGrid {
   } = {}) {
     this.floorMinFraction = floorMinFraction;
     this.cellSize = cellSize;
+    this.footprintSize = footprintSize;
+    this.footprintMinCoverage = footprintMinCoverage;
     this.slabHeight = slabHeight;
     this.minY = minY;
     this.slabCount = Math.min(slabCount, 64); // two 32-bit masks per cell
@@ -158,13 +198,14 @@ export class TraversalGrid {
       // votes: how many confirmed voxels back each slab. One ledger serves
       // two features that were built apart and merged here:
       //  - the slab only becomes standable at `minSlabVoxels` votes, so a
-      //    single stray depth point cannot conjure a 20x20cm foothold;
+      //    single stray depth point cannot conjure a 10x10cm cell foothold;
       //  - TSDF retraction (unobserve) decrements the same ledger, and the
       //    bit clears when votes drop back below the threshold.
       // Counting must therefore CONTINUE past the threshold — capping there
       // would make later retractions clear the bit too early.
       cell = {
         cx, cz, lo: UNSEEN, hi: UNSEEN, levels: null, levelsGen: -1,
+        supportedLevels: null, supportedLevelsGen: -1,
         votes: new Uint16Array(this.slabCount),
       };
       this.cells.set(key, cell);
@@ -184,7 +225,9 @@ export class TraversalGrid {
     if (cell.votes[slab] < this.minSlabVoxels) return false; // evidence pending
     if (slab < 32) cell.lo |= 1 << slab;
     else cell.hi |= 1 << (slab - 32);
-    cell.levels = null; // recompute lazily
+    cell.levels = null;
+    cell.supportedLevels = null; // recompute lazily
+    cell.supportedLevelsGen = -1;
     this.revision += 1;
     return true;
   }
@@ -220,6 +263,8 @@ export class TraversalGrid {
     // The floor may have lost support; let the next read decide.
     this.floorDirty = true;
     cell.levels = null;
+    cell.supportedLevels = null;
+    cell.supportedLevelsGen = -1;
     this.revision += 1;
     return true;
   }
@@ -354,7 +399,7 @@ export class TraversalGrid {
     if (!cell) {
       cell = {
         cx, cz, lo: UNSEEN, hi: UNSEEN, votes: new Uint16Array(this.slabCount),
-        levels: null, levelsGen: -1, synthetic: true,
+        levels: null, levelsGen: -1, supportedLevels: null, supportedLevelsGen: -1, synthetic: true,
       };
       this.cells.set(key, cell);
     }
@@ -366,6 +411,8 @@ export class TraversalGrid {
     if (slab < 32) cell.lo |= 1 << slab;
     else cell.hi |= 1 << (slab - 32);
     cell.levels = null;
+    cell.supportedLevels = null;
+    cell.supportedLevelsGen = -1;
   }
 
   // Adopt a fitted floor plane (or null to clear) and fill sparse-scan gaps in
@@ -441,7 +488,7 @@ export class TraversalGrid {
 
   // Standable heights in a cell, lowest first. A slab qualifies when it is
   // occupied and the slabs above it are clear for the whole body height.
-  levels(cx, cz) {
+  _rawLevels(cx, cz) {
     const cell = this.getCell(cx, cz);
     if (!cell) return [];
     const ceiling = this.standCeilingY();
@@ -467,6 +514,31 @@ export class TraversalGrid {
     cell.levels = levels;
     cell.levelsGen = this.standGen;
     return levels;
+  }
+
+  levels(cx, cz) {
+    const cell = this.getCell(cx, cz);
+    if (!cell) return [];
+    if (cell.supportedLevels && cell.supportedLevelsGen === this.standGen) return cell.supportedLevels;
+    const raw = this._rawLevels(cx, cz);
+    const supported = raw.filter((y) => this.hasFootprintSupport(cx, cz, y));
+    cell.supportedLevels = supported;
+    cell.supportedLevelsGen = this.standGen;
+    return supported;
+  }
+
+  hasFootprintSupport(cx, cz, y, options = {}) {
+    const targetSlab = this.slabOf(y);
+    return hasFootprintSupport({
+      centerX: this.centerX(cx),
+      centerZ: this.centerZ(cz),
+      cellSize: this.cellSize,
+      footprintSize: this.footprintSize,
+      minCoverage: this.footprintMinCoverage,
+      ...options,
+      supportsCell: (neighborCx, neighborCz) => this._rawLevels(neighborCx, neighborCz)
+        .some((level) => this.slabOf(level) === targetSlab),
+    });
   }
 
   isWalkable(cx, cz) {

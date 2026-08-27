@@ -70,7 +70,9 @@ export const VOXEL_OVERLAY_REBUILD_STEP_M = 0.3;
 export const VOXEL_REBUILD_DEBOUNCE_MS = 150;
 // Chase mode (?mode=chase). Hachuping runs a legal route over the scanned
 // space and the player has to hold SCAN while staying close to catch it.
-export const CHASE_CELL_SIZE_M = 0.20;      // top-down grid resolution
+export const CHASE_CELL_SIZE_M = 0.10;      // top-down grid resolution (10cm)
+export const CHASE_FOOTPRINT_SIZE_M = 0.20; // character support footprint stays 20cm
+export const CHASE_FOOTPRINT_MIN_COVERAGE = 0.50; // supported area required
 export const CHASE_SLAB_HEIGHT_M = 0.10;    // vertical resolution per cell
 export const CHASE_GRID_MIN_Y = -3.0;       // 'local' origin sits ~1.4m above the floor
 export const CHASE_GRID_SLABS = 64;
@@ -94,7 +96,7 @@ export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 1.3;
 // than the old legacy map, so the same walk yields fewer walkable cells. A real
 // on-device room scan (9 keyframes, a 47-point walk) reached only 104 walkable
 // cells, so the old 120 gate never opened and the chase — and Hachuping — never
-// started. 80 cells (~3.2 m2 at 0.2 m) still rejects a genuinely bare map while
+// started. 80 cells (~0.8 m2 at 0.1 m) still rejects a genuinely bare map while
 // letting a properly-walked room begin. See tests/chase-start-gate.test.mjs.
 export const CHASE_MIN_WALKABLE_CELLS = 80;
 export const CHASE_RETARGET_MS = 3000;

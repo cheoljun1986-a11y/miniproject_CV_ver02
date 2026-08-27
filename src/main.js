@@ -51,6 +51,8 @@ import { forwardFromQuaternion } from './game-rules.js';
 import {
   CHASE_BODY_HEIGHT_M,
   CHASE_CELL_SIZE_M,
+  CHASE_FOOTPRINT_MIN_COVERAGE,
+  CHASE_FOOTPRINT_SIZE_M,
   CHASE_GRID_MIN_Y,
   CHASE_GRID_REBUILD_GAP_MS,
   CHASE_GRID_SLABS,
@@ -299,6 +301,8 @@ async function init() {
     if (ui.hasChaseControls()) {
       chaseGrid = new TraversalGrid({
         cellSize: CHASE_CELL_SIZE_M,
+        footprintSize: CHASE_FOOTPRINT_SIZE_M,
+        footprintMinCoverage: CHASE_FOOTPRINT_MIN_COVERAGE,
         slabHeight: CHASE_SLAB_HEIGHT_M,
         minY: CHASE_GRID_MIN_Y,
         slabCount: CHASE_GRID_SLABS,

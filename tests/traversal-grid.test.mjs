@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TraversalGrid, MOVE, nodeKey } from '../src/traversal-grid.js';
+import { hasFootprintSupport, TraversalGrid, MOVE, nodeKey } from '../src/traversal-grid.js';
 import { findPath, reachableFrom } from '../src/chase-path.js';
 
 // Terrain here is drawn one voxel per surface, because these tests are about
@@ -479,4 +479,56 @@ test('the furniture-reluctance costs are tunable, not baked in', () => {
     return g.neighbors(from).find((n) => n.rise > 0.2);
   };
   assert.ok(shelfOf(dear).cost > shelfOf(cheap).cost, 'the toll must reach the cost');
+});
+
+// ── 10cm traversal cells with a separate 20cm support footprint ──
+test('10cm traversal grids quantize coordinates at 10cm centers', () => {
+  const grid = new TraversalGrid({ cellSize: 0.1, minSlabVoxels: 1 });
+  assert.equal(grid.cellX(0.099), 0);
+  assert.equal(grid.cellX(0.101), 1);
+  assert.ok(Math.abs(grid.centerX(3) - 0.35) < 1e-12);
+  assert.ok(Math.abs(grid.centerZ(-2) + 0.15) < 1e-12);
+});
+
+test('a single 10cm surface cannot support a 20cm character footprint', () => {
+  const grid = new TraversalGrid({ cellSize: 0.1, minSlabVoxels: 1 });
+  grid.observe([0.05, 0.02, 0.05]);
+  assert.equal(grid.levels(0, 0).length, 0);
+  assert.equal(grid.hasFootprintSupport(0, 0, 0.1), false);
+});
+
+test('a roughly 20cm flat surface supports a 20cm footprint', () => {
+  const grid = new TraversalGrid({ cellSize: 0.1, minSlabVoxels: 1 });
+  for (let x = 0; x < 0.2; x += 0.05) {
+    for (let z = 0; z < 0.2; z += 0.05) grid.observe([x + 0.025, 0.02, z + 0.025]);
+  }
+  assert.equal(grid.isWalkable(0, 0), true);
+  assert.equal(grid.hasFootprintSupport(0, 0, 0.1), true);
+});
+
+test('a diagonal edge does not pass the footprint support coverage gate', () => {
+  const grid = new TraversalGrid({ cellSize: 0.1, minSlabVoxels: 1 });
+  for (const [x, z] of [[0.05, 0.05], [0.15, 0.15]]) grid.observe([x, 0.02, z]);
+  assert.equal(grid.hasFootprintSupport(0, 0, 0.1), false);
+  assert.equal(grid.isWalkable(0, 0), false);
+});
+
+test('footprint support reports weighted covered area independently of grid storage', () => {
+  const covered = new Set(['0,0', '1,0', '0,1', '1,1']);
+  assert.equal(hasFootprintSupport({
+    centerX: 0.05,
+    centerZ: 0.05,
+    cellSize: 0.1,
+    footprintSize: 0.2,
+    minCoverage: 0.5,
+    supportsCell: (cx, cz) => covered.has(`${cx},${cz}`),
+  }), true);
+  assert.equal(hasFootprintSupport({
+    centerX: 0.05,
+    centerZ: 0.05,
+    cellSize: 0.1,
+    footprintSize: 0.2,
+    minCoverage: 0.5,
+    supportsCell: (cx, cz) => cx === 0 && cz === 0,
+  }), false);
 });
