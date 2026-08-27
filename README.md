@@ -1,4 +1,4 @@
-> 📱 **`private/junsung_catch` 모바일 실행:** [하츄핑 도망 모드 바로 열기](https://raw.githack.com/cheoljun1986-a11y/miniproject_CV_ver02/da32f4816cc484330fa5187795ba030bac70884c/v4-chase.html)
+> 📱 **`private/junsung_cellsize10` 모바일 실행:** [하츄핑 도망 모드 바로 열기](https://raw.githack.com/cheoljun1986-a11y/miniproject_CV_ver02/private/junsung_cellsize10/v4-chase.html)
 >
 > `START AR → 맵 생성 → 방을 충분히 스캔 → 맵 생성 종료 → 도망 모드 시작`
 > 🖥️ **PC 미리보기:** [캐치 회전·로고 효과 바로 보기](https://raw.githack.com/cheoljun1986-a11y/miniproject_CV_ver02/private/junsung_catch/catch-preview.html)
