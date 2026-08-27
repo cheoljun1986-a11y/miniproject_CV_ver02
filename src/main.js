@@ -58,6 +58,7 @@ import {
   CHASE_MAX_DROP_M,
   CHASE_MAX_JUMP_UP_M,
   CHASE_MAX_STAND_ABOVE_FLOOR_M,
+  CHASE_MIN_OVERHEAD_M,
   CHASE_MAX_STEP_UP_M,
   CHASE_MIN_WALKABLE_CELLS,
   CHASE_RECENT_WINDOW_MS,
@@ -318,6 +319,7 @@ async function init() {
         maxJumpUp: CHASE_MAX_JUMP_UP_M,
         maxDropDown: CHASE_MAX_DROP_M,
         maxStandAboveFloor: CHASE_MAX_STAND_ABOVE_FLOOR_M,
+        minOverhead: CHASE_MIN_OVERHEAD_M,
       });
       chaseLog = new ChaseLog();
       mapAnchor = new MapAnchor();

@@ -44,6 +44,13 @@ export class TraversalGrid {
     // config moved and this did not — so a reader of this file saw numbers the
     // game never used. Keep them in step.
     headroom = 0.34,
+    // Clear space a surface needs above it before Hachuping will stand there.
+    // The body only needs `headroom`, but fitting is not the same as being
+    // somewhere worth going: at 34cm it fits under a desk, and then it spends
+    // the chase invisible under furniture. Asking for a metre keeps it on open
+    // floor and on top of things. Defaults to the body height so the class on
+    // its own behaves as before; the game raises it.
+    minOverhead = headroom,
     maxStepUp = 0.15,
     maxJumpUp = 0.95,
     maxDropDown = 1.2,
@@ -92,6 +99,7 @@ export class TraversalGrid {
     this.minY = minY;
     this.slabCount = Math.min(slabCount, 64); // two 32-bit masks per cell
     this.headroomSlabs = Math.max(1, Math.ceil(headroom / slabHeight));
+    this.overheadSlabs = Math.max(this.headroomSlabs, Math.ceil(minOverhead / slabHeight));
     this.maxStepUp = maxStepUp;
     this.maxJumpUp = maxJumpUp;
     this.maxDropDown = maxDropDown;
@@ -452,11 +460,11 @@ export class TraversalGrid {
       if (!this.hasSlab(cell, slab)) continue;
       // Too high above the floor to be anywhere a small character could get.
       if (this.slabTopY(slab) > ceiling) break;
-      // The body height must fit, and it must fit inside the mapped band —
+      // The clearance must fit, and it must fit inside the mapped band —
       // otherwise the top of a wall reads as a ledge you could stand on.
-      if (slab + this.headroomSlabs >= this.slabCount) break;
+      if (slab + this.overheadSlabs >= this.slabCount) break;
       let clear = true;
-      for (let above = 1; above <= this.headroomSlabs; above += 1) {
+      for (let above = 1; above <= this.overheadSlabs; above += 1) {
         if (this.hasSlab(cell, slab + above)) {
           clear = false;
           break;

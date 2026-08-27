@@ -480,3 +480,49 @@ test('the furniture-reluctance costs are tunable, not baked in', () => {
   };
   assert.ok(shelfOf(dear).cost > shelfOf(cheap).cost, 'the toll must reach the cost');
 });
+
+// ── overhead clearance ───────────────────────────────────────
+// A 34cm character fits under a desk, so "the body fits" let it spend whole
+// chases invisible under furniture. Standing somewhere and being somewhere
+// worth going are different questions; this is the second one.
+
+test('a floor under a desk is not somewhere to stand', () => {
+  const grid = new TraversalGrid({ minSlabVoxels: 1, minOverhead: 1.0 });
+  floorPatch(grid, 0, 2, 0, 2);
+  const cx = grid.cellX(1.1);
+  const cz = grid.cellZ(1.1);
+  assert.equal(grid.levels(cx, cz).length, 1, 'open floor is fine');
+
+  // A desk top 70cm up: the body fits under it, a metre of clearance does not.
+  grid.observe([1.1, 0.72, 1.1]);
+  const levels = grid.levels(cx, cz);
+  assert.equal(levels.length, 1, 'only one level survives');
+  assert.ok(levels[0] > 0.5, 'and it is the desk top, not the floor beneath it');
+});
+
+test('the desk top itself stays standable', () => {
+  const grid = new TraversalGrid({ minSlabVoxels: 1, minOverhead: 1.0 });
+  floorPatch(grid, 0, 2, 0, 2);
+  floorPatch(grid, 0.6, 1.6, 0.6, 1.6, 0.72);
+  const levels = grid.levels(grid.cellX(1.1), grid.cellZ(1.1));
+  assert.equal(levels.length, 1);
+  // Within a slab of the observed surface: feet land on the slab TOP, so the
+  // reported height runs up to 10cm above what was actually measured. That
+  // quantisation is a separate defect (the character visibly floats); this
+  // test only cares that the level is the desk and not the floor.
+  assert.ok(Math.abs(levels[0] - 0.72) <= grid.slabHeight, `stands on the desk, got ${levels[0]}`);
+});
+
+// The clearance is a gameplay rule layered on a physical one; it can never ask
+// for less room than the body actually occupies.
+test('the clearance never drops below the body height', () => {
+  const grid = new TraversalGrid({ headroom: 0.5, minOverhead: 0.1 });
+  assert.equal(grid.overheadSlabs, grid.headroomSlabs);
+});
+
+test('open floor far from furniture is untouched by the rule', () => {
+  const strict = new TraversalGrid({ minSlabVoxels: 1, minOverhead: 1.0 });
+  const loose = new TraversalGrid({ minSlabVoxels: 1 });
+  for (const grid of [strict, loose]) floorPatch(grid, 0, 2, 0, 2);
+  assert.equal(strict.stats().walkable, loose.stats().walkable);
+});

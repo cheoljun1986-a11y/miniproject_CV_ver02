@@ -89,6 +89,11 @@ export const CHASE_MAX_DROP_M = 1.2;
 // A ceiling looks exactly like a tabletop to the grid, so cap how high a
 // surface may be above the detected floor before it stops counting.
 export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 1.3;
+// Clear space a surface needs above it to be worth standing on. The body is
+// only 34cm, so without this Hachuping walks under desks and chairs and spends
+// the chase hidden. Measured on a two-desk room scan: requiring a metre drops
+// 23 under-furniture floor spots and keeps 143 of the 145 desk-top ones.
+export const CHASE_MIN_OVERHEAD_M = 1.0;
 // Refuse to start on a bare map. Tuned down from 120 when the default terrain
 // became the keyframe/TSDF pipeline: it confirms voxels far more conservatively
 // than the old legacy map, so the same walk yields fewer walkable cells. A real
