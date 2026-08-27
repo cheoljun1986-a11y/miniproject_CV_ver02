@@ -108,6 +108,12 @@ export const CHASE_MIN_OVERHEAD_M = 1.0;
 // the thin edges of furniture — which is the right thing to lose.
 export const CHASE_MIN_SLAB_VOXELS = 8;
 export const CHASE_MIN_NEIGHBOURS = 5;
+// Those two rules thin the map — furniture edges and noisy rows drop out — so
+// a table top can split into islands one missing cell apart. Hachuping may
+// leap that many cells when nothing walkable lies between, provided the
+// column over the gap is clear (no wall to sail through). 1 = 40cm centre to
+// centre for a 20cm body; 2 would already look like flying between desks.
+export const CHASE_GAP_JUMP_CELLS = 1;
 // Refuse to start on a bare map. Tuned down from 120 when the default terrain
 // became the keyframe/TSDF pipeline: it confirms voxels far more conservatively
 // than the old legacy map, so the same walk yields fewer walkable cells. A real

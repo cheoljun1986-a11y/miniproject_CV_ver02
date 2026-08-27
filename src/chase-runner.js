@@ -326,18 +326,26 @@ export class ChaseRunner {
   // Duration and arc scale with the climb. A fixed 0.5s / 0.22m arc was tuned
   // for hopping a chair seat; reusing it for a 90cm desk reads as the model
   // being slid up an invisible pole rather than jumping.
-  jumpShapeFor(rise) {
+  //
+  // A leap over a gap covers two cells, not one; the same half second reads as
+  // a dash rather than a jump, so time and arc also grow with the horizontal
+  // distance beyond a single cell.
+  jumpShapeFor(rise, planar = 0) {
     const climb = Math.max(0, rise);
+    const extra = Math.max(0, planar - this.grid.cellSize);
     return {
-      seconds: this.jumpSeconds * (1 + climb * 0.9),
-      arc: this.jumpArcM + climb * 0.35,
+      seconds: this.jumpSeconds * (1 + climb * 0.9) + extra * 0.8,
+      arc: this.jumpArcM + climb * 0.35 + extra * 0.3,
     };
   }
 
   beginJump(toWorld, node, now) {
     this.jumpFrom = this.position.slice();
     this.jumpTo = toWorld.slice();
-    const shape = this.jumpShapeFor(toWorld[1] - this.position[1]);
+    const shape = this.jumpShapeFor(
+      toWorld[1] - this.position[1],
+      Math.hypot(toWorld[0] - this.position[0], toWorld[2] - this.position[2]),
+    );
     this.jumpSecondsCurrent = shape.seconds;
     this.jumpArcCurrent = shape.arc;
     this.jumpProgress = 0;

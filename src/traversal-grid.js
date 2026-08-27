@@ -67,6 +67,16 @@ export class TraversalGrid {
     // A slab either way: enough that a real surface's own roughness does not
     // disconnect it from itself.
     neighbourToleranceM = 0.12,
+    // Cells Hachuping may clear in one leap when the cell between offers
+    // nowhere to walk. The footing rules above deliberately thin the map —
+    // thin furniture edges and noisy rows drop out — and without this a single
+    // missing cell cuts a table top into islands the path search cannot join.
+    // 1 = hop one cell (40cm centre to centre; the body is 20cm wide). 0
+    // disables it, the class default, so nothing changes unasked.
+    gapJumpCells = 0,
+    // Extra path cost per cell leapt, on top of the ordinary jump cost. A leap
+    // is the fallback when no walk exists, never the shortcut.
+    gapJumpCostPerCell = 0.5,
     maxStepUp = 0.15,
     maxJumpUp = 0.95,
     maxDropDown = 1.2,
@@ -118,6 +128,8 @@ export class TraversalGrid {
     this.overheadSlabs = Math.max(this.headroomSlabs, Math.ceil(minOverhead / slabHeight));
     this.minNeighbours = minNeighbours;
     this.neighbourToleranceM = neighbourToleranceM;
+    this.gapJumpCells = Math.max(0, Math.floor(gapJumpCells));
+    this.gapJumpCostPerCell = gapJumpCostPerCell;
     // Bumped whenever any footing appears or goes. A cell's own levels depend
     // only on its own column, but the neighbour rule makes the FILTERED answer
     // depend on the cells around it, and there is no per-cell channel that
@@ -719,7 +731,9 @@ export class TraversalGrid {
   // ── movement rules ────────────────────────────────────────
   // Neighbours reachable in one step. Height decides walk vs jump; anything
   // steeper than maxJumpUp is simply not an edge, which is what keeps
-  // Hachuping out of walls and off unreachable shelves.
+  // Hachuping out of walls and off unreachable shelves. With gapJumpCells > 0
+  // a cell with nothing walkable between it and here is also reachable, as a
+  // leap — see the second loop.
   //
   // Every admissible level of a neighbouring cell is offered as its own edge.
   // The earlier version returned only the level closest to the current height,
@@ -734,63 +748,112 @@ export class TraversalGrid {
     const floorY = floorSlab === null ? null : (this.floorHeightY() ?? this.slabTopY(floorSlab));
 
     const out = [];
+    // Every admissible level of the cell at (nx, nz) as an edge. `gap` is how
+    // many cells are leapt over on the way (0 for an adjacent cell).
+    const offer = (nx, nz, dx, dz, gap) => {
+      const levels = this.levels(nx, nz);
+      if (!levels.length) return; // unseen or blocked — never traversable
+      const planar = Math.hypot(dx, dz) * this.cellSize;
+      for (let level = 0; level < levels.length; level += 1) {
+        const rise = levels[level] - fromY;
+        // Slab tops are sums of floats; without the epsilon a rise exactly at
+        // the limit (0.7000000000000002 vs 0.7) is rejected at random.
+        if (rise > this.maxJumpUp + 1e-9) continue;
+        if (rise < -this.maxDropDown - 1e-9) continue;
+
+        // A lone blob in mid-air is not a platform, however legal the hop
+        // onto it would be. Only checked when climbing: dropping off one is
+        // still allowed, or a character could get stranded on it forever.
+        if (rise > this.maxStepUp
+          && !this.hasRaisedSupport(nx, nz, levels[level])) continue;
+
+        // Leaping a gap must clear the column between: a wall in it is not
+        // something to sail through. Unseen cells get the benefit of the
+        // doubt, as everywhere else in the grid.
+        if (gap > 0 && !this.gapClear(node.cx, node.cz, nx, nz, fromY, levels[level])) continue;
+
+        const jump = gap > 0 || Math.abs(rise) > this.maxStepUp;
+        // Climbing is charged double its height, dropping half: coming down
+        // must always look like the easy direction.
+        const jumpCost = jump
+          ? this.jumpBaseCost + (rise > 0
+            ? rise * this.climbCostPerM
+            : Math.abs(rise) * this.dropCostPerM)
+          : 0;
+        // Toll for walking above the floor, per step and proportional to
+        // altitude. This is what turns table-chair-table routes into
+        // table-floor-table ones without forbidding furniture outright.
+        const heightToll = floorY === null
+          ? 0
+          : Math.max(0, levels[level] - floorY - this.slabHeight / 2)
+            * this.heightTollPerM;
+        out.push({
+          cx: nx,
+          cz: nz,
+          level,
+          rise,
+          distance: planar,
+          gap,
+          move: jump ? MOVE.JUMP : MOVE.WALK,
+          cost: planar + jumpCost + heightToll + gap * this.gapJumpCostPerCell,
+        });
+      }
+    };
+
     for (let dz = -1; dz <= 1; dz += 1) {
       for (let dx = -1; dx <= 1; dx += 1) {
         if (dx === 0 && dz === 0) continue;
-        const nx = node.cx + dx;
-        const nz = node.cz + dz;
-        const levels = this.levels(nx, nz);
-        if (!levels.length) continue; // unseen or blocked — never traversable
-
         // Diagonals may not cut a corner between two blocked cells.
         if (dx !== 0 && dz !== 0) {
           if (!this.isWalkable(node.cx + dx, node.cz) && !this.isWalkable(node.cx, node.cz + dz)) {
             continue;
           }
         }
+        offer(node.cx + dx, node.cz + dz, dx, dz, 0);
+      }
+    }
 
-        const planar = Math.hypot(dx, dz) * this.cellSize;
-        for (let level = 0; level < levels.length; level += 1) {
-          const rise = levels[level] - fromY;
-          // Slab tops are sums of floats; without the epsilon a rise exactly at
-          // the limit (0.7000000000000002 vs 0.7) is rejected at random.
-          if (rise > this.maxJumpUp + 1e-9) continue;
-          if (rise < -this.maxDropDown - 1e-9) continue;
-
-          // A lone blob in mid-air is not a platform, however legal the hop
-          // onto it would be. Only checked when climbing: dropping off one is
-          // still allowed, or a character could get stranded on it forever.
-          if (rise > this.maxStepUp
-            && !this.hasRaisedSupport(nx, nz, levels[level])) continue;
-
-          const jump = Math.abs(rise) > this.maxStepUp;
-          // Climbing is charged double its height, dropping half: coming down
-          // must always look like the easy direction.
-          const jumpCost = jump
-            ? this.jumpBaseCost + (rise > 0
-              ? rise * this.climbCostPerM
-              : Math.abs(rise) * this.dropCostPerM)
-            : 0;
-          // Toll for walking above the floor, per step and proportional to
-          // altitude. This is what turns table-chair-table routes into
-          // table-floor-table ones without forbidding furniture outright.
-          const heightToll = floorY === null
-            ? 0
-            : Math.max(0, levels[level] - floorY - this.slabHeight / 2)
-              * this.heightTollPerM;
-          out.push({
-            cx: nx,
-            cz: nz,
-            level,
-            rise,
-            distance: planar,
-            move: jump ? MOVE.JUMP : MOVE.WALK,
-            cost: planar + jumpCost + heightToll,
-          });
+    // Leaps: straight or pure-diagonal only, so the cells crossed are exactly
+    // the ones on the line. Offered only when the cell(s) between cannot be
+    // walked onto from here — if they can, the ordinary edges already serve
+    // and a leap would just be a way to skip the obstacle checks.
+    for (let gap = 1; gap <= this.gapJumpCells; gap += 1) {
+      const reach = gap + 1;
+      for (const [ux, uz] of NEIGHBOUR_OFFSETS) {
+        let walkable = false;
+        for (let i = 1; i <= gap; i += 1) {
+          const midLevels = this.levels(node.cx + ux * i, node.cz + uz * i);
+          if (midLevels.some((y) => Math.abs(y - fromY) <= this.maxStepUp + 1e-9)) {
+            walkable = true;
+            break;
+          }
         }
+        if (walkable) continue;
+        offer(node.cx + ux * reach, node.cz + uz * reach, ux * reach, uz * reach, gap);
       }
     }
     return out;
+  }
+
+  // Is the column over every cell strictly between (ax, az) and (bx, bz) free
+  // of solid slabs from just above the lower footing up through the body
+  // height over the higher one? The cells must lie on a straight or diagonal
+  // line, which is all the leap generator produces.
+  gapClear(ax, az, bx, bz, fromY, toY) {
+    const steps = Math.max(Math.abs(bx - ax), Math.abs(bz - az));
+    const ux = Math.sign(bx - ax);
+    const uz = Math.sign(bz - az);
+    const low = Math.min(fromY, toY);
+    const high = Math.max(fromY, toY);
+    // The lower footing's own slab is the surface stood on, not an obstacle.
+    const startSlab = this.slabOf(low) + 1;
+    const endSlab = this.slabOf(high) + this.headroomSlabs;
+    for (let i = 1; i < steps; i += 1) {
+      const cell = this.getCell(ax + ux * i, az + uz * i);
+      if (!cell) continue;
+      if (this.solidInBand(cell, startSlab, endSlab - startSlab + 1)) return false;
+    }
+    return true;
   }
 
   // ── diagnostics ───────────────────────────────────────────

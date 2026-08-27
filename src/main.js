@@ -59,6 +59,7 @@ import {
   CHASE_MAX_JUMP_UP_M,
   CHASE_MAX_STAND_ABOVE_FLOOR_M,
   CHASE_MIN_NEIGHBOURS,
+  CHASE_GAP_JUMP_CELLS,
   CHASE_MIN_OVERHEAD_M,
   CHASE_MIN_SLAB_VOXELS,
   CHASE_MAX_STEP_UP_M,
@@ -324,6 +325,7 @@ async function init() {
         minOverhead: CHASE_MIN_OVERHEAD_M,
         minSlabVoxels: CHASE_MIN_SLAB_VOXELS,
         minNeighbours: CHASE_MIN_NEIGHBOURS,
+        gapJumpCells: CHASE_GAP_JUMP_CELLS,
       });
       chaseLog = new ChaseLog();
       mapAnchor = new MapAnchor();
