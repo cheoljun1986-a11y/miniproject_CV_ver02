@@ -94,6 +94,20 @@ export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 1.3;
 // the chase hidden. Measured on a two-desk room scan: requiring a metre drops
 // 23 under-furniture floor spots and keeps 143 of the 145 desk-top ones.
 export const CHASE_MIN_OVERHEAD_M = 1.0;
+// What a surface must show before Hachuping will stand on it. The two ask
+// different questions and multiply: voxels ask whether the cell itself is
+// broad, neighbours ask whether it carries on sideways. A band of wall fails
+// both — one voxel thick, one cell wide — while a table top passes both.
+//
+// Measured per standable spot on a two-desk room scan (voxels backing one
+// slab, out of the 16 a 20cm cell can hold): floor 16, furniture 7, the
+// mid-air ledges above furniture height 5. Sweeping the pair on that room:
+//   4 voxels / 0 neighbours (before): floor 247, furniture 202, ledges 81
+//   8 voxels / 5 neighbours (here):   floor 229, furniture  57, ledges  9
+// The floor survives intact, the false ledges nearly vanish, and the cost is
+// the thin edges of furniture — which is the right thing to lose.
+export const CHASE_MIN_SLAB_VOXELS = 8;
+export const CHASE_MIN_NEIGHBOURS = 5;
 // Refuse to start on a bare map. Tuned down from 120 when the default terrain
 // became the keyframe/TSDF pipeline: it confirms voxels far more conservatively
 // than the old legacy map, so the same walk yields fewer walkable cells. A real

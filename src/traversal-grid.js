@@ -13,6 +13,10 @@
 
 const UNSEEN = 0;
 
+const NEIGHBOUR_OFFSETS = [
+  [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
+];
+
 function cellKey(cx, cz) {
   return `${cx},${cz}`;
 }
@@ -51,6 +55,18 @@ export class TraversalGrid {
     // floor and on top of things. Defaults to the body height so the class on
     // its own behaves as before; the game raises it.
     minOverhead = headroom,
+    // Neighbouring cells that must offer a surface at the same height before
+    // this one counts as somewhere to stand. A band of wall is one cell thick,
+    // so it runs out of neighbours across its width however long it runs; a
+    // table top has them all round. Together with minSlabVoxels — which asks
+    // whether the cell itself is broad — this separates a real surface from the
+    // last scanned row of a wall, which otherwise reads as a ledge in mid-air.
+    // 0 disables it, the class default, so nothing changes unasked.
+    minNeighbours = 0,
+    // How far apart two neighbouring surfaces may sit and still count as one.
+    // A slab either way: enough that a real surface's own roughness does not
+    // disconnect it from itself.
+    neighbourToleranceM = 0.12,
     maxStepUp = 0.15,
     maxJumpUp = 0.95,
     maxDropDown = 1.2,
@@ -100,6 +116,13 @@ export class TraversalGrid {
     this.slabCount = Math.min(slabCount, 64); // two 32-bit masks per cell
     this.headroomSlabs = Math.max(1, Math.ceil(headroom / slabHeight));
     this.overheadSlabs = Math.max(this.headroomSlabs, Math.ceil(minOverhead / slabHeight));
+    this.minNeighbours = minNeighbours;
+    this.neighbourToleranceM = neighbourToleranceM;
+    // Bumped whenever any footing appears or goes. A cell's own levels depend
+    // only on its own column, but the neighbour rule makes the FILTERED answer
+    // depend on the cells around it, and there is no per-cell channel that
+    // notices a neighbour changing.
+    this.areaGen = 0;
     this.maxStepUp = maxStepUp;
     this.maxJumpUp = maxJumpUp;
     this.maxDropDown = maxDropDown;
@@ -172,7 +195,8 @@ export class TraversalGrid {
       // Counting must therefore CONTINUE past the threshold — capping there
       // would make later retractions clear the bit too early.
       cell = {
-        cx, cz, lo: UNSEEN, hi: UNSEEN, levels: null, levelsGen: -1,
+        cx, cz, lo: UNSEEN, hi: UNSEEN,
+        rawLevels: null, rawGen: -1, levels: null, levelsGen: -1, levelsArea: -1,
         votes: new Uint16Array(this.slabCount),
       };
       this.cells.set(key, cell);
@@ -192,7 +216,9 @@ export class TraversalGrid {
     if (cell.votes[slab] < this.minSlabVoxels) return false; // evidence pending
     if (slab < 32) cell.lo |= 1 << slab;
     else cell.hi |= 1 << (slab - 32);
-    cell.levels = null; // recompute lazily
+    cell.rawLevels = null; // recompute lazily
+    cell.levels = null;
+    this.areaGen += 1;
     this.revision += 1;
     return true;
   }
@@ -227,7 +253,9 @@ export class TraversalGrid {
     else cell.hi &= ~(1 << (slab - 32));
     // The floor may have lost support; let the next read decide.
     this.floorDirty = true;
+    cell.rawLevels = null;
     cell.levels = null;
+    this.areaGen += 1;
     this.revision += 1;
     return true;
   }
@@ -362,7 +390,8 @@ export class TraversalGrid {
     if (!cell) {
       cell = {
         cx, cz, lo: UNSEEN, hi: UNSEEN, votes: new Uint16Array(this.slabCount),
-        levels: null, levelsGen: -1, synthetic: true,
+        rawLevels: null, rawGen: -1, levels: null, levelsGen: -1, levelsArea: -1,
+        synthetic: true,
       };
       this.cells.set(key, cell);
     }
@@ -373,7 +402,9 @@ export class TraversalGrid {
     if (cell.votes[slab] < this.minSlabVoxels) cell.votes[slab] = this.minSlabVoxels;
     if (slab < 32) cell.lo |= 1 << slab;
     else cell.hi |= 1 << (slab - 32);
+    cell.rawLevels = null;
     cell.levels = null;
+    this.areaGen += 1;
   }
 
   // Adopt a fitted floor plane (or null to clear) and fill sparse-scan gaps in
@@ -449,11 +480,14 @@ export class TraversalGrid {
 
   // Standable heights in a cell, lowest first. A slab qualifies when it is
   // occupied and the slabs above it are clear for the whole body height.
-  levels(cx, cz) {
+  // Heights this column alone offers, before the neighbour rule. Kept separate
+  // so the neighbour test can read its neighbours' RAW answer: asking for their
+  // filtered one would recurse across the whole grid.
+  rawLevels(cx, cz) {
     const cell = this.getCell(cx, cz);
     if (!cell) return [];
     const ceiling = this.standCeilingY();
-    if (cell.levels && cell.levelsGen === this.standGen) return cell.levels;
+    if (cell.rawLevels && cell.rawGen === this.standGen) return cell.rawLevels;
 
     const levels = [];
     for (let slab = 0; slab < this.slabCount; slab += 1) {
@@ -472,9 +506,35 @@ export class TraversalGrid {
       }
       if (clear) levels.push(this.slabTopY(slab));
     }
-    cell.levels = levels;
-    cell.levelsGen = this.standGen;
+    cell.rawLevels = levels;
+    cell.rawGen = this.standGen;
     return levels;
+  }
+
+  levels(cx, cz) {
+    const raw = this.rawLevels(cx, cz);
+    if (!this.minNeighbours || !raw.length) return raw;
+    const cell = this.getCell(cx, cz);
+    if (cell.levels && cell.levelsGen === this.standGen && cell.levelsArea === this.areaGen) {
+      return cell.levels;
+    }
+    const kept = raw.filter((y) => this.neighboursAt(cx, cz, y) >= this.minNeighbours);
+    cell.levels = kept;
+    cell.levelsGen = this.standGen;
+    cell.levelsArea = this.areaGen;
+    return kept;
+  }
+
+  // Of the eight cells around this one, how many offer a surface at the same
+  // height. Reads raw levels on purpose — see rawLevels.
+  neighboursAt(cx, cz, y) {
+    let found = 0;
+    for (const [dx, dz] of NEIGHBOUR_OFFSETS) {
+      for (const v of this.rawLevels(cx + dx, cz + dz)) {
+        if (Math.abs(v - y) <= this.neighbourToleranceM) { found += 1; break; }
+      }
+    }
+    return found;
   }
 
   isWalkable(cx, cz) {
