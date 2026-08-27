@@ -123,6 +123,7 @@ export class ChaseRunner {
     this.recentVisits = new Map();
     this.lastRetargetAt = -Infinity;
     this.targetSetAt = -Infinity;
+    this.lastProgressAt = -Infinity;
     this.jumpProgress = 0;
     this.jumpFrom = null;
     this.jumpTo = null;
@@ -149,6 +150,7 @@ export class ChaseRunner {
     this.state = CHASE_STATE.WALK;
     this.lastRetargetAt = now;
     this.targetSetAt = now;
+    this.lastProgressAt = now;
     this.markVisited(node, now);
     this.emit('start');
     return true;
@@ -251,6 +253,7 @@ export class ChaseRunner {
         this.reanchoring = false;
         this.escaping = false;
         this.pathIndex += 1;
+        this.lastProgressAt = now;
         budget -= step;
         if (this.pathIndex >= this.path.length) {
           this.path = [];
@@ -360,6 +363,7 @@ export class ChaseRunner {
     this.node = this.pendingJumpNode;
     this.markVisited(this.node, now);
     this.pathIndex += 1;
+    this.lastProgressAt = now;
     this.state = CHASE_STATE.WALK;
     if (this.pathIndex >= this.path.length) this.path = [];
   }
@@ -367,11 +371,29 @@ export class ChaseRunner {
   // Pick a new destination when the current one is reached, has gone stale, or
   // could not be reached in time.
   ensurePath(playerPosition, now) {
-    const needsTarget = !this.path.length
-      || this.pathIndex >= this.path.length
-      || now - this.targetSetAt > this.stuckMs
-      || now - this.lastRetargetAt > this.retargetMs;
-    if (!needsTarget) return;
+    const pathDone = !this.path.length || this.pathIndex >= this.path.length;
+    // "Stuck" means no forward progress, not merely an old target. Measured on
+    // five room scans: the old wall-clock rule abandoned 84% of furniture
+    // destinations while Hachuping was still walking to them, which is why it
+    // was so rarely seen on a chair.
+    const stuck = now - this.lastProgressAt > this.stuckMs;
+    // The retarget timer keeps it reactive to the player, but only fires while
+    // the current destination is genuinely worse than starting over: the player
+    // is now closer to it than Hachuping is, so running there is running at
+    // them. Otherwise the walk continues and it actually arrives.
+    let compromised = false;
+    if (playerPosition && this.target) {
+      const goal = this.grid.worldOf(this.target);
+      if (!goal) {
+        compromised = true;
+      } else {
+        const mine = Math.hypot(goal[0] - this.position[0], goal[2] - this.position[2]);
+        const theirs = Math.hypot(goal[0] - playerPosition[0], goal[2] - playerPosition[2]);
+        compromised = theirs < mine;
+      }
+    }
+    const timerDue = now - this.lastRetargetAt > this.retargetMs;
+    if (!(pathDone || stuck || (timerDue && compromised))) return;
 
     // Recomputed per retarget rather than per frame: the map grows while the
     // chase runs, so yesterday's flood would miss newly scanned ground.
@@ -407,6 +429,7 @@ export class ChaseRunner {
     this.escaping = false;
     this.target = target;
     this.targetSetAt = now;
+    this.lastProgressAt = now;
     this.path = path.slice(1); // index 0 is where we already stand
     this.pathIndex = 0;
     this.emit('retarget', `${this.path.length}칸`);

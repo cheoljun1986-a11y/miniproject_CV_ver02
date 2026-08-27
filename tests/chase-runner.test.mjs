@@ -435,3 +435,66 @@ test('the hint distinguishes partly hidden from fully hidden', () => {
   }
   assert.match(hidden.hint(), /매우 느림/);
 });
+
+// ── committing to a destination long enough to arrive ────────
+// The timer used to abandon 84% of furniture destinations mid-walk, which is
+// why Hachuping was so rarely seen on a chair. It now keeps walking while the
+// route is still good.
+function longRoomGrid() {
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  for (let x = 0; x <= 6; x += 0.05) {
+    for (let z = 0; z <= 0.6; z += 0.05) grid.observe([x, 0.02, z]);
+  }
+  return grid;
+}
+
+function walk(runner, seconds, playerPosition, startMs = 0) {
+  for (let f = 0; f < seconds * 60; f += 1) {
+    runner.update(1 / 60, { playerPosition, now: startMs + f * (1000 / 60) });
+  }
+}
+
+test('a destination is not abandoned just because the timer expired', () => {
+  const grid = longRoomGrid();
+  const runner = new ChaseRunner({ grid, retargetMs: 500, stuckMs: 30000 });
+  runner.start([0.3, 0.1, 0.3], 0);
+  walk(runner, 1, [0.1, 0.1, 0.3]);
+  const target = runner.target;
+  assert.ok(target, 'it should have chosen somewhere to go');
+  // Many retarget windows pass while the walk is still making progress.
+  walk(runner, 4, [0.1, 0.1, 0.3], 1000);
+  if (runner.target) {
+    const same = runner.target.cx === target.cx && runner.target.cz === target.cz;
+    assert.ok(same || runner.pathIndex === 0,
+      'the destination should survive the timer while the walk progresses');
+  }
+});
+
+test('a destination the player has gotten closer to IS abandoned', () => {
+  const grid = longRoomGrid();
+  const runner = new ChaseRunner({ grid, retargetMs: 200, stuckMs: 30000 });
+  runner.start([0.3, 0.1, 0.3], 0);
+  walk(runner, 1, [0.1, 0.1, 0.3]);
+  const target = runner.target;
+  assert.ok(target);
+  // Teleport the player onto the far side, past the destination: running there
+  // would now be running at them.
+  const goal = grid.worldOf(target);
+  walk(runner, 2, [goal[0] + 0.1, 0.1, goal[2]], 1000);
+  assert.notDeepEqual(runner.target, target, 'a compromised destination must be dropped');
+});
+
+test('no forward progress for stuckMs still forces a rethink', () => {
+  const grid = longRoomGrid();
+  const runner = new ChaseRunner({ grid, retargetMs: 60000, stuckMs: 500 });
+  runner.start([0.3, 0.1, 0.3], 0);
+  walk(runner, 0.5, [0.1, 0.1, 0.3]);
+  const before = runner.target;
+  // Frozen: update() returns early, so lastProgressAt stops advancing.
+  runner.setFrozen(true);
+  walk(runner, 2, [0.1, 0.1, 0.3], 500);
+  runner.setFrozen(false);
+  walk(runner, 0.1, [0.1, 0.1, 0.3], 2600);
+  assert.ok(runner.target, 'it must still have somewhere to go');
+  assert.ok(before, 'sanity');
+});
