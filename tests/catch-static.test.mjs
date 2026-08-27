@@ -28,3 +28,10 @@ test('bundled Catch! Teenieping logo is a non-empty PNG asset', async () => {
   assert.equal(logo.readUInt32BE(20), 722);
   assert.deepEqual([...logo.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 });
+test('PC catch preview exposes the replayable two-turn effect', async () => {
+  const html = await readFile(new URL('../catch-preview.html', import.meta.url), 'utf8');
+  assert.match(html, /catchTeeniepingLogo/);
+  assert.match(html, /catchCharacter/);
+  assert.match(html, /rotateY\(720deg\)/);
+  assert.match(html, /다시 보기/);
+});
