@@ -1,6 +1,7 @@
 > 📱 **`private/junsung_catch` 모바일 실행:** [하츄핑 도망 모드 바로 열기](https://raw.githack.com/cheoljun1986-a11y/miniproject_CV_ver02/da32f4816cc484330fa5187795ba030bac70884c/v4-chase.html)
 >
 > `START AR → 맵 생성 → 방을 충분히 스캔 → 맵 생성 종료 → 도망 모드 시작`
+> 🖥️ **PC 미리보기:** 같은 링크를 Chrome DevTools의 모바일 기기 에뮬레이션으로 열면 반응형 UI를 확인할 수 있습니다.
 
 # WebXR Hidden Ninja v2
 
