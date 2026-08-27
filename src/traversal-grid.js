@@ -40,9 +40,12 @@ export class TraversalGrid {
     // reach well under zero or the floor falls outside the grid entirely.
     minY = -3.0,
     slabCount = 64,
-    headroom = 0.5,
+    // These mirror the shipped values in config.js. They drifted apart once —
+    // config moved and this did not — so a reader of this file saw numbers the
+    // game never used. Keep them in step.
+    headroom = 0.34,
     maxStepUp = 0.15,
-    maxJumpUp = 0.7,
+    maxJumpUp = 0.95,
     maxDropDown = 1.2,
     // A ceiling is geometrically identical to a tabletop: a thin occupied slab
     // with clear air on one side. Only its height tells them apart, so cap how
@@ -58,6 +61,15 @@ export class TraversalGrid {
     // floor leaves 16 voxels in its slab, so 4 clears real surfaces comfortably
     // while rejecting isolated noise.
     minSlabVoxels = 4,
+    // A foothold this far above the floor must look like a real platform, not
+    // a lone blob: at least `minRaisedSupport` of its eight neighbours need a
+    // standable level within `raisedSupportBandM`. Furniture tops are wide and
+    // score 8/8; a noise cluster floating in mid-air scores 0/8. Without this,
+    // raising the jump height to reach hip-height furniture also hands
+    // Hachuping every stray reconstruction artefact in the room.
+    raisedSupportAboveFloorM = 0.4,
+    minRaisedSupport = 2,
+    raisedSupportBandM = 0.10,
   } = {}) {
     this.cellSize = cellSize;
     this.slabHeight = slabHeight;
@@ -70,6 +82,9 @@ export class TraversalGrid {
     this.maxStandAboveFloor = maxStandAboveFloor;
     this.floorMinCells = floorMinCells;
     this.minSlabVoxels = Math.max(1, minSlabVoxels);
+    this.raisedSupportAboveFloorM = raisedSupportAboveFloorM;
+    this.minRaisedSupport = minRaisedSupport;
+    this.raisedSupportBandM = raisedSupportBandM;
     this.cells = new Map();
     this.revision = 0;
     this.slabCells = new Int32Array(64);
@@ -235,6 +250,34 @@ export class TraversalGrid {
     return this.levels(cx, cz).length > 0;
   }
 
+  // Does a raised level look like part of a real platform?
+  //
+  // Deliberately NOT folded into levels(): that would recurse, since the test
+  // reads the neighbours' levels. It belongs on the edge layer anyway — the
+  // surface exists either way, the question is whether it is somewhere a
+  // character could sensibly hop onto.
+  hasRaisedSupport(cx, cz, y) {
+    const floorSlab = this.resolveFloorSlab();
+    if (floorSlab === null) return true;
+    const height = y - this.slabTopY(floorSlab);
+    if (height <= this.raisedSupportAboveFloorM) return true; // ground level
+
+    let support = 0;
+    for (let dz = -1; dz <= 1; dz += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        if (dx === 0 && dz === 0) continue;
+        for (const level of this.levels(cx + dx, cz + dz)) {
+          if (Math.abs(level - y) <= this.raisedSupportBandM) {
+            support += 1;
+            break;
+          }
+        }
+        if (support >= this.minRaisedSupport) return true;
+      }
+    }
+    return false;
+  }
+
   // A cell that was observed but offers nowhere to stand — a wall, or the
   // solid body of a piece of furniture.
   isBlocked(cx, cz) {
@@ -317,6 +360,12 @@ export class TraversalGrid {
           // the limit (0.7000000000000002 vs 0.7) is rejected at random.
           if (rise > this.maxJumpUp + 1e-9) continue;
           if (rise < -this.maxDropDown - 1e-9) continue;
+
+          // A lone blob in mid-air is not a platform, however legal the hop
+          // onto it would be. Only checked when climbing: dropping off one is
+          // still allowed, or a character could get stranded on it forever.
+          if (rise > this.maxStepUp
+            && !this.hasRaisedSupport(nx, nz, levels[level])) continue;
 
           const jump = Math.abs(rise) > this.maxStepUp;
           // Climbing is charged double its height, dropping half: coming down

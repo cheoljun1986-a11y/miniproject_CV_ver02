@@ -121,6 +121,8 @@ export class ChaseRunner {
     this.jumpProgress = 0;
     this.jumpFrom = null;
     this.jumpTo = null;
+    this.jumpSecondsCurrent = null;
+    this.jumpArcCurrent = null;
     this.hopPhase = 0;
     this.frozen = false;
     this.replanFailures = 0;
@@ -313,9 +315,23 @@ export class ChaseRunner {
     this.pathIndex = 0;
   }
 
+  // Duration and arc scale with the climb. A fixed 0.5s / 0.22m arc was tuned
+  // for hopping a chair seat; reusing it for a 90cm desk reads as the model
+  // being slid up an invisible pole rather than jumping.
+  jumpShapeFor(rise) {
+    const climb = Math.max(0, rise);
+    return {
+      seconds: this.jumpSeconds * (1 + climb * 0.9),
+      arc: this.jumpArcM + climb * 0.35,
+    };
+  }
+
   beginJump(toWorld, node, now) {
     this.jumpFrom = this.position.slice();
     this.jumpTo = toWorld.slice();
+    const shape = this.jumpShapeFor(toWorld[1] - this.position[1]);
+    this.jumpSecondsCurrent = shape.seconds;
+    this.jumpArcCurrent = shape.arc;
     this.jumpProgress = 0;
     this.state = CHASE_STATE.JUMP;
     this.pendingJumpNode = node;
@@ -324,9 +340,10 @@ export class ChaseRunner {
   }
 
   advanceJump(dt, now) {
-    this.jumpProgress = Math.min(1, this.jumpProgress + dt / this.jumpSeconds);
+    const seconds = this.jumpSecondsCurrent ?? this.jumpSeconds;
+    this.jumpProgress = Math.min(1, this.jumpProgress + dt / seconds);
     const t = this.jumpProgress;
-    const arc = Math.sin(t * Math.PI) * this.jumpArcM;
+    const arc = Math.sin(t * Math.PI) * (this.jumpArcCurrent ?? this.jumpArcM);
     this.position = [
       this.jumpFrom[0] + (this.jumpTo[0] - this.jumpFrom[0]) * t,
       this.jumpFrom[1] + (this.jumpTo[1] - this.jumpFrom[1]) * t + arc,

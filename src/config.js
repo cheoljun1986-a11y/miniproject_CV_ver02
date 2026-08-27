@@ -76,10 +76,15 @@ export const CHASE_GRID_MIN_Y = -3.0;       // 'local' origin sits ~1.4m above t
 export const CHASE_GRID_SLABS = 64;
 export const CHASE_BODY_HEIGHT_M = 0.34;    // headroom = the body height above
 export const CHASE_MAX_STEP_UP_M = 0.15;    // above this it is a jump
-// 0.45 lets it hop a chair seat but not leap floor-to-desk in one go. The
-// first play test used 0.7, which chained floor-chair-desk into an aerial
-// highway: Hachuping crossed the whole room without ever touching the floor.
-export const CHASE_MAX_JUMP_UP_M = 0.45;   // above this it cannot go at all
+// Hip-height furniture (~90cm on a 177cm person) was unreachable at 0.45, so
+// Hachuping never used the room's most interesting surfaces. Raised to clear
+// it in one hop.
+//
+// The aerial-highway failure this replaced is now held off by two other
+// guards rather than by a low ceiling on the jump itself: raised footholds
+// must look like real platforms (hasRaisedSupport), and climbing costs double
+// its height in the path cost, so the ground route stays the cheap one.
+export const CHASE_MAX_JUMP_UP_M = 0.95;   // above this it cannot go at all
 export const CHASE_MAX_DROP_M = 1.2;
 // A ceiling looks exactly like a tabletop to the grid, so cap how high a
 // surface may be above the detected floor before it stops counting.

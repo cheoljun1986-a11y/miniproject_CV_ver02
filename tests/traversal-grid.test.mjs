@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TraversalGrid, MOVE } from '../src/traversal-grid.js';
-import { findPath } from '../src/chase-path.js';
+import { TraversalGrid, MOVE, nodeKey } from '../src/traversal-grid.js';
+import { findPath, reachableFrom } from '../src/chase-path.js';
 
 // Terrain here is drawn one voxel per surface, because these tests are about
 // geometry and routing, not about how much evidence a foothold needs. The
@@ -204,8 +204,11 @@ test('a neighbouring cell offers BOTH its floor and its tabletop as edges', () =
   for (let x = 0; x <= 1.0; x += 0.1) {
     for (let z = 0; z <= 1.0; z += 0.1) grid.observe([x, 0.02, z]);
   }
-  // A tabletop over one cell, high enough to leave headroom underneath.
-  grid.observe([0.5, 0.72, 0.5]);
+  // A tabletop wide enough to read as a platform. A single raised cell is
+  // rejected on purpose now — that shape is what noise looks like.
+  for (let x = 0.3; x <= 0.7; x += 0.1) {
+    for (let z = 0.3; z <= 0.7; z += 0.1) grid.observe([x, 0.72, z]);
+  }
 
   const from = grid.nodeAtWorld([0.3, 0.1, 0.5]);
   const toCell = { cx: grid.cellX(0.5), cz: grid.cellZ(0.5) };
@@ -221,7 +224,9 @@ test('the floor route is cheaper than the furniture route', () => {
   for (let x = 0; x <= 1.0; x += 0.1) {
     for (let z = 0; z <= 1.0; z += 0.1) grid.observe([x, 0.02, z]);
   }
-  grid.observe([0.5, 0.72, 0.5]);
+  for (let x = 0.3; x <= 0.7; x += 0.1) {
+    for (let z = 0.3; z <= 0.7; z += 0.1) grid.observe([x, 0.72, z]);
+  }
   const from = grid.nodeAtWorld([0.3, 0.1, 0.5]);
   const offered = grid.neighbors(from)
     .filter((n) => n.cx === grid.cellX(0.5) && n.cz === grid.cellZ(0.5));
@@ -289,4 +294,76 @@ test('the threshold is configurable so it can be retuned on device', () => {
   const strict = new TraversalGrid({ minSlabVoxels: 8 });
   for (let i = 0; i < 6; i += 1) strict.observe([0.01 + i * 0.03, 0.02, 0.05]);
   assert.deepEqual(strict.levels(0, 0), []);
+});
+
+// ── climbing furniture without climbing noise ────────────────
+function roomWithDeskAndNoise(options = {}) {
+  const grid = new TraversalGrid(options);
+  for (let x = 0; x <= 2.4; x += 0.025) {
+    for (let z = 0; z <= 1.0; z += 0.025) grid.observe([x, 0.02, z]);
+  }
+  // Hip-height desk, 60cm square — a real platform.
+  for (let x = 1.2; x <= 1.8; x += 0.025) {
+    for (let z = 0.2; z <= 0.8; z += 0.025) grid.observe([x, 0.90, z]);
+  }
+  // Reconstruction noise: one cell's worth of voxels floating in mid-air.
+  for (const [dx, dz] of [[0, 0], [0.06, 0], [0, 0.06], [0.06, 0.06]]) {
+    grid.observe([0.40 + dx, 0.85, 0.50 + dz]);
+  }
+  return grid;
+}
+
+test('hip-height furniture is reachable from the floor', () => {
+  const grid = roomWithDeskAndNoise();
+  const reachable = reachableFrom(grid, grid.nodeAtWorld([0.1, 0.1, 0.5]));
+  const desk = grid.nodeAtWorld([1.5, 0.95, 0.5]);
+  assert.ok(desk, 'the desktop should be standable geometry');
+  assert.ok(
+    reachable.has(nodeKey(desk.cx, desk.cz, desk.level)),
+    'a 90cm desk must be climbable, or the room\'s furniture goes unused',
+  );
+});
+
+test('an isolated blob at the same height is not', () => {
+  const grid = roomWithDeskAndNoise();
+  const reachable = reachableFrom(grid, grid.nodeAtWorld([0.1, 0.1, 0.5]));
+  const noise = grid.nodeAtWorld([0.42, 0.90, 0.52]);
+  assert.ok(
+    !reachable.has(nodeKey(noise.cx, noise.cz, noise.level)),
+    'raising the jump height must not hand over every stray artefact',
+  );
+});
+
+test('the platform test counts neighbours at a similar height', () => {
+  const grid = roomWithDeskAndNoise();
+  const desk = grid.nodeAtWorld([1.5, 0.95, 0.5]);
+  const noise = grid.nodeAtWorld([0.42, 0.90, 0.52]);
+  assert.equal(grid.hasRaisedSupport(desk.cx, desk.cz, grid.worldOf(desk)[1]), true);
+  assert.equal(grid.hasRaisedSupport(noise.cx, noise.cz, grid.worldOf(noise)[1]), false);
+});
+
+test('ground-level cells skip the platform test entirely', () => {
+  // Otherwise a lone scanned patch of floor at the edge of the map would be
+  // unreachable, and the map is always ragged at its edges.
+  const grid = roomWithDeskAndNoise();
+  const floor = grid.nodeAtWorld([0.1, 0.1, 0.5]);
+  assert.equal(grid.hasRaisedSupport(floor.cx, floor.cz, grid.worldOf(floor)[1]), true);
+});
+
+test('a character stranded on a blob can still get down', () => {
+  // The platform test gates climbing only. Gating descent too would strand
+  // Hachuping forever if it ever ended up somewhere unsupported.
+  const grid = roomWithDeskAndNoise();
+  const noise = grid.nodeAtWorld([0.42, 0.90, 0.52]);
+  const down = grid.neighbors(noise).filter((n) => n.rise < -0.2);
+  assert.ok(down.length > 0, 'there must be a way down');
+});
+
+test('a taller climb takes longer and arcs higher', async () => {
+  const { ChaseRunner } = await import('../src/chase-runner.js');
+  const runner = new ChaseRunner({ grid: new TraversalGrid({ minSlabVoxels: 1 }) });
+  const small = runner.jumpShapeFor(0.15);
+  const big = runner.jumpShapeFor(0.90);
+  assert.ok(big.seconds > small.seconds);
+  assert.ok(big.arc > small.arc);
 });
