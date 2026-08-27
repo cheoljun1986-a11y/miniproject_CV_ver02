@@ -239,8 +239,10 @@ async function init() {
     // Chase page: the map is built explicitly (맵 생성 → 종료), so no timed
     // mapping phase, and hiding spots come from the frozen grid instead of
     // the crosshair pool.
-    autoMapping: !ui.hasMapButton(),
-    getCandidatePool: ui.hasMapButton()
+    // The diagnostic joins the pre-built-map flow: its scan IS the map, so
+    // there is nothing to gain from a second 20-second sweep.
+    autoMapping: !ui.hasMapButton() && !VOXEL_DEBUG_MODE,
+    getCandidatePool: ui.hasMapButton() || VOXEL_DEBUG_MODE
       ? () => (chaseGrid ? gridCandidatePool(chaseGrid) : [])
       : null,
   });
@@ -302,7 +304,10 @@ async function init() {
         voxelPanel?.setUploadStatus(text);
       },
     });
-    if (ui.hasChaseControls()) {
+    // Built for the chase page, and for the diagnostic too: maybeFeedChaseGrid
+    // fills it from the scan, which is what lets the diagnostic place the
+    // character on the map it just reconstructed.
+    if (ui.hasChaseControls() || VOXEL_DEBUG_MODE) {
       chaseGrid = new TraversalGrid({
         cellSize: CHASE_CELL_SIZE_M,
         slabHeight: CHASE_SLAB_HEIGHT_M,
@@ -426,12 +431,19 @@ async function init() {
           operatorVisible = !operatorVisible;
           ui.setOperatorVisible(operatorVisible);
         },
+        // Put the character on the map the scan already built. autoMapping is
+        // off here, so startSession only arms the game; the hide then draws its
+        // spot from the traversal grid maybeFeedChaseGrid filled.
         onStartGame: () => {
           game.startSession();
-          // Starting the game in the diagnostic has exactly one purpose:
-          // watching whether the character hides. Leaving the occluder off
-          // makes that test silently measure nothing.
+          const placed = game.hideNewTarget();
+          // Leaving the occluder off would make "does it hide" silently
+          // measure nothing.
           voxelOccluder?.setVisible(true);
+          ui.setMessage(placed
+            ? '하츄핑이 스캔한 지도 위에 숨었습니다.'
+            : '숨을 자리가 없습니다 — 스캔을 더 하거나 관측 임계값을 낮춰보세요.');
+          return placed;
         },
         occluder: voxelOccluder,
         onUpload: () => backupScan('manual'),
@@ -808,9 +820,14 @@ function terrainField() {
 function buildMeshOverlay() {
   const field = terrainField();
   if (!meshOverlay || !field) return 0;
-  return meshOverlay.build(field, field.getRevision(), {
-    minWeight: VOXEL_TERRAIN_MIN_OBSERVATIONS,
-  });
+  // Same evidence bar the voxel view next to it uses, or the two disagree
+  // about what the map even contains: the diagnostic draws voxels at its
+  // slider's threshold (1 by default), so a mesh hardcoded to 3 comes out
+  // sparse — empty on a short scan — and reads as "the mesh is broken".
+  const minWeight = VOXEL_DEBUG_MODE
+    ? voxelDebug.getParams().minObservations
+    : VOXEL_TERRAIN_MIN_OBSERVATIONS;
+  return meshOverlay.build(field, field.getRevision(), { minWeight });
 }
 
 function cycleTerrainOverlay() {

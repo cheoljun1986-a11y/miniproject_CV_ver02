@@ -461,3 +461,33 @@ test('operator view compares hachuping and the player in one space', async () =>
   assert.match(src, /playerPos: playerMapPos/);
   assert.doesNotMatch(src, /playerPos: viewerPose/);
 });
+
+// The diagnostic's scan IS its map, so starting the game there must not run a
+// second 20-second mapping sweep — it should place the character on what was
+// already reconstructed. Both settings are read straight out of main.js.
+test('the diagnostic joins the pre-built-map flow instead of remapping', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+
+  assert.match(source, /autoMapping:\s*!ui\.hasMapButton\(\)\s*&&\s*!VOXEL_DEBUG_MODE/,
+    'the diagnostic must not auto-start a mapping phase');
+  assert.match(source, /getCandidatePool:\s*ui\.hasMapButton\(\)\s*\|\|\s*VOXEL_DEBUG_MODE/,
+    'hiding spots must come from the scanned grid');
+  assert.match(source, /if \(ui\.hasChaseControls\(\) \|\| VOXEL_DEBUG_MODE\) \{/,
+    'the diagnostic needs a traversal grid to draw those spots from');
+  assert.match(source, /onStartGame: \(\) => \{[\s\S]*?game\.hideNewTarget\(\)/,
+    'starting the game there hides the character right away');
+});
+
+// The mesh and the voxel wireframe are two views of one map; built from
+// different thresholds they disagree about what the map contains, and a short
+// scan makes the mesh empty while the voxels look fine.
+test('the AR mesh is built at the same threshold the voxel view draws', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+
+  assert.match(source, /VOXEL_DEBUG_MODE\s*\?\s*voxelDebug\.getParams\(\)\.minObservations/,
+    'the diagnostic mesh follows its own slider');
+  assert.match(source, /:\s*VOXEL_TERRAIN_MIN_OBSERVATIONS;/,
+    'the game mesh follows the terrain threshold');
+});

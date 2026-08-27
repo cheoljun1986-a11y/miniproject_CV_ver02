@@ -249,7 +249,13 @@ export function createVoxelDebugPanel({
     } else if (overlayMode === 'voxel') {
       overlayBtn.textContent = `AR 복셀 (${controller.getRenderCells().length})`;
     } else if (overlayMode === 'mesh') {
-      overlayBtn.textContent = `AR 메시 (${meshOverlay.getTriangleCount().toLocaleString()}△)`;
+      const triangles = meshOverlay.getTriangleCount();
+      // An empty extraction has to say so. Silently drawing nothing is
+      // indistinguishable from a broken overlay, and the usual cause is a
+      // threshold no cell clears yet rather than a defect.
+      overlayBtn.textContent = triangles
+        ? `AR 메시 (${triangles.toLocaleString()}△)`
+        : 'AR 메시 (비어 있음)';
     } else {
       overlayBtn.textContent = canMesh() ? 'AR 오버레이' : 'AR 오버레이(복셀)';
     }
