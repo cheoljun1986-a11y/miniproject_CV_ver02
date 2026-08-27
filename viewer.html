@@ -81,18 +81,23 @@ import { surfaceFromTsdf } from './src/surface-nets.js';
 import {
   TSDF_CARVE_START_M, TSDF_CARVE_STRIDE, TSDF_DEPTH_WEIGHT_POWER, TSDF_DEPTH_WEIGHT_REF_M,
   TSDF_KEYFRAME_SAMPLE_STRIDE, TSDF_MAX_WEIGHT, TSDF_SURFACE_BAND, TSDF_TRUNCATION_VOXELS,
+  CHASE_BODY_HEIGHT_M, CHASE_CELL_SIZE_M, CHASE_GRID_MIN_Y, CHASE_GRID_SLABS,
+  CHASE_MAX_DROP_M, CHASE_MAX_JUMP_UP_M, CHASE_MAX_STAND_ABOVE_FLOOR_M, CHASE_MAX_STEP_UP_M,
+  CHASE_MIN_OVERHEAD_M, CHASE_SLAB_HEIGHT_M, VOXEL_TRAVERSAL_MIN_OBSERVATIONS,
 } from './src/config.js';
 import { voxelCellsFromJSON } from './src/voxel-cells-codec.js';
 import { cellMeanPosition, selectCells } from './src/voxel-grid.js';
 import { buildOccluderGeometry } from './src/voxel-occluder-mesh.js';
 import { voxelColorRGB, VOXEL_COLOR_MODES } from './src/voxel-color-modes.js';
 import { detectFloorY } from './src/voxel-floor.js';
+import { TraversalGrid } from './src/traversal-grid.js';
 import { DEFAULT_VOXEL_DEBUG_PARAMS, VOXEL_DEBUG_CONTROLS, applyParam } from './src/voxel-debug-params.js';
 
 // Same pure modules the phone runs, so what shows here is what the headset
 // reconstructed — not a re-implementation that could drift.
 
 const MAX_VOXELS = 300000;
+const MAX_TILES = 20000;
 const MAX_PATH_POINTS = 512; // 400 keyframes or a 300-point player trail
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -137,6 +142,21 @@ surface.frustumCulled = false;
 surface.visible = false;
 scene.add(surface);
 
+// --- traversal tiles -------------------------------------------------------
+// One flat tile per place Hachuping could stand, coloured by height above the
+// floor. This is the map as the CHASE sees it, which is a different object
+// from the voxels: a surface can exist and still be nowhere to stand.
+const tiles = new THREE.InstancedMesh(
+  new THREE.BoxGeometry(CHASE_CELL_SIZE_M * 0.9, 0.015, CHASE_CELL_SIZE_M * 0.9),
+  new THREE.MeshLambertMaterial(),
+  MAX_TILES,
+);
+tiles.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_TILES * 3), 3);
+tiles.count = 0;
+tiles.frustumCulled = false;
+tiles.visible = false;
+scene.add(tiles);
+
 // --- camera path -----------------------------------------------------------
 const pathGeom = new THREE.BufferGeometry();
 pathGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PATH_POINTS * 3), 3));
@@ -157,7 +177,15 @@ let store = null;
 let loadedCells = null; // { grid, meta } from voxelCellsFromJSON
 let params = { ...DEFAULT_VOXEL_DEBUG_PARAMS };
 let colorMode = VOXEL_COLOR_MODES.OBSERVATION;
-let mode = 'voxel'; // voxel | surface
+let mode = 'voxel'; // voxel | surface | traversal
+// Standing rules, editable here so the effect of a threshold can be SEEN on a
+// real room instead of argued about. Defaults mirror config.js; the phone is
+// not affected by moving them.
+let standing = {
+  maxStandAboveFloor: CHASE_MAX_STAND_ABOVE_FLOOR_M,
+  minOverhead: CHASE_MIN_OVERHEAD_M,
+};
+let traversalStats = null;
 // How a keyframe scan is fused: 'count' is the diagnostic's hit counting,
 // 'tsdf' is what the game terrain runs (config.js knobs), at the same half
 // depth resolution the phone uses. Shown side by side so the two maps of one
@@ -219,6 +247,7 @@ function rebuild() {
 
   drawVoxels(shown);
   const geo = drawSurface(shown);
+  drawTraversal(all);
   drawPath();
 
   const h = stats.histogram;
@@ -235,7 +264,14 @@ function rebuild() {
     + `관측 1회 ${h.one} · 2회 ${h.two} · 3+회 ${h.three + h.fourPlus}\n`
     + rejected
     + `표면 ${geo.triangleCount.toLocaleString()} 삼각형 · 재구성 ${Math.round(buildMs)}ms\n`
-    + (floor ? `바닥 y ${floor.floorY.toFixed(2)}m (신뢰 ${floor.confidence === Infinity ? '∞' : floor.confidence.toFixed(1)}배)` : '바닥 미검출');
+    + (floor ? `바닥 y ${floor.floorY.toFixed(2)}m (신뢰 ${floor.confidence === Infinity ? '∞' : floor.confidence.toFixed(1)}배)` : '바닥 미검출')
+    + (traversalStats
+      ? `
+설 수 있는 자리 ${traversalStats.total} · 막힌 칸 ${traversalStats.blocked}`
+        + `
+  바닥 ${traversalStats.floor} · 낮은 단 ${traversalStats.low}`
+        + ` · 가구 ${traversalStats.furniture} · 0.9m 위 ${traversalStats.high}`
+      : '');
 }
 
 function drawVoxels(cells) {
@@ -258,6 +294,58 @@ function drawVoxels(cells) {
   voxels.instanceMatrix.needsUpdate = true;
   if (voxels.instanceColor) voxels.instanceColor.needsUpdate = true;
   voxels.visible = mode === 'voxel';
+}
+
+// The chase's own view of the map: which cells offer somewhere to stand, and
+// how high above the floor. Built from the same confirmed voxels the phone
+// feeds it, through the same class, so what shows here is what it would do.
+function drawTraversal(cells) {
+  if (mode !== 'traversal') { tiles.visible = false; traversalStats = null; return; }
+  const grid = new TraversalGrid({
+    cellSize: CHASE_CELL_SIZE_M,
+    slabHeight: CHASE_SLAB_HEIGHT_M,
+    minY: CHASE_GRID_MIN_Y,
+    slabCount: CHASE_GRID_SLABS,
+    headroom: CHASE_BODY_HEIGHT_M,
+    minOverhead: standing.minOverhead,
+    maxStepUp: CHASE_MAX_STEP_UP_M,
+    maxJumpUp: CHASE_MAX_JUMP_UP_M,
+    maxDropDown: CHASE_MAX_DROP_M,
+    maxStandAboveFloor: standing.maxStandAboveFloor,
+  });
+  grid.observeAll(
+    cells.filter((c) => c.observationCount >= VOXEL_TRAVERSAL_MIN_OBSERVATIONS).map(cellMeanPosition),
+  );
+  const floorSlab = grid.resolveFloorSlab();
+  const floorY = floorSlab === null ? 0 : grid.slabTopY(floorSlab);
+
+  const bands = { floor: 0, low: 0, furniture: 0, high: 0, blocked: 0 };
+  let count = 0;
+  for (const cell of grid.cells.values()) {
+    const levels = grid.levels(cell.cx, cell.cz);
+    if (!levels.length) { bands.blocked += 1; continue; }
+    for (const y of levels) {
+      if (count >= MAX_TILES) break;
+      const h = y - floorY;
+      // Green at floor level, blue on furniture, red above furniture height —
+      // that band is where wall noise turns into a ledge nothing can reach.
+      let rgb;
+      if (h < 0.15) { rgb = [0.25, 0.85, 0.4]; bands.floor += 1; }
+      else if (h < 0.5) { rgb = [0.95, 0.85, 0.25]; bands.low += 1; }
+      else if (h < 0.9) { rgb = [0.3, 0.6, 1.0]; bands.furniture += 1; }
+      else { rgb = [1.0, 0.3, 0.3]; bands.high += 1; }
+      _m.makeTranslation(grid.centerX(cell.cx), y, grid.centerZ(cell.cz));
+      tiles.setMatrixAt(count, _m);
+      _c.setRGB(rgb[0], rgb[1], rgb[2]);
+      tiles.setColorAt(count, _c);
+      count += 1;
+    }
+  }
+  tiles.count = count;
+  tiles.instanceMatrix.needsUpdate = true;
+  if (tiles.instanceColor) tiles.instanceColor.needsUpdate = true;
+  tiles.visible = true;
+  traversalStats = { ...bands, total: count, floorY };
 }
 
 function drawSurface(cells) {
@@ -340,6 +428,38 @@ function buildUI() {
     box.appendChild(row);
   }
 
+  // Standing rules. These are viewer-only knobs on the chase's own thresholds:
+  // the point is to SEE what a value does to a real room before changing
+  // config.js, rather than reasoning about it from a number.
+  if (mode === 'traversal') {
+    for (const control of [
+      { id: 'maxStandAboveFloor', label: '높이 상한', min: 0.3, max: 2.0, step: 0.1 },
+      { id: 'minOverhead', label: '머리 위 여유', min: 0.3, max: 2.0, step: 0.1 },
+    ]) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = control.label;
+      const input = document.createElement('input');
+      Object.assign(input, {
+        type: 'range', min: control.min, max: control.max, step: control.step,
+        value: standing[control.id],
+      });
+      const value = document.createElement('span');
+      value.className = 'value';
+      const paint = (v) => { value.textContent = `${v.toFixed(2)}m`; };
+      paint(standing[control.id]);
+      input.addEventListener('input', () => {
+        standing = { ...standing, [control.id]: Number(input.value) };
+        paint(standing[control.id]);
+        rebuild();
+      });
+      row.append(label, input, value);
+      box.appendChild(row);
+    }
+  }
+
   const modes = document.getElementById('modes');
   modes.innerHTML = '';
   const modeBtn = (text, value) => {
@@ -351,6 +471,7 @@ function buildUI() {
   };
   modeBtn('복셀', 'voxel');
   modeBtn('표면 메시', 'surface');
+  modeBtn('통행 가능', 'traversal');
 
   // Fusion applies to raw keyframe scans only; a game map is already fused.
   if (store) {
