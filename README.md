@@ -1,3 +1,7 @@
+> 📱 **`private/junsung_catch` 모바일 실행:** [하츄핑 도망 모드 바로 열기](https://raw.githack.com/cheoljun1986-a11y/miniproject_CV_ver02/private/junsung_catch/v4-chase.html)
+>
+> `START AR → 맵 생성 → 방을 충분히 스캔 → 맵 생성 종료 → 도망 모드 시작`
+
 # WebXR Hidden Ninja v2
 
 브라우저(WebXR)만으로 **ARCore 공간추적 + 실세계 오클루전 + 2D 영상의 3D 공간 복원**을

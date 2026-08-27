@@ -28,7 +28,7 @@ import {
   FLOOR_BAND_LOW_PERCENTILE,
   FLOOR_FILL_RADIUS_CELLS,
 } from '../src/config.js';
-import { gridCandidatePool } from '../src/grid-candidates.js';
+import { chaseStartReadiness, gridCandidatePool } from '../src/grid-candidates.js';
 import { fitFloorPlane } from '../src/plane-fit.js';
 
 // Deterministic RNG so the RANSAC-based regression test never flakes.
@@ -94,4 +94,21 @@ test('the RANSAC floor lifts walkable coverage past even the old 120-cell gate',
 
   assert.ok(after > before, `RANSAC fill should grow walkable cells (${before} -> ${after})`);
   assert.ok(after >= 120, `RANSAC floor should recover the old 120-cell gate (got ${after})`);
+});
+test('chase start stays disabled when a short scan has too few walkable cells', () => {
+  assert.deepEqual(
+    chaseStartReadiness({ walkable: 12, candidateCount: 4, minWalkable: 80 }),
+    { ready: false, reason: 'insufficient-walkable' },
+  );
+});
+
+test('chase start requires both enough floor and at least one hiding candidate', () => {
+  assert.deepEqual(
+    chaseStartReadiness({ walkable: 100, candidateCount: 0, minWalkable: 80 }),
+    { ready: false, reason: 'no-candidates' },
+  );
+  assert.deepEqual(
+    chaseStartReadiness({ walkable: 100, candidateCount: 3, minWalkable: 80 }),
+    { ready: true, reason: null },
+  );
 });

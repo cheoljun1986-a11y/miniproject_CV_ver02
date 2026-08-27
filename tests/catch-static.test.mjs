@@ -7,7 +7,7 @@ for (const page of ['app.html', 'v4-chase.html']) {
     const html = await readFile(new URL(`../${page}`, import.meta.url), 'utf8');
     assert.match(html, /id=(?:"|')catchCelebrationOverlay(?:"|')/);
     assert.match(html, /id=(?:"|')catchTeeniepingLogo(?:"|')/);
-    assert.match(html, /src=(?:"|')\.\/assets\/catch-teenieping-logo\.png(?:"|')/);
+    assert.match(html, /src=(?:"|')\.\/assets\/catch-teenieping-logo-ko\.png(?:"|')/);
     assert.doesNotMatch(html, /rpsOverlay|manualRock|handPreviewMount/);
   });
 }
@@ -21,8 +21,10 @@ test('application no longer wires the hand duel runtime', async () => {
 
 test('bundled Catch! Teenieping logo is a non-empty PNG asset', async () => {
   const logo = await readFile(
-    new URL('../assets/catch-teenieping-logo.png', import.meta.url),
+    new URL('../assets/catch-teenieping-logo-ko.png', import.meta.url),
   );
-  assert.ok(logo.byteLength > 10_000);
+  assert.ok(logo.byteLength > 100_000);
+  assert.equal(logo.readUInt32BE(16), 1017);
+  assert.equal(logo.readUInt32BE(20), 722);
   assert.deepEqual([...logo.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 });

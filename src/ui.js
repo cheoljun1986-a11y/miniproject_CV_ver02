@@ -356,9 +356,8 @@ export function createUI(documentRoot = document) {
       return elements.operatorCanvas;
     },
     bindChase,
-    // Identifies the chase page. Keyed on the gauge panel rather than a
-    // button: the chase starts when the map is frozen, so the page carries no
-    // toggle to key off any more.
+    // Identifies the chase page by the persistent gauge panel; the start
+    // button may be disabled while the map is not ready.
     hasChaseControls() {
       return Boolean(elements.chasePanel);
     },

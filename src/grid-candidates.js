@@ -17,6 +17,11 @@ const UP_MATRIX = Object.freeze([
   0, 0, 0, 1,
 ]);
 
+export function chaseStartReadiness({ walkable, candidateCount, minWalkable }) {
+  if (candidateCount <= 0) return { ready: false, reason: 'no-candidates' };
+  if (walkable < minWalkable) return { ready: false, reason: 'insufficient-walkable' };
+  return { ready: true, reason: null };
+}
 export function gridCandidatePool(grid, { maxCandidates = 600 } = {}) {
   if (!grid) return [];
   const all = [];

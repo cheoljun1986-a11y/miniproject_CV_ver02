@@ -4,9 +4,8 @@ import { readFile } from 'node:fs/promises';
 
 import { createUI } from '../src/ui.js';
 
-// chaseBtn is deliberately absent: the chase starts when the map is frozen,
-// so there is no mode to toggle.
-const CHASE_IDS = ['chasePanel', 'chaseGaugeFill', 'chaseHint', 'chaseArrow'];
+// The chase page exposes an explicit start button so map readiness is visible.
+const CHASE_IDS = ['chaseBtn', 'chasePanel', 'chaseGaugeFill', 'chaseHint', 'chaseArrow'];
 
 // ── page markup ──────────────────────────────────────────────
 test('the chase page carries every element the chase UI touches', async () => {
@@ -126,11 +125,22 @@ test('the chase page is recognised by its gauge panel, not by a toggle', () => {
   assert.equal(createUI(stubDocument(BASE_IDS)).hasChaseControls(), false);
 });
 
-test('binding the chase with no toggle button present does not throw', () => {
+test('the disabled chase start button becomes actionable only after map readiness', () => {
   const doc = stubDocument([...BASE_IDS, ...CHASE_IDS]);
   const ui = createUI(doc);
-  ui.bindChase({ onToggle() {} });
-  assert.equal(doc.elements.has('chaseBtn'), false);
+  let starts = 0;
+  ui.bindChase({ onToggle() { starts += 1; } });
+
+  ui.setChaseButton('도망 모드 시작', false);
+  const button = doc.elements.get('chaseBtn');
+  assert.equal(button.textContent, '도망 모드 시작');
+  assert.equal(button.disabled, true);
+
+  ui.setChaseButton('도망 모드 시작', true);
+  assert.equal(button.disabled, false);
+  const click = button.listeners.find(([type]) => type === 'click');
+  click[1]({ stopPropagation() {} });
+  assert.equal(starts, 1);
 });
 
 // ── anchor actually moves the rendered model ─────────────────
@@ -317,12 +327,11 @@ test('index.html is untouched by the map flow — no map button there', async ()
   assert.doesNotMatch(html, /id="mapBtn"/);
 });
 
-test('chase-only: the hide-and-seek buttons are gone from the chase page', async () => {
+test('chase-only: the page exposes map and explicit chase start controls', async () => {
   const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
   assert.doesNotMatch(html, /id="scanBtn"/);
   assert.doesNotMatch(html, /id="newRoundBtn"/);
-  // No chase toggle either: freezing the map starts it.
-  assert.doesNotMatch(html, /id="chaseBtn"/);
+  assert.match(html, /id="chaseBtn"[^>]*disabled/);
   assert.match(html, /id="mapBtn"/);
 });
 
@@ -332,24 +341,21 @@ test('app.html keeps its hide-and-seek buttons', async () => {
   assert.match(html, /id="newRoundBtn"/);
 });
 
-// ── the page has no idle state ───────────────────────────────
-test('main.js starts the chase from freezeMap, not from a button', async () => {
+// ── explicit start after map readiness ──────────────────────
+test('main.js waits for the chase button after freezeMap', async () => {
   const src = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
-  // freezeMap must call startChase itself.
   const freeze = src.slice(src.indexOf('function freezeMap('));
   const body = freeze.slice(0, freeze.indexOf('\n}\n'));
-  assert.match(body, /startChase\(\)/);
-  // And the old opt-in toggle must be gone entirely.
-  assert.doesNotMatch(src, /function toggleChase/);
-  assert.doesNotMatch(src, /setChaseButton\('/);
+  assert.doesNotMatch(body, /startChase\(\)/);
+  assert.match(body, /setChaseButton/);
+  assert.match(src, /bindChase\(\{\s*onToggle:\s*\(\)\s*=>\s*startChase\(\)/);
 });
 
-test('the chase page instructions describe the automatic start', async () => {
+test('the chase page instructions describe the explicit start', async () => {
   const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');
   assert.match(html, /맵 생성 종료/);
-  assert.doesNotMatch(html, /도망 모드를 누르/);
+  assert.match(html, /도망 모드 시작/);
 });
-
 // ── respawn: a bad round costs a button press, not a rescan ──
 test('the chase page carries a respawn button, hidden until a chase runs', async () => {
   const html = await readFile(new URL('../v4-chase.html', import.meta.url), 'utf8');

@@ -153,7 +153,7 @@
 </script>
 <div id="catchCelebrationOverlay" role="status" aria-live="assertive" aria-label="캐치! 티니핑">
   <div class="catch-celebration-card">
-    <img id="catchTeeniepingLogo" src="./assets/catch-teenieping-logo.png" alt="캐치! 티니핑"/>
+    <img id="catchTeeniepingLogo" src="./assets/catch-teenieping-logo-ko.png" alt="캐치! 티니핑"/>
     <div class="catch-celebration-text">캐치 성공!</div>
   </div>
 </div>
@@ -162,7 +162,7 @@
   <div class="card" id="metrics">pose: -</div>
   <button id="hudToggle" type="button">수치</button>
   <div id="crosshair"></div>
-  <div id="message">START AR → 맵 생성으로 방을 스캔 → 맵 생성 종료를 누르면 바로 하츄핑이 도망칩니다.</div>
+  <div id="message">START AR → 맵 생성으로 방을 충분히 스캔 → 맵 생성 종료 → 도망 모드 시작을 누르세요.</div>
   <div id="scanFlash"></div>
   <div id="chaseArrow"></div>
   <div id="chasePanel">
@@ -171,6 +171,7 @@
   </div>
   <div id="controls">
     <button class="ctrl warn" id="mapBtn">맵 생성</button>
+    <button class="ctrl chase" id="chaseBtn" disabled>도망 모드 시작</button>
     <button class="ctrl" id="respawnBtn" style="display:none">하츄핑 재생성</button>
     <button class="ctrl" id="terrainOverlayBtn" style="display:none">지형 보기</button>
     <button class="ctrl" id="operatorBtn" style="display:none">운영자 뷰</button>
