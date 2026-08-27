@@ -6,14 +6,21 @@ import {
   autoStartsGame,
   depthUsageForSession,
   resolveAppMode,
+  resolveFusionMode,
   usesKeyframeTerrain,
   usesLegacyTerrain,
+  usesRansacFloor,
   usesSpaceMapping,
   usesVoxelOccluder,
 } from './app-mode.js';
 import {
   HIDDEN_MODEL_HEIGHT_M,
   HIDDEN_MODEL_URL,
+  HAND_INFERENCE_GAP_MS,
+  HAND_MIN_CONFIDENCE,
+  HAND_REQUIRED_MATCHES,
+  HAND_SAMPLE_MAX_AGE_MS,
+  HAND_SAMPLE_WINDOW,
   HORIZONTAL_SURFACE_THRESHOLD,
   MAP_SECONDS,
   MAX_TRACKING_STEP,
@@ -21,6 +28,9 @@ import {
   NINJA_CAMOUFLAGE_OPACITY,
   OPERATOR_RENDER_GAP_MS,
   OPERATOR_STATUS_GAP_MS,
+  RPS_COUNTDOWN_MS,
+  RPS_READ_TIMEOUT_MS,
+  RPS_RESULT_MS,
   SCAN_BACKUP_INTERVAL_MS,
   TRAIL_MAX_POINTS,
   TRAIL_MIN_STEP_M,
@@ -34,6 +44,11 @@ import {
   VOXEL_SOLID_MIN_HITS,
 } from './config.js';
 import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
+import { GestureConsensus } from './gesture-consensus.js';
+import { HandGestureRecognizer } from './hand-gesture-recognizer.js';
+import { resolveInputMode } from './input-mode.js';
+import { RawCameraFrameSource } from './raw-camera-frame-source.js';
+import { RpsRuntime } from './rps-runtime.js';
 import { TraversalGrid, nodeKey } from './traversal-grid.js';
 import { ChaseRunner } from './chase-runner.js';
 import {
@@ -60,7 +75,16 @@ import {
   CHASE_RETARGET_MS,
   CHASE_SLAB_HEIGHT_M,
   CHASE_STUCK_MS,
+  FLOOR_RANSAC_ITERATIONS,
+  FLOOR_RANSAC_DISTANCE_M,
+  FLOOR_RANSAC_MAX_TILT_DEG,
+  FLOOR_RANSAC_MIN_INLIERS,
+  FLOOR_RANSAC_KEEP_FRACTION,
+  FLOOR_BAND_M,
+  FLOOR_BAND_LOW_PERCENTILE,
+  FLOOR_FILL_RADIUS_CELLS,
 } from './config.js';
+import { fitFloorPlane } from './plane-fit.js';
 import { CpuDepthOccluder } from './cpu-depth-occluder.js';
 import { DepthCloud } from './depth-cloud.js';
 import { loadHiddenModel } from './hidden-model-loader.js';
@@ -106,6 +130,8 @@ const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE) || VOXEL_OCCLUDER_ON;
 // (maybeFeedChaseGrid), so neither terrain accumulator runs alongside them.
 const KEYFRAME_TERRAIN_MODE = usesKeyframeTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
 const LEGACY_TERRAIN_MODE = usesLegacyTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
+const MANUAL_INPUT_MODE = resolveInputMode(location.search) === 'manual';
+const RANSAC_FLOOR_MODE = usesRansacFloor(location.search);
 
 const ui = createUI();
 let scene;
@@ -116,6 +142,9 @@ let reticle;
 let mapper;
 let xrSession;
 let game;
+let rpsRuntime;
+let handRecognizer;
+let rawCameraSource;
 let depthSource = null;
 // null until the first frame answers it: does XRView carry a camera, i.e. did
 // the browser actually grant camera-access for this session?
@@ -219,7 +248,31 @@ async function init() {
     getCandidatePool: ui.hasMapButton()
       ? () => (chaseGrid ? gridCandidatePool(chaseGrid) : [])
       : null,
+    onDuelStart: () => rpsRuntime?.startDuel(performance.now()),
   });
+
+  if (ui.hasDuelUI()) {
+    handRecognizer = new HandGestureRecognizer({
+      consensus: new GestureConsensus({
+        minConfidence: HAND_MIN_CONFIDENCE,
+        requiredMatches: HAND_REQUIRED_MATCHES,
+        windowSize: HAND_SAMPLE_WINDOW,
+        maxAgeMs: HAND_SAMPLE_MAX_AGE_MS,
+      }),
+    });
+    rawCameraSource = new RawCameraFrameSource({ minIntervalMs: HAND_INFERENCE_GAP_MS });
+    rpsRuntime = new RpsRuntime({
+      ui,
+      game,
+      recognizer: handRecognizer,
+      cameraSource: rawCameraSource,
+      manualMode: MANUAL_INPUT_MODE,
+      countdownMs: RPS_COUNTDOWN_MS,
+      readTimeoutMs: RPS_READ_TIMEOUT_MS,
+      resultMs: RPS_RESULT_MS,
+      resetRendererState: () => renderer.resetState?.(),
+    });
+  }
 
   controller = renderer.xr.getController(0);
   controller.addEventListener('select', () => game.triggerScan());
@@ -303,9 +356,13 @@ async function init() {
     if (KEYFRAME_TERRAIN_MODE) {
       voxelTerrain = new VoxelTerrain({
         depthSource,
+        fusion: resolveFusionMode(location.search),
         // Same contract VoxelMap.onSolid had: one cell touched per confirmed
-        // voxel, never a full grid rebuild.
+        // voxel, never a full grid rebuild. TSDF can also take a voxel back
+        // once enough rays have passed through it, so the chase grid must
+        // release that cell or a floater stays a wall forever.
         onSolid: chaseGrid ? (center) => chaseGrid.observe(toMapSpace(center)) : null,
+        onCleared: chaseGrid ? (center) => chaseGrid.unobserve(toMapSpace(center)) : null,
       });
     }
     if (LEGACY_TERRAIN_MODE) {
@@ -433,9 +490,11 @@ async function init() {
     backedUpRevision = -1;
     voxelDebug?.startScan(performance.now());
     await xrSession.start();
+    rpsRuntime?.startSession(xrSession.getSession(), renderer.getContext());
     if (autoStartsGame(APP_MODE)) game.startSession();
   });
   renderer.xr.addEventListener('sessionend', () => {
+    rpsRuntime?.resetSession();
     // Serialised before anything below resets it. The page outlives the XR
     // session, so the upload itself can finish after the resets.
     backupScan('final');
@@ -522,6 +581,10 @@ function toggleMapBuild() {
 function freezeMap() {
   mapBuilding = false;
   mapFrozen = true;
+  // Fit the floor once, on the finished map, before anything reads walkability.
+  // A conservative TSDF scan leaves a sparse, mis-levelled floor; the plane
+  // corrects its height and fills the gaps so the chase has ground to run on.
+  if (RANSAC_FLOOR_MODE) applyRansacFloor();
   const { walkable } = chaseGrid.stats();
   const candidateCount = gridCandidatePool(chaseGrid).length;
   game.setControls({ newRound: false });
@@ -533,6 +596,25 @@ function freezeMap() {
   ui.setMessage(candidateCount > 0
     ? `설 수 있는 자리 ${candidateCount}곳 — 도망 모드를 누르면 하츄핑이 도망칩니다.`
     : '설 수 있는 곳이 없습니다 — 맵 다시 만들기로 더 넓게 스캔해주세요.');
+}
+
+// Fit the dominant floor plane to the frozen map's voxels and hand it to the
+// chase grid. A failed fit (too few points, no dominant plane) leaves the grid
+// on its built-in histogram floor, so the game still works.
+function applyRansacFloor() {
+  if (!chaseGrid) return;
+  const points = chaseGrid.floorBandVoxelPoints({
+    bandM: FLOOR_BAND_M,
+    lowPercentile: FLOOR_BAND_LOW_PERCENTILE,
+  });
+  const plane = fitFloorPlane(points, {
+    iterations: FLOOR_RANSAC_ITERATIONS,
+    distanceThreshold: FLOOR_RANSAC_DISTANCE_M,
+    maxTiltDeg: FLOOR_RANSAC_MAX_TILT_DEG,
+    minInliers: FLOOR_RANSAC_MIN_INLIERS,
+    keepFraction: FLOOR_RANSAC_KEEP_FRACTION,
+  });
+  if (plane) chaseGrid.applyFloorPlane(plane, { fillRadius: FLOOR_FILL_RADIUS_CELLS });
 }
 
 // ── chase mode ────────────────────────────────────────────────
@@ -713,6 +795,7 @@ function render(time, frame) {
   const { viewerPose, surface } = xrSession.update(frame);
   if (viewerPose) mapper.recordViewer(viewerPose.position);
   game.update(time, frame, surface);
+  rpsRuntime?.update(time, frame, xrSession.getLocalSpace());
 
   if (SPACE_MAPPING_MODE) {
     const localSpace = xrSession.getLocalSpace();

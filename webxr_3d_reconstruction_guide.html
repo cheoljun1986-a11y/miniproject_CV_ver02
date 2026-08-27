@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f9fc">
+  <meta name="description" content="WebXR과 ARCore가 카메라 픽셀을 월드 좌표와 3D 공간으로 복원하는 과정을 설명하는 발표 자료">
+  <title>픽셀에서 월드까지 — WebXR 3D 공간 복원</title>
+  <style>
+    :root {
+      color-scheme:light;
+      --ink:#142033; --muted:#5d6878; --paper:#f7f9fc; --surface:#ffffff;
+      --line:#dbe3ef; --blue:#2563eb; --purple:#7c3aed; --orange:#e87918;
+      --green:#0f9168; --red:#cf3e4e;
+    }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-snap-type:y mandatory; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+    button { font:inherit; }
+    .slide { min-height:100svh; scroll-snap-align:start; padding:clamp(28px,5vw,72px); display:grid; align-content:center; }
+    .slide-inner { width:min(1180px,100%); margin:0 auto; }
+    .slide h1,.slide h2 { margin:0; max-width:980px; letter-spacing:-.045em; line-height:1.08; }
+    .slide h1 { max-width:1120px; font-size:clamp(42px,7vw,82px); }
+    .slide h2 { font-size:clamp(34px,5vw,62px); }
+    .eyebrow { margin:0 0 16px; color:var(--blue); font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+    .lede { max-width:820px; margin:22px 0 0; color:var(--muted); font-size:clamp(18px,2.1vw,25px); line-height:1.65; }
+    .content { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(340px,.95fr); gap:clamp(28px,5vw,70px); align-items:center; margin-top:clamp(26px,4vw,54px); }
+    .content.reverse { grid-template-columns:minmax(340px,.95fr) minmax(0,1.05fr); }
+    .copy { min-width:0; }
+    .copy p { margin:0 0 16px; font-size:clamp(17px,1.7vw,22px); line-height:1.7; }
+    .simple { padding-left:18px; border-left:5px solid var(--green); font-weight:750; }
+    .term { font-weight:850; color:var(--purple); }
+    .diagram { width:100%; min-height:320px; display:grid; place-items:center; border:1px solid var(--line); border-radius:28px; background:linear-gradient(145deg,#fff,#f0f4fa); overflow:hidden; }
+    .diagram svg { display:block; width:100%; height:auto; max-height:460px; }
+    .diagram text { font-family:system-ui,-apple-system,"Segoe UI",sans-serif; fill:var(--ink); }
+    .diagram .muted { fill:var(--muted); }
+    .diagram .line { fill:none; stroke:var(--line); stroke-width:2; }
+    .diagram .blue { fill:var(--blue); stroke:var(--blue); }
+    .diagram .purple { fill:var(--purple); stroke:var(--purple); }
+    .diagram .orange { fill:var(--orange); stroke:var(--orange); }
+    .diagram .green { fill:var(--green); stroke:var(--green); }
+    .diagram .red { fill:var(--red); stroke:var(--red); }
+    .diagram .soft-blue { fill:#e8f0ff; stroke:var(--blue); }
+    .diagram .soft-purple { fill:#f0eaff; stroke:var(--purple); }
+    .diagram .soft-orange { fill:#fff0df; stroke:var(--orange); }
+    .diagram .soft-green { fill:#e5f6ef; stroke:var(--green); }
+    .diagram .stroke { fill:none; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+    details { margin-top:18px; border-top:1px solid var(--line); padding-top:14px; }
+    summary { width:max-content; color:var(--blue); font-weight:850; cursor:pointer; }
+    details[open] summary { margin-bottom:14px; }
+    .formula { overflow:auto; margin:12px 0 0; padding:16px 18px; border-radius:16px; background:#111a29; color:#f8fafc; font:700 clamp(15px,1.6vw,20px)/1.7 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; }
+    .matrix { display:inline-grid; grid-template-columns:repeat(3,minmax(34px,auto)); gap:6px 16px; padding:8px 14px; border-left:2px solid currentColor; border-right:2px solid currentColor; font-variant-numeric:tabular-nums; }
+    .callout { margin-top:18px; padding:15px 18px; border-radius:16px; background:#fff3e6; color:#783e08; font-weight:750; line-height:1.55; }
+    .example-controls { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+    .example-controls button { padding:10px 14px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--ink); font-weight:800; cursor:pointer; }
+    .example-controls button[aria-pressed="true"] { border-color:var(--purple); background:var(--purple); color:#fff; }
+    #example-result { min-height:1.7em; margin-top:12px; color:var(--purple); font-size:clamp(16px,1.6vw,20px); font-weight:850; font-variant-numeric:tabular-nums; }
+    .example-layer { opacity:.1; transition:opacity .2s ease; }
+    .example-layer.is-active { opacity:1; }
+    .axis-key { display:flex; flex-wrap:wrap; gap:10px 18px; margin-top:16px; color:var(--muted); font-weight:700; }
+    .axis-key span::before { content:""; display:inline-block; width:10px; height:10px; margin-right:7px; border-radius:50%; background:currentColor; }
+    .axis-key .x { color:var(--blue); }.axis-key .y { color:var(--green); }.axis-key .z { color:var(--orange); }
+    .flow { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:9px; margin-top:22px; }
+    .flow-node,.flow > span { padding:11px 14px; border:1px solid var(--line); border-radius:14px; background:var(--surface); font-weight:800; text-align:center; }
+    .flow-arrow { color:var(--muted); font-weight:900; }
+    .compare { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:28px; }
+    .compare > div { padding:22px; border-radius:22px; background:var(--surface); border:1px solid var(--line); }
+    .compare h3 { margin:0 0 12px; font-size:clamp(20px,2vw,28px); }
+    .compare p { margin:8px 0; line-height:1.55; }
+    .failure-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:30px; }
+    .failure-grid article { min-height:132px; padding:18px; border-top:5px solid var(--red); background:var(--surface); }
+    .failure-grid h3 { margin:0 0 8px; font-size:20px; }.failure-grid p { margin:0; color:var(--muted); line-height:1.5; }
+    .speech { margin-top:28px; padding:clamp(24px,4vw,42px); border-left:8px solid var(--green); background:var(--surface); font-size:clamp(20px,2.2vw,29px); line-height:1.72; font-weight:720; }
+    .source-list { columns:2; column-gap:40px; margin:24px 0 0; padding:0; list-style:none; }
+    .source-list li { break-inside:avoid; margin:0 0 12px; }.source-list a { color:var(--blue); text-underline-offset:3px; }
+    .presentation-nav { position:fixed; right:18px; bottom:18px; z-index:20; display:flex; align-items:center; gap:8px; padding:8px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.92); box-shadow:0 10px 32px rgba(20,32,51,.12); backdrop-filter:blur(14px); }
+    .presentation-nav button { min-width:44px; min-height:42px; border:0; border-radius:999px; background:#e8eef8; color:var(--ink); font-weight:800; cursor:pointer; }
+    #slide-progress { min-width:62px; text-align:center; font-variant-numeric:tabular-nums; font-weight:800; }
+    @media (max-width: 700px) {
+      html { scroll-snap-type:none; }
+      .slide { min-height:auto; padding:42px 18px 82px; scroll-snap-align:none; }
+      .slide h1 { font-size:clamp(38px,13vw,58px); }
+      .slide h2 { font-size:clamp(31px,10vw,46px); }
+      .content,.content.reverse,.compare { grid-template-columns:1fr; }
+      .content { gap:24px; }
+      .diagram { min-height:0; border-radius:18px; }
+      .failure-grid { grid-template-columns:1fr; }
+      .source-list { columns:1; }
+      summary { width:auto; }
+      .presentation-nav { right:10px; bottom:10px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior:auto; }
+      *, *::before, *::after { animation:none!important; transition:none!important; }
+    }
+    @media print {
+      @page { size:landscape; margin:0; }
+      html { scroll-snap-type:none; }
+      .slide { min-height:100vh; break-after:page; }
+      .presentation-nav { display:none; }
+    }
+  </style>
+</head>
+<body>
+  <main id="deck">
+    <section class="slide" id="distance-problem" aria-labelledby="title-distance">
+      <div class="slide-inner">
+        <p class="eyebrow">01 · 시작 질문</p>
+        <h1 id="title-distance">한 장의 사진에는 거리가 없다</h1>
+        <p class="lede">같은 픽셀 뒤에는 1m, 2m, 4m의 점이 모두 겹쳐 있을 수 있다.</p>
+        <div class="content">
+          <div class="diagram">
+            <svg viewBox="0 0 620 360" role="img" aria-label="카메라 한 픽셀에서 뻗은 같은 광선 위에 세 점이 놓인 그림">
+              <path d="M72 155 L135 132 L135 228 L72 205 Z" class="soft-blue stroke"/><circle cx="104" cy="180" r="7" class="blue"/>
+              <rect x="178" y="100" width="12" height="160" rx="3" class="soft-purple"/><circle cx="184" cy="180" r="7" class="purple"/>
+              <line x1="104" y1="180" x2="560" y2="180" class="orange stroke"/>
+              <circle cx="285" cy="180" r="12" class="green"/><circle cx="410" cy="180" r="12" class="green"/><circle cx="545" cy="180" r="12" class="green"/>
+              <text x="65" y="247" font-size="18">카메라</text><text x="160" y="286" font-size="18">같은 픽셀</text>
+              <text x="268" y="151" font-size="18">1m</text><text x="393" y="151" font-size="18">2m</text><text x="528" y="151" font-size="18">4m</text>
+              <text x="244" y="325" font-size="20" font-weight="800">한 픽셀 = 한 방향, 거리 정보는 없음</text>
+            </svg>
+          </div>
+          <div class="copy">
+            <p class="simple">사진은 3D 공간을 2D 평면에 눌러 담는다.</p>
+            <p>픽셀 주소만으로는 물체가 광선 위 어디에 있는지 알 수 없습니다. 그래서 3D 복원에는 반드시 <span class="term">깊이</span> 또는 여러 시점의 관측이 필요합니다.</p>
+            <details><summary>교수님 질문 대비</summary><p>투영은 여러 3D 점을 하나의 2D 점으로 보내는 many-to-one 관계입니다. 단일 영상만으로 절대 깊이를 유일하게 복구할 수 없는 이유입니다.</p></details>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="three-spaces">
+      <div class="slide-inner">
+        <p class="eyebrow">02 · 좌표계</p>
+        <h2>이미지·카메라·월드 좌표는 서로 다른 주소다</h2>
+        <div class="content reverse">
+          <div class="copy">
+            <p><span class="term">이미지 좌표</span>는 사진 안의 픽셀 주소입니다.</p>
+            <p><span class="term">카메라 좌표</span>는 지금 휴대폰을 원점으로 한 ‘내 좌표’입니다.</p>
+            <p><span class="term">월드 좌표</span>는 세션 동안 방 전체가 공유하는 주소입니다.</p>
+            <p class="simple">같은 현실 점도 어느 기준에서 말하느냐에 따라 숫자가 달라진다.</p>
+            <div class="axis-key"><span class="x">+X 오른쪽</span><span class="y">+Y 위</span><span class="z">−Z 앞</span></div>
+            <div class="callout">CV 좌표계는 보통 +Z를 앞, +y를 아래로 설명합니다. WebXR 예제는 +Y가 위, −Z가 앞입니다.</div>
+          </div>
+          <div class="diagram">
+            <svg viewBox="0 0 620 390" role="img" aria-label="이미지 좌표, 카메라 좌표, 월드 좌표를 연결한 그림">
+              <rect x="38" y="92" width="160" height="120" rx="18" class="soft-blue stroke"/><line x1="118" y1="92" x2="118" y2="212" class="line"/><line x1="38" y1="152" x2="198" y2="152" class="line"/>
+              <circle cx="154" cy="176" r="8" class="blue"/><text x="53" y="74" font-size="20" font-weight="800">이미지 좌표</text><text x="100" y="244" font-size="17">(u, v) 픽셀</text>
+              <path d="M274 138 L315 120 L315 188 L274 170 Z" class="soft-purple stroke"/><circle cx="295" cy="154" r="6" class="purple"/>
+              <line x1="295" y1="154" x2="390" y2="154" class="blue stroke"/><line x1="295" y1="154" x2="295" y2="70" class="green stroke"/><line x1="295" y1="154" x2="238" y2="222" class="orange stroke"/>
+              <text x="257" y="258" font-size="20" font-weight="800">카메라 좌표</text><text x="248" y="282" font-size="17">휴대폰이 원점</text>
+              <line x1="466" y1="282" x2="574" y2="282" class="blue stroke"/><line x1="466" y1="282" x2="466" y2="178" class="green stroke"/><line x1="466" y1="282" x2="419" y2="337" class="orange stroke"/>
+              <circle cx="466" cy="282" r="7" class="green"/><text x="446" y="366" font-size="20" font-weight="800">월드 좌표</text>
+              <path d="M203 152 H254" class="purple stroke"/><path d="M333 226 C378 255 406 270 443 280" class="purple stroke"/>
+              <text x="207" y="138" font-size="15" class="muted">K⁻¹</text><text x="353" y="250" font-size="15" class="muted">pose</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="world-ruler">
+      <div class="slide-inner">
+        <p class="eyebrow">03 · 기준</p>
+        <h2>월드 좌표는 방에 놓는 가상의 자다</h2>
+        <p class="lede">현실에 숫자가 붙어 있는 것이 아니라, WebXR 런타임이 기준 공간을 제공한다.</p>
+        <div class="content">
+          <div class="diagram">
+            <svg viewBox="0 0 650 400" role="img" aria-label="방 바닥의 월드 축과 서로 다른 위치의 휴대폰 포즈">
+              <path d="M70 294 L380 365 L590 255 L278 190 Z" fill="#eef3f9" stroke="var(--line)" stroke-width="2"/>
+              <line x1="278" y1="294" x2="474" y2="294" class="blue stroke"/><line x1="278" y1="294" x2="278" y2="96" class="green stroke"/><line x1="278" y1="294" x2="166" y2="347" class="orange stroke"/>
+              <circle cx="278" cy="294" r="8" class="green"/><text x="287" y="320" font-size="17">월드 원점 O</text>
+              <text x="482" y="300" font-size="18">+X</text><text x="286" y="90" font-size="18">+Y</text><text x="130" y="362" font-size="18">+Z</text>
+              <g transform="translate(118 224) rotate(-10)"><rect x="0" y="0" width="44" height="76" rx="10" class="soft-blue stroke"/><circle cx="22" cy="12" r="5" class="blue"/></g>
+              <g transform="translate(430 176) rotate(24)"><rect x="0" y="0" width="44" height="76" rx="10" class="soft-purple stroke"/><circle cx="22" cy="12" r="5" class="purple"/></g>
+              <path d="M162 232 C250 166 350 149 429 177" class="purple stroke" stroke-dasharray="8 8"/>
+              <text x="86" y="213" font-size="16">pose₁</text><text x="468" y="166" font-size="16">pose₂</text>
+            </svg>
+          </div>
+          <div class="copy">
+            <p class="simple">월드 좌표는 방에 놓은 가상의 3차원 자다.</p>
+            <p>프로젝트는 WebXR의 <code>local</code> reference space를 사용합니다. 원점은 세션 시작 위치 근처에 런타임이 정하며, 좌표 단위는 미터입니다.</p>
+            <p>GPS나 북쪽 기준의 절대좌표가 아닙니다. 현재 휴대폰이 이 자에서 어디에 있고 어느 방향을 보는지가 <span class="term">카메라 포즈</span>입니다.</p>
+            <details><summary>정확히 말하면</summary><p>“START AR 순간 폰이 정확한 (0,0,0)”은 쉬운 설명입니다. 실제 native origin과 축 정렬은 런타임이 정하고 WebXR은 일관된 reference space를 제공합니다.</p></details>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="camera-intrinsics">
+      <div class="slide-inner">
+        <p class="eyebrow">04 · 방향</p>
+        <h2>K가 픽셀을 카메라 광선으로 바꾼다</h2>
+        <div class="content reverse">
+          <div class="copy">
+            <p>예제 영상은 <strong>640 × 480</strong>이고 중심은 <strong>(320, 240)</strong>입니다.</p>
+            <p><strong>fx = fy = 600 px</strong>라고 하면 픽셀 <strong>(440, 300)</strong>은 중심에서 오른쪽 120px, 아래 60px입니다.</p>
+            <div class="formula">xₙ = (440 − 320) / 600 = 0.2<br>yₙ = −(300 − 240) / 600 = −0.1<br>광선 방향 ≈ (0.2, −0.1, −1)</div>
+            <details open><summary>카메라 내부행렬 K</summary><div class="formula">K = [ 600 &nbsp; 0 &nbsp; 320 ]<br>&nbsp;&nbsp;&nbsp;&nbsp;[ &nbsp; 0 600 &nbsp; 240 ]<br>&nbsp;&nbsp;&nbsp;&nbsp;[ &nbsp; 0 &nbsp; 0 &nbsp;&nbsp;&nbsp; 1 ]</div></details>
+          </div>
+          <div class="diagram">
+            <svg viewBox="0 0 620 390" role="img" aria-label="640 곱하기 480 이미지에서 중심과 예제 픽셀을 표시한 그림">
+              <rect x="68" y="54" width="480" height="280" rx="18" fill="#fff" stroke="var(--blue)" stroke-width="3"/>
+              <line x1="308" y1="54" x2="308" y2="334" class="line"/><line x1="68" y1="194" x2="548" y2="194" class="line"/>
+              <circle cx="308" cy="194" r="8" class="purple"/><circle cx="398" cy="238" r="11" class="orange"/>
+              <line x1="308" y1="194" x2="398" y2="194" class="blue stroke"/><line x1="398" y1="194" x2="398" y2="238" class="orange stroke"/>
+              <text x="84" y="86" font-size="19" font-weight="800">640 × 480</text><text x="227" y="181" font-size="16">주점 (320, 240)</text>
+              <text x="410" y="263" font-size="18" font-weight="800">(440, 300)</text><text x="342" y="184" font-size="15">+120 px</text><text x="408" y="220" font-size="15">+60 px</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="camera-point">
+      <div class="slide-inner">
+        <p class="eyebrow">05 · 깊이</p>
+        <h2>방향과 깊이를 합치면 카메라 3D 점이 된다</h2>
+        <div class="content">
+          <div class="diagram">
+            <svg viewBox="0 0 650 390" role="img" aria-label="픽셀 광선에 깊이 2미터를 적용해 카메라 좌표를 얻는 그림">
+              <path d="M78 160 L132 140 L132 222 L78 202 Z" class="soft-blue stroke"/><circle cx="105" cy="181" r="7" class="blue"/>
+              <line x1="105" y1="181" x2="556" y2="104" class="orange stroke"/><circle cx="556" cy="104" r="13" class="green"/>
+              <path d="M135 247 H520" class="purple stroke"/><path d="M135 239 V255 M520 239 V255" class="purple stroke"/>
+              <text x="278" y="278" font-size="20" font-weight="800">view −Z 깊이 = 2.0 m</text>
+              <text x="458" y="82" font-size="18">Xcamera</text><text x="376" y="322" font-size="22" font-weight="800">(0.4, −0.2, −2.0) m</text>
+              <text x="63" y="246" font-size="17">카메라 원점</text>
+            </svg>
+          </div>
+          <div class="copy">
+            <p class="simple">방향 벡터를 깊이만큼 늘리면 3D 위치가 된다.</p>
+            <div class="formula">(0.2, −0.1, −1) × 2.0 m<br>= (0.4, −0.2, −2.0) m</div>
+            <p>즉 지금 카메라 기준으로 오른쪽 40cm, 아래 20cm, 앞쪽 2m에 표면이 있습니다.</p>
+            <details><summary>왜 광선 길이가 정확히 2m가 아닌가</summary><p>이 프로젝트는 depth를 광선의 유클리드 길이가 아니라 카메라 view −Z축에 수직인 깊이로 사용합니다. 그래서 광선의 z가 −2가 되도록 스케일합니다.</p></details>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="world-transform">
+      <div class="slide-inner">
+        <p class="eyebrow">06 · 변환</p>
+        <h2>카메라 포즈를 곱하면 월드 주소가 된다</h2>
+        <div class="content reverse">
+          <div class="copy">
+            <p>카메라의 월드 위치가 <strong>(1.0, 1.5, 0.5)m</strong>이고, 앞쪽이 world +X를 향하도록 회전했다고 하겠습니다.</p>
+            <div class="formula">Xworld = Tworld←camera · Xcamera<br>(0.4, −0.2, −2.0) → (3.0, 1.3, 0.9) m</div>
+            <div class="example-controls" aria-label="숫자 예제 단계">
+              <button type="button" data-example-step="pixel" aria-pressed="true">1 픽셀</button>
+              <button type="button" data-example-step="ray" aria-pressed="false">2 방향</button>
+              <button type="button" data-example-step="depth" aria-pressed="false">3 깊이</button>
+              <button type="button" data-example-step="world" aria-pressed="false">4 월드</button>
+              <button type="button" data-example-step="accumulate" aria-pressed="false">5 누적</button>
+            </div>
+            <p id="example-result" aria-live="polite">픽셀 (440, 300): 아직 화면 속 주소만 알고 있습니다.</p>
+          </div>
+          <div class="diagram">
+            <svg viewBox="0 0 650 420" role="img" aria-label="픽셀에서 월드 좌표까지 다섯 단계 예제">
+              <g id="example-pixel" class="example-layer is-active"><rect x="45" y="90" width="168" height="126" rx="16" class="soft-blue stroke"/><line x1="129" y1="90" x2="129" y2="216" class="line"/><line x1="45" y1="153" x2="213" y2="153" class="line"/><circle cx="174" cy="177" r="9" class="blue"/><text x="67" y="68" font-size="18" font-weight="800">픽셀 (440, 300)</text></g>
+              <g id="example-ray" class="example-layer"><circle cx="284" cy="190" r="7" class="purple"/><line x1="284" y1="190" x2="500" y2="111" class="purple stroke"/><text x="265" y="225" font-size="17">광선 (0.2, −0.1, −1)</text></g>
+              <g id="example-depth" class="example-layer"><circle cx="500" cy="111" r="12" class="orange"/><text x="478" y="81" font-size="17">2.0 m</text><text x="395" y="146" font-size="17">Xcamera</text></g>
+              <g id="example-world" class="example-layer"><line x1="354" y1="334" x2="570" y2="334" class="blue stroke"/><line x1="354" y1="334" x2="354" y2="236" class="green stroke"/><line x1="354" y1="334" x2="302" y2="382" class="orange stroke"/><circle cx="354" cy="334" r="7" class="green"/><path d="M502 110 C575 153 580 242 516 286" class="green stroke" stroke-dasharray="7 7"/><circle cx="516" cy="286" r="12" class="green"/><text x="400" y="315" font-size="18" font-weight="800">(3.0, 1.3, 0.9)m</text></g>
+              <g id="example-accumulate" class="example-layer"><circle cx="534" cy="265" r="5" class="green"/><circle cx="552" cy="278" r="5" class="green"/><circle cx="570" cy="291" r="5" class="green"/><circle cx="545" cy="304" r="5" class="green"/><circle cx="578" cy="316" r="5" class="green"/><text x="440" y="363" font-size="18">같은 월드에 점 누적</text></g>
+            </svg>
+          </div>
+        </div>
+        <details><summary>4×4 카메라→월드 행렬</summary><div class="formula">Tworld←camera = [ 0 &nbsp;0 −1 &nbsp;1.0 ]<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ 0 &nbsp;1 &nbsp;0 &nbsp;1.5 ]<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ 1 &nbsp;0 &nbsp;0 &nbsp;0.5 ]<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ 0 &nbsp;0 &nbsp;0 &nbsp;1.0 ]</div></details>
+      </div>
+    </section>
+    <section class="slide" id="my-coordinate">
+      <div class="slide-inner">
+        <p class="eyebrow">07 · 내 좌표</p>
+        <h2>내 좌표와 월드 좌표는 서로 왕복할 수 있다</h2>
+        <div class="content">
+          <div class="diagram">
+            <svg viewBox="0 0 650 380" role="img" aria-label="카메라 좌표와 월드 좌표 사이의 양방향 변환">
+              <rect x="52" y="100" width="210" height="168" rx="24" class="soft-blue stroke"/><rect x="390" y="100" width="210" height="168" rx="24" class="soft-green stroke"/>
+              <text x="102" y="142" font-size="24" font-weight="800">카메라 좌표</text><text x="443" y="142" font-size="24" font-weight="800">월드 좌표</text>
+              <text x="87" y="190" font-size="18">지금 폰에서 보이는 위치</text><text x="425" y="190" font-size="18">방의 공통 주소</text>
+              <text x="82" y="229" font-size="18" font-weight="800">(0.4, −0.2, −2.0)</text><text x="437" y="229" font-size="18" font-weight="800">(3.0, 1.3, 0.9)</text>
+              <path d="M271 139 H377" class="purple stroke"/><path d="M367 130 L382 139 L367 148" class="purple stroke"/><text x="286" y="125" font-size="15">Tworld←camera</text>
+              <path d="M382 247 H276" class="orange stroke"/><path d="M286 238 L271 247 L286 256" class="orange stroke"/><text x="292" y="274" font-size="15">Tcamera←world</text>
+            </svg>
+          </div>
+          <div class="copy">
+            <p><strong>스캔 점을 방에 저장:</strong><br><code>카메라 좌표 → 월드 좌표</code></p>
+            <p><strong>월드의 닌자를 화면에 표시:</strong><br><code>월드 좌표 → 카메라 좌표 → 픽셀</code></p>
+            <p><strong>나와 닌자의 거리:</strong><br>두 월드 위치의 차이 벡터 크기</p>
+            <p class="simple">내 좌표는 현재 관측을 설명하고, 월드 좌표는 시간과 프레임을 연결한다.</p>
+            <details><summary>수식으로 보기</summary><div class="formula">Xworld = Rwc · Xcamera + Cworld<br>Xcamera = Rcw · (Xworld − Cworld)</div></details>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="triangulation">
+      <div class="slide-inner">
+        <p class="eyebrow">08 · 삼각측량</p>
+        <h2>움직인 카메라는 두 눈처럼 깊이를 만든다</h2>
+        <div class="content reverse">
+          <div class="copy">
+            <p>카메라가 <strong>20cm</strong> 이동하고 같은 특징점이 60px 어긋났다고 하겠습니다.</p>
+            <div class="formula">f = 600 px<br>B = 0.20 m<br>d = 440 − 380 = 60 px<br><br>Z = fB / d = 600 × 0.20 / 60 = 2.0 m</div>
+            <p class="simple">시차가 크면 가깝고, 시차가 작으면 멀다.</p>
+            <details><summary>거리별 시차 비교</summary><p>1m에서는 120px, 2m에서는 60px, 6m에서는 20px입니다. 먼 곳은 작은 픽셀 오차에도 깊이가 크게 흔들립니다.</p></details>
+          </div>
+          <div class="diagram">
+            <svg viewBox="0 0 660 400" role="img" aria-label="20센티미터 떨어진 두 카메라와 2미터 앞 점의 삼각측량">
+              <circle cx="160" cy="305" r="12" class="blue"/><circle cx="330" cy="305" r="12" class="purple"/><circle cx="500" cy="72" r="14" class="orange"/>
+              <line x1="160" y1="305" x2="500" y2="72" class="blue stroke"/><line x1="330" y1="305" x2="500" y2="72" class="purple stroke"/>
+              <path d="M160 342 H330" class="orange stroke"/><path d="M160 334 V350 M330 334 V350" class="orange stroke"/>
+              <text x="202" y="373" font-size="20" font-weight="800">B = 0.20 m</text><text x="125" y="291" font-size="18">C₁</text><text x="337" y="291" font-size="18">C₂</text>
+              <text x="519" y="78" font-size="20" font-weight="800">X</text><text x="421" y="186" font-size="18">Z = 2.0 m</text>
+              <rect x="92" y="128" width="118" height="58" rx="12" class="soft-blue stroke"/><rect x="270" y="128" width="118" height="58" rx="12" class="soft-purple stroke"/>
+              <text x="116" y="162" font-size="18">u₁ = 440</text><text x="293" y="162" font-size="18">u₂ = 380</text><text x="198" y="115" font-size="18" font-weight="800">시차 d = 60 px</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="vio-scale">
+      <div class="slide-inner">
+        <p class="eyebrow">09 · 추적</p><h2>시각 정보와 IMU가 미터 단위 포즈를 만든다</h2>
+        <div class="content">
+          <div class="diagram">
+            <svg viewBox="0 0 660 400" role="img" aria-label="카메라 특징점과 IMU를 결합해 포즈를 추정하는 그림">
+              <rect x="55" y="62" width="210" height="116" rx="22" class="soft-blue stroke"/><rect x="55" y="225" width="210" height="116" rx="22" class="soft-purple stroke"/>
+              <text x="96" y="104" font-size="24" font-weight="800">카메라 특징점</text><text x="84" y="139" font-size="17">느리지만 위치 오차를 교정</text>
+              <text x="127" y="267" font-size="24" font-weight="800">IMU</text><text x="83" y="302" font-size="17">빠르지만 적분 오차가 누적</text>
+              <path d="M278 120 C342 120 360 171 396 186" class="blue stroke"/><path d="M278 282 C342 282 360 231 396 214" class="purple stroke"/>
+              <rect x="402" y="126" width="202" height="146" rx="26" class="soft-green stroke"/><text x="447" y="169" font-size="24" font-weight="800">VIO / SLAM</text>
+              <text x="434" y="205" font-size="18">position + orientation</text><text x="457" y="236" font-size="22" font-weight="800">6DoF pose</text>
+            </svg>
+          </div>
+          <div class="copy">
+            <p>카메라는 모서리·무늬 같은 특징점이 화면에서 어떻게 움직였는지 봅니다. IMU는 자이로와 가속도계로 빠른 회전·이동 변화를 측정합니다.</p>
+            <p class="simple">시각 정보와 IMU를 함께 결합해야 빠르면서도 장시간 덜 틀리는 추적이 된다.</p>
+            <div class="callout">가속도계가 이동거리 20cm를 혼자 재는 것이 아니다. 카메라 특징점과 IMU를 함께 융합해 미터 단위 포즈를 추정한다.</div>
+            <details><summary>드리프트는 왜 생기나</summary><p>센서 노이즈, 특징점 부족, 빠른 움직임 때문에 작은 추정 오차가 시간에 따라 쌓입니다. 새 관측으로 과거 지도를 다시 맞추면서 일부 오차를 교정합니다.</p></details>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="traditional-sfm">
+      <div class="slide-inner">
+        <p class="eyebrow">10 · SfM</p><h2>전통적 SfM은 카메라와 구조를 함께 복원한다</h2>
+        <p class="lede">사진만 주어졌을 때 카메라 포즈와 3D 점을 번갈아 확장하고 함께 보정하는 과정이다.</p>
+        <div class="flow" aria-label="전통적 Structure from Motion 처리 순서">
+          <span class="flow-node">특징점</span><span class="flow-arrow">→</span><span class="flow-node">대응점</span><span class="flow-arrow">→</span>
+          <span class="flow-node">RANSAC<br>Essential / Fundamental</span><span class="flow-arrow">→</span><span class="flow-node">초기 두 뷰 포즈</span><span class="flow-arrow">→</span>
+          <span class="flow-node">삼각측량</span><span class="flow-arrow">→</span><span class="flow-node">PnP로 새 카메라</span><span class="flow-arrow">→</span><span class="flow-node">Bundle Adjustment</span>
+        </div>
+        <div class="content">
+          <div class="diagram">
+            <svg viewBox="0 0 650 340" role="img" aria-label="여러 카메라와 3D 점, 재투영 오차">
+              <g fill="var(--green)"><circle cx="320" cy="90" r="6"/><circle cx="365" cy="115" r="6"/><circle cx="420" cy="78" r="6"/><circle cx="455" cy="142" r="6"/><circle cx="286" cy="145" r="6"/></g>
+              <g class="line"><line x1="120" y1="275" x2="320" y2="90"/><line x1="120" y1="275" x2="365" y2="115"/><line x1="315" y1="290" x2="365" y2="115"/><line x1="315" y1="290" x2="420" y2="78"/><line x1="530" y1="270" x2="420" y2="78"/><line x1="530" y1="270" x2="455" y2="142"/></g>
+              <path d="M95 250 L145 236 L145 300 L95 286 Z" class="soft-blue stroke"/><path d="M290 266 L340 252 L340 316 L290 302 Z" class="soft-purple stroke"/><path d="M505 245 L555 231 L555 295 L505 281 Z" class="soft-orange stroke"/>
+              <text x="80" y="326" font-size="17">P₁</text><text x="302" y="334" font-size="17">P₂</text><text x="520" y="318" font-size="17">P₃</text>
+            </svg>
+          </div>
+          <div class="copy">
+            <p><span class="term">삼각측량</span>은 포즈가 알려진 카메라들에서 3D 점을 구합니다.</p>
+            <p><span class="term">PnP</span>는 알려진 3D 점과 새 영상의 2D 점으로 새 카메라 포즈를 구합니다.</p>
+            <p><span class="term">Bundle Adjustment</span>는 모든 카메라와 3D 점을 함께 조정해 재투영 오차를 줄입니다.</p>
+            <details><summary>목적함수</summary><div class="formula">min Σ || π(Pc, Xn) − xc,n ||²<br>카메라와 3D 점을 동시에 최적화</div></details>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="responsibility-boundary">
+      <div class="slide-inner">
+        <p class="eyebrow">11 · 역할 분담</p><h2>ARCore와 우리 코드의 책임은 다르다</h2>
+        <div class="compare">
+          <div>
+            <h3 style="color:var(--blue)">ARCore / WebXR가 제공</h3>
+            <p>카메라 영상과 IMU 기반 <strong>6DoF 카메라 포즈</strong></p>
+            <p>depth-from-motion 기반 <strong>픽셀별 깊이맵</strong></p>
+            <p>reference space, hit-test, anchor API</p>
+          </div>
+          <div>
+            <h3 style="color:var(--green)">우리 코드가 수행</h3>
+            <p>픽셀 + 깊이의 <strong>역투영(unprojection)</strong></p>
+            <p>카메라 좌표 → 월드 좌표 변환</p>
+            <p>포인트 누적, 복셀화, TSDF 공간 융합</p>
+          </div>
+        </div>
+        <div class="diagram" style="margin-top:24px;min-height:190px">
+          <svg viewBox="0 0 900 220" role="img" aria-label="ARCore 출력과 애플리케이션 공간 복원 파이프라인">
+            <rect x="30" y="70" width="180" height="82" rx="20" class="soft-blue stroke"/><text x="75" y="105" font-size="21" font-weight="800">카메라 + IMU</text>
+            <rect x="266" y="42" width="196" height="62" rx="18" class="soft-purple stroke"/><text x="307" y="80" font-size="20">카메라 포즈</text>
+            <rect x="266" y="125" width="196" height="62" rx="18" class="soft-orange stroke"/><text x="307" y="163" font-size="20">깊이맵</text>
+            <rect x="518" y="70" width="166" height="82" rx="20" class="soft-green stroke"/><text x="550" y="105" font-size="20" font-weight="800">역투영 +</text><text x="545" y="134" font-size="20" font-weight="800">월드 변환</text>
+            <rect x="740" y="70" width="130" height="82" rx="20" class="soft-green stroke"/><text x="766" y="105" font-size="20" font-weight="800">3D 공간</text><text x="758" y="134" font-size="17">voxel / TSDF</text>
+            <path d="M218 111 H252 M470 73 H503 M470 156 C493 156 494 127 518 127 M693 111 H726" class="purple stroke"/>
+          </svg>
+        </div>
+        <p class="simple" style="margin-top:20px">“ARCore가 포즈와 깊이를 만들고, 우리 코드는 역투영과 월드 변환으로 3D 공간을 편다.”</p>
+      </div>
+    </section>
+    <section class="slide" id="point-cloud">
+      <div class="slide-inner">
+        <p class="eyebrow">12 · 누적</p><h2>월드 점을 누적하면 포인트클라우드가 된다</h2>
+        <p class="lede">매 프레임의 깊이 점을 그 순간의 카메라 포즈로 월드에 옮기면 서로 다른 시점이 한 방 안에 겹쳐진다.</p>
+        <div class="content">
+          <div class="diagram">
+            <svg viewBox="0 0 660 390" role="img" aria-label="세 카메라에서 얻은 점들이 같은 월드 공간에 누적되는 그림">
+              <path d="M68 291 L390 354 L605 245 L286 187 Z" fill="#eef3f9" stroke="var(--line)" stroke-width="2"/>
+              <g fill="var(--green)">
+                <circle cx="300" cy="150" r="5"/><circle cx="320" cy="162" r="5"/><circle cx="340" cy="175" r="5"/><circle cx="360" cy="186" r="5"/>
+                <circle cx="378" cy="197" r="5"/><circle cx="396" cy="211" r="5"/><circle cx="414" cy="224" r="5"/><circle cx="430" cy="237" r="5"/>
+                <circle cx="295" cy="212" r="5"/><circle cx="315" cy="224" r="5"/><circle cx="335" cy="237" r="5"/><circle cx="355" cy="249" r="5"/>
+                <circle cx="375" cy="260" r="5"/><circle cx="395" cy="272" r="5"/><circle cx="415" cy="283" r="5"/><circle cx="435" cy="294" r="5"/>
+              </g>
+              <g><rect x="95" y="244" width="32" height="54" rx="7" class="soft-blue stroke"/><rect x="255" y="282" width="32" height="54" rx="7" class="soft-purple stroke"/><rect x="500" y="229" width="32" height="54" rx="7" class="soft-orange stroke"/></g>
+              <path d="M127 247 L300 150 M287 282 L350 180 M500 240 L430 237" class="line"/>
+              <text x="238" y="370" font-size="20" font-weight="800">모든 점이 같은 월드 기준</text>
+            </svg>
+          </div>
+          <div class="copy">
+            <p class="simple">프레임마다 생긴 3D 점을 공통 월드 좌표에 쌓는다.</p>
+            <p>이 프로젝트에서는 ARCore가 프레임 간 카메라 등록을 제공하므로 애플리케이션이 별도의 ICP 정렬을 수행하지 않습니다.</p>
+            <p>다만 포즈나 깊이에 오차가 있으면 점이 두껍게 번지고 허공에 유령점이 생깁니다.</p>
+            <details><summary>프로젝트 구현</summary><p><code>depth-math.js</code>가 한 점을 역투영하고, <code>depth-cloud.js</code>와 키프레임 지형 경로가 월드 점을 누적합니다.</p></details>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="voxel-tsdf">
+      <div class="slide-inner">
+        <p class="eyebrow">13 · 융합</p><h2>복셀과 TSDF가 노이즈를 표면으로 정리한다</h2>
+        <div class="content reverse">
+          <div class="copy">
+            <p><span class="term">포인트클라우드</span>는 관측된 점을 그대로 모읍니다.</p>
+            <p><span class="term">복셀</span>은 3D 공간을 작은 칸으로 나누고 여러 키프레임에서 반복 관측된 칸을 신뢰합니다.</p>
+            <p><span class="term">TSDF</span>는 표면 근처의 부호 있는 거리와 카메라에서 표면까지의 자유공간을 함께 누적합니다.</p>
+            <p class="simple">한 번 본 점보다, 여러 시점에서 같은 표면이라고 합의한 공간이 더 믿을 만하다.</p>
+            <details><summary>TSDF의 부호</summary><p>광선에서 표면 앞쪽은 자유공간, 표면 근처는 0 교차, 표면 뒤쪽은 반대 부호로 누적됩니다. 이를 통해 허공의 일회성 점을 지울 수 있습니다.</p></details>
+          </div>
+          <div class="diagram">
+            <svg viewBox="0 0 660 400" role="img" aria-label="원시 포인트, 복셀 격자, TSDF 표면으로 정리되는 세 단계">
+              <g transform="translate(38 60)"><text x="35" y="0" font-size="20" font-weight="800">1 포인트</text><g fill="var(--blue)"><circle cx="48" cy="68" r="5"/><circle cx="73" cy="91" r="5"/><circle cx="101" cy="112" r="5"/><circle cx="132" cy="130" r="5"/><circle cx="158" cy="153" r="5"/><circle cx="92" cy="42" r="5"/><circle cx="146" cy="85" r="5"/></g><circle cx="36" cy="145" r="5" class="red"/><circle cx="168" cy="42" r="5" class="red"/></g>
+              <path d="M216 173 H252" class="purple stroke"/>
+              <g transform="translate(260 52)"><text x="34" y="0" font-size="20" font-weight="800">2 복셀</text><g stroke="var(--line)" fill="none"><path d="M10 20 H190 V200 H10 Z"/><path d="M10 65 H190 M10 110 H190 M10 155 H190 M55 20 V200 M100 20 V200 M145 20 V200"/></g><rect x="55" y="65" width="45" height="45" fill="#d8e5ff"/><rect x="100" y="110" width="45" height="45" fill="#d8e5ff"/><rect x="145" y="155" width="45" height="45" fill="#d8e5ff"/></g>
+              <path d="M465 173 H501" class="purple stroke"/>
+              <g transform="translate(505 52)"><text x="28" y="0" font-size="20" font-weight="800">3 TSDF</text><path d="M24 185 C56 158 76 134 98 111 C122 85 142 59 165 30" class="green stroke" stroke-width="12"/><path d="M10 198 C45 165 69 143 93 116 C119 88 139 61 178 18" class="line"/><text x="25" y="231" font-size="16">0 교차 = 표면</text></g>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="slide" id="anchors">
+      <div class="slide-inner">
+        <p class="eyebrow">14 · 고정</p><h2>좌표값 저장과 현실 장소 추적은 다르다</h2>
+        <div class="compare">
+          <div>
+            <h3 style="color:var(--red)">숫자만 저장</h3>
+            <p><strong>t₀</strong> 닌자 좌표 <code>(3.0, 1.3, 0.9)</code> 저장</p>
+            <p><strong>t₁</strong> 추적 지도가 보정됨</p>
+            <p><strong>결과</strong> 예전 숫자는 현실 위치와 어긋날 수 있음</p>
+          </div>
+          <div>
+            <h3 style="color:var(--green)">앵커로 장소 추적</h3>
+            <p><strong>t₀</strong> 현실의 이 지점을 anchorSpace로 등록</p>
+            <p><strong>t₁</strong> 매 프레임 최신 anchor pose 조회</p>
+            <p><strong>결과</strong> 지도 보정에 맞춰 숫자 좌표도 갱신</p>
+          </div>
+        </div>
+        <div class="diagram" style="margin-top:24px;min-height:230px">
+          <svg viewBox="0 0 900 250" role="img" aria-label="좌표계를 재보정할 때 원시 좌표와 앵커 위치가 달라지는 시간 흐름">
+            <line x1="70" y1="126" x2="830" y2="126" class="line"/><circle cx="160" cy="126" r="12" class="blue"/><circle cx="450" cy="126" r="12" class="purple"/><circle cx="740" cy="126" r="12" class="green"/>
+            <text x="130" y="82" font-size="20" font-weight="800">t₀ 배치</text><text x="400" y="82" font-size="20" font-weight="800">지도 보정</text><text x="675" y="82" font-size="20" font-weight="800">t₁ 최신 pose</text>
+            <circle cx="160" cy="184" r="10" class="red"/><circle cx="430" cy="184" r="10" class="red"/><circle cx="700" cy="184" r="10" class="red"/>
+            <circle cx="160" cy="220" r="10" class="green"/><circle cx="460" cy="220" r="10" class="green"/><circle cx="760" cy="220" r="10" class="green"/>
+            <path d="M160 184 H700" class="red stroke" stroke-dasharray="7 7"/><path d="M160 220 C380 220 530 220 760 220" class="green stroke"/>
+            <text x="735" y="190" font-size="16">원시 숫자</text><text x="789" y="226" font-size="16">앵커</text>
+          </svg>
+        </div>
+        <p class="simple" style="margin-top:20px">앵커는 “이 숫자를 기억해”가 아니라 “현실의 이 장소를 계속 추적해”라는 요청이다.</p>
+      </div>
+    </section>
+    <section class="slide" id="failure-cases">
+      <div class="slide-inner">
+        <p class="eyebrow">15 · 한계</p><h2>깊이가 실패하는 장면은 미리 예측할 수 있다</h2>
+        <p class="lede">특징점 대응, 카메라 포즈, 깊이 추정 중 하나만 흔들려도 최종 월드 점이 틀어진다.</p>
+        <div class="failure-grid">
+          <article><h3>흰 벽</h3><p>구별할 특징이 없어 프레임 사이 같은 위치를 찾기 어렵다.</p></article>
+          <article><h3>반복 무늬</h3><p>모두 비슷해 잘못된 대응점을 선택하기 쉽다.</p></article>
+          <article><h3>유리·거울</h3><p>반사와 투과 때문에 보이는 위치와 표면 위치가 다르다.</p></article>
+          <article><h3>짧은 이동</h3><p>시차가 작아 삼각형이 납작해지고 깊이 불확실성이 커진다.</p></article>
+          <article><h3>먼 거리</h3><p>같은 1px 오차가 훨씬 큰 미터 단위 깊이 오차로 확대된다.</p></article>
+          <article><h3>움직이는 물체</h3><p>장면이 정적이라는 가정을 깨서 서로 다른 위치가 한 점으로 매칭된다.</p></article>
+        </div>
+        <div class="callout">시연 팁: 0.5~5m 거리에서 천천히 옆으로 움직이고, 모서리·무늬가 있는 정적 표면을 충분히 비춘다.</div>
+      </div>
+    </section>
+    <section class="slide" id="summary">
+      <div class="slide-inner">
+        <p class="eyebrow">16 · 정리</p><h2>픽셀에서 월드까지 한 문장으로 연결된다</h2>
+        <div class="flow" aria-label="전체 처리 흐름">
+          <span>픽셀</span><b>→</b><span>광선</span><b>→</b><span>깊이</span><b>→</b><span>카메라 좌표</span><b>→</b><span>월드 좌표</span><b>→</b><span>3D 융합</span>
+        </div>
+        <div class="speech">
+          <h3>30초 발표 대본</h3>
+          <p>카메라의 픽셀은 방향만 알려주고 깊이는 알려주지 않습니다. ARCore는 여러 시점의 영상과 IMU를 결합해 카메라 포즈와 픽셀별 깊이를 추정합니다. 저희 코드는 픽셀을 광선으로 역투영하고 깊이를 적용해 카메라 좌표를 만든 뒤, 촬영 순간의 포즈를 곱해 월드 좌표로 변환합니다. 여러 프레임의 월드 점을 복셀이나 TSDF로 융합하면 방의 3D 구조가 만들어집니다. 현실의 특정 위치를 오래 유지할 때는 좌표값만 저장하지 않고 앵커를 사용합니다.</p>
+        </div>
+        <details>
+          <summary>출처와 더 읽을 자료</summary>
+          <ul class="source-list">
+            <li><a href="./webxr_3d_reconstruction_explained.pptx">현재 폴더의 참고 PPT</a></li>
+            <li><a href="https://drive.google.com/file/d/1MGXIs_wamT0Bhyl4y90_EjwmdDpj4R-Y/view" target="_blank" rel="noreferrer">주한별 교수님 Lecture 11 — Camera Model</a></li>
+            <li><a href="https://drive.google.com/file/d/16jv_HBdVUVJE9yNAc915k0pQfEy9Z0Fn/view" target="_blank" rel="noreferrer">주한별 교수님 Lecture 12 — Calibration &amp; Triangulation</a></li>
+            <li><a href="https://drive.google.com/file/d/1K-hp8RfPbj2S26TGE-ThItWTGe2MhtER/view" target="_blank" rel="noreferrer">주한별 교수님 Lecture 13 — SfM &amp; Bundle Adjustment</a></li>
+            <li><a href="https://developers.google.com/ar/develop/fundamentals" target="_blank" rel="noreferrer">Google ARCore Fundamentals</a></li>
+            <li><a href="https://developers.google.com/ar/develop/depth" target="_blank" rel="noreferrer">Google ARCore Depth API</a></li>
+            <li><a href="https://developers.google.com/ar/reference/java/com/google/ar/core/Pose" target="_blank" rel="noreferrer">Google ARCore Pose</a></li>
+            <li><a href="https://immersive-web.github.io/webxr/spatial-tracking-explainer.html" target="_blank" rel="noreferrer">WebXR Spatial Tracking Explainer</a></li>
+            <li><a href="./src/depth-math.js">프로젝트 구현: depth-math.js</a></li>
+            <li><a href="./src/tsdf-grid.js">프로젝트 구현: tsdf-grid.js</a></li>
+          </ul>
+        </details>
+      </div>
+    </section>
+  </main>
+  <nav class="presentation-nav" aria-label="발표 장 이동">
+    <button id="prev-slide" type="button" aria-label="이전 장">↑</button>
+    <span id="slide-progress" aria-live="polite">1 / 16</span>
+    <button id="next-slide" type="button" aria-label="다음 장">↓</button>
+  </nav>
+  <script>
+    window.GuideMath = Object.freeze({
+      pixelToCamera({ u, v, depth, fx, fy, cx, cy }) {
+        return {
+          x: ((u - cx) / fx) * depth,
+          y: -((v - cy) / fy) * depth,
+          z: -depth,
+        };
+      },
+      cameraToWorld({ x, y, z }, m) {
+        return {
+          x: m[0] * x + m[4] * y + m[8] * z + m[12],
+          y: m[1] * x + m[5] * y + m[9] * z + m[13],
+          z: m[2] * x + m[6] * y + m[10] * z + m[14],
+        };
+      },
+    });
+    const exampleMatrix = [
+      0, 0, 1, 0,
+      0, 1, 0, 0,
+      -1, 0, 0, 0,
+      1, 1.5, 0.5, 1,
+    ];
+    const exampleCameraPoint = window.GuideMath.pixelToCamera({
+      u:440, v:300, depth:2, fx:600, fy:600, cx:320, cy:240,
+    });
+    const exampleWorldPoint = window.GuideMath.cameraToWorld(exampleCameraPoint, exampleMatrix);
+    const exampleStates = {
+      pixel: { layers:['example-pixel'], text:'픽셀 (440, 300): 아직 화면 속 주소만 알고 있습니다.' },
+      ray: { layers:['example-pixel','example-ray'], text:'K⁻¹ 적용: 광선 방향은 (0.2, −0.1, −1)입니다.' },
+      depth: { layers:['example-pixel','example-ray','example-depth'], text:`깊이 2.0m 적용: 카메라 좌표 (${exampleCameraPoint.x.toFixed(1)}, ${exampleCameraPoint.y.toFixed(1)}, ${exampleCameraPoint.z.toFixed(1)})m` },
+      world: { layers:['example-pixel','example-ray','example-depth','example-world'], text:`포즈 적용: 월드 좌표 (${exampleWorldPoint.x.toFixed(1)}, ${exampleWorldPoint.y.toFixed(1)}, ${exampleWorldPoint.z.toFixed(1)})m` },
+      accumulate: { layers:['example-world','example-accumulate'], text:'다른 프레임의 점도 같은 월드 기준에 놓으면 방의 표면이 됩니다.' },
+    };
+    function showExampleStep(step) {
+      const state = exampleStates[step];
+      if (!state) return;
+      document.querySelectorAll('.example-layer').forEach(layer => layer.classList.toggle('is-active', state.layers.includes(layer.id)));
+      document.querySelectorAll('[data-example-step]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.exampleStep === step)));
+      document.getElementById('example-result').textContent = state.text;
+    }
+    document.querySelectorAll('[data-example-step]').forEach(button => button.addEventListener('click', () => showExampleStep(button.dataset.exampleStep)));
+
+    const slides = [...document.querySelectorAll('.slide')];
+    let current = 0;
+    function goToSlide(index) {
+      current = Math.max(0, Math.min(slides.length - 1, index));
+      slides[current].scrollIntoView({ behavior:'smooth', block:'start' });
+      document.getElementById('slide-progress').textContent = `${current + 1} / ${slides.length}`;
+    }
+    document.getElementById('prev-slide').addEventListener('click', () => goToSlide(current - 1));
+    document.getElementById('next-slide').addEventListener('click', () => goToSlide(current + 1));
+    document.addEventListener('keydown', event => {
+      if (event.target instanceof Element && event.target.closest('input,textarea,select')) return;
+      const moves = { ArrowDown:1, PageDown:1, ArrowUp:-1, PageUp:-1 };
+      if (event.key in moves) {
+        event.preventDefault();
+        goToSlide(current + moves[event.key]);
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        goToSlide(0);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        goToSlide(slides.length - 1);
+      }
+    });
+    const slideObserver = new IntersectionObserver(entries => {
+      const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      current = slides.indexOf(visible.target);
+      document.getElementById('slide-progress').textContent = `${current + 1} / ${slides.length}`;
+    }, { threshold:[0.45, 0.7] });
+    slides.forEach(slide => slideObserver.observe(slide));
+  </script>
+</body>
+</html>

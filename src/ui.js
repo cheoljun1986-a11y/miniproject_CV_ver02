@@ -1,3 +1,5 @@
+import { drawMove, MOVE_LABELS } from './rps-art.js';
+
 export function formatMetrics({
   viewerPosition,
   pathDistance,
@@ -163,6 +165,20 @@ export function createUI(documentRoot = document) {
     operatorCanvas: documentRoot.querySelector('#operatorCanvas'),
     operatorCloseBtn: documentRoot.querySelector('#operatorCloseBtn'),
     operatorStatus: documentRoot.querySelector('#operatorStatus'),
+    rpsOverlay: documentRoot.querySelector('#rpsOverlay'),
+    handPreviewMount: documentRoot.querySelector('#handPreviewMount'),
+    rpsCountdown: documentRoot.querySelector('#rpsCountdown'),
+    handStatus: documentRoot.querySelector('#handStatus'),
+    playerMoveCanvas: documentRoot.querySelector('#playerMoveCanvas'),
+    ninjaMoveCanvas: documentRoot.querySelector('#ninjaMoveCanvas'),
+    playerMoveLabel: documentRoot.querySelector('#playerMoveLabel'),
+    ninjaMoveLabel: documentRoot.querySelector('#ninjaMoveLabel'),
+    rpsResult: documentRoot.querySelector('#rpsResult'),
+    rpsError: documentRoot.querySelector('#rpsError'),
+    manualMoves: documentRoot.querySelector('#manualMoves'),
+    manualRock: documentRoot.querySelector('#manualRock'),
+    manualPaper: documentRoot.querySelector('#manualPaper'),
+    manualScissors: documentRoot.querySelector('#manualScissors'),
     // Chase mode elements exist only on the chase page; every use below is
     // guarded so app.html keeps behaving exactly as before.
     chaseBtn: documentRoot.querySelector('#chaseBtn'),
@@ -277,6 +293,21 @@ export function createUI(documentRoot = document) {
     }, 130);
   }
 
+  function bindManualMoves(onMove) {
+    const bindings = [
+      [elements.manualRock, 'rock'],
+      [elements.manualPaper, 'paper'],
+      [elements.manualScissors, 'scissors'],
+    ];
+    for (const [element, move] of bindings) {
+      if (!element) continue;
+      element.addEventListener('click', (event) => {
+        event.stopPropagation();
+        onMove(move);
+      });
+    }
+  }
+
   return {
     bindCommands,
     setControls,
@@ -307,6 +338,59 @@ export function createUI(documentRoot = document) {
     },
     flash,
     bindOperator,
+    bindManualMoves,
+    hasDuelUI() {
+      return Boolean(elements.rpsOverlay);
+    },
+    setDuelVisible(visible) {
+      if (elements.rpsOverlay) elements.rpsOverlay.style.display = visible ? 'flex' : 'none';
+    },
+    setDuelPhase(phase) {
+      if (elements.rpsOverlay) elements.rpsOverlay.dataset.phase = phase;
+      if (elements.rpsResult) {
+        elements.rpsResult.style.display = phase === 'duel-result' ? 'block' : 'none';
+      }
+    },
+    setHandPreview(canvas) {
+      elements.handPreviewMount?.replaceChildren(...(canvas ? [canvas] : []));
+    },
+    setCountdown(value) {
+      if (elements.rpsCountdown) {
+        elements.rpsCountdown.textContent = value ? String(value) : '가위바위보!';
+      }
+    },
+    setHandStatus(text) {
+      if (elements.handStatus) elements.handStatus.textContent = text;
+    },
+    showMoves({ playerMove, ninjaMove, result }) {
+      if (elements.playerMoveCanvas) {
+        drawMove(elements.playerMoveCanvas.getContext('2d'), playerMove);
+      }
+      if (elements.ninjaMoveCanvas) {
+        drawMove(elements.ninjaMoveCanvas.getContext('2d'), ninjaMove);
+      }
+      if (elements.playerMoveLabel) {
+        elements.playerMoveLabel.textContent = MOVE_LABELS[playerMove] ?? '-';
+      }
+      if (elements.ninjaMoveLabel) {
+        elements.ninjaMoveLabel.textContent = MOVE_LABELS[ninjaMove] ?? '-';
+      }
+      if (elements.rpsResult) {
+        elements.rpsResult.textContent = ({
+          win: '승리!',
+          draw: '무승부 — 다시!',
+          lose: '패배 — Ninja가 도망갑니다!',
+        })[result] ?? '';
+      }
+    },
+    showDuelError(text) {
+      if (!elements.rpsError) return;
+      elements.rpsError.textContent = text;
+      elements.rpsError.style.display = text ? 'block' : 'none';
+    },
+    setManualMode(enabled) {
+      if (elements.manualMoves) elements.manualMoves.style.display = enabled ? 'flex' : 'none';
+    },
     setMetricsVisible(visible) {
       elements.metrics.style.display = visible ? '' : 'none';
     },

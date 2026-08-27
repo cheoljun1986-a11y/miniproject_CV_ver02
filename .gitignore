@@ -3,3 +3,7 @@ slides/generator/package-lock.json
 slides/generator/package.json
 slides/generator/preview/
 slides/generator/out/
+# Runtime scan uploads written by serve.py (dev-server backups, not source)
+results/
+# Local temp/working files (pptx extraction, research scratch)
+.tmp/

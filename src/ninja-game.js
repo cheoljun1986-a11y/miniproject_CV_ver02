@@ -32,6 +32,7 @@ export class NinjaGame {
     // than the crosshair hit-test pool. index.html keeps the defaults.
     autoMapping = true,
     getCandidatePool = null,
+    onDuelStart = () => {},
   }) {
     this.scene = scene;
     this.ui = ui;
@@ -46,6 +47,7 @@ export class NinjaGame {
     this.makeRigidTransform = makeRigidTransform;
     this.autoMapping = autoMapping;
     this.getCandidatePool = getCandidatePool;
+    this.onDuelStart = onDuelStart;
     this.phase = 'idle';
     this.mappingEnd = 0;
     this.lastSampleTime = 0;
@@ -149,10 +151,11 @@ export class NinjaGame {
 
     this.ui.setStatus(`스캔 완료 — 후보 ${pool.length}개`);
     this.ui.setMessage('후보 중 한 곳에 Ninja를 숨기는 중…');
+    this.clearSurfaceMarkers();
     return this.hideNewTarget();
   }
 
-  hideNewTarget() {
+  hideNewTarget({ excludeCandidate = null } = {}) {
     const viewerPose = this.getViewerPose();
     if (!this.getSession() || !viewerPose) return false;
     const pool = this.getCandidatePool
@@ -160,10 +163,14 @@ export class NinjaGame {
       : this.mapper.getPool();
     if (!pool.length) return false;
 
+    const previousCandidate = excludeCandidate ?? this.target?.candidate ?? null;
+    const available = pool.filter((candidate) => candidate !== previousCandidate);
+    const candidates = available.length ? available : pool;
+
     this.clearTarget();
     const forward = forwardFromQuaternion(viewerPose.quaternion);
     const ranked = rankCandidates(
-      pool,
+      candidates,
       viewerPose.position,
       forward,
       this.random,
@@ -181,6 +188,7 @@ export class NinjaGame {
       anchorPromise: null,
       anchorState: 'anchor-pending',
       position: placement.position.slice(),
+      candidate: chosen,
       found: false,
     };
     this.phase = 'hunt';
@@ -211,7 +219,7 @@ export class NinjaGame {
       DETECT_MAX_ANGLE_DEG,
     );
     if (detected) {
-      this.revealTarget();
+      this.startDuel();
       return true;
     }
 
@@ -224,8 +232,47 @@ export class NinjaGame {
     return false;
   }
 
+  startDuel() {
+    if (!this.target) return false;
+    this.phase = 'duel-countdown';
+    this.target.object.visible = false;
+    this.clearSurfaceMarkers();
+    this.setControls({ scan: false });
+    this.ui.setStatus('Ninja와 가위바위보!');
+    this.ui.setMessage('화면 안내에 맞춰 손 모양을 준비하세요.');
+    this.onDuelStart({ target: this.target });
+    return true;
+  }
+
+  setDuelPhase(phase) {
+    if (!this.target || !phase.startsWith('duel-')) return false;
+    this.phase = phase;
+    return true;
+  }
+
+  resolveDuel(outcome) {
+    if (!this.target || !this.phase.startsWith('duel-')) return false;
+    if (outcome === 'win') {
+      this.revealTarget();
+      return true;
+    }
+    if (outcome === 'draw') {
+      this.target.object.visible = false;
+      this.model.setNinjaOpacity(this.target.object, NINJA_CAMOUFLAGE_OPACITY);
+      this.phase = 'duel-countdown';
+      return true;
+    }
+    if (outcome === 'lose') {
+      const previousCandidate = this.target.candidate;
+      this.clearTarget();
+      return this.hideNewTarget({ excludeCandidate: previousCandidate });
+    }
+    return false;
+  }
+
   revealTarget() {
     if (!this.target) return;
+    this.target.object.visible = true;
     this.target.found = true;
     this.phase = 'found';
     this.model.revealNinja(this.target.object);

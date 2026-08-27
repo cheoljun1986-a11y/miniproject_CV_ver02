@@ -367,3 +367,59 @@ test('a taller climb takes longer and arcs higher', async () => {
   assert.ok(big.seconds > small.seconds);
   assert.ok(big.arc > small.arc);
 });
+
+// TSDF fusion can take a voxel back. The slab bit is reference counted, so a
+// retraction only clears it when no other voxel still supports that slab.
+test('unobserve releases a slab only when its last voxel is retracted', () => {
+  // Threshold 1: this test is about the vote refcount, not footing evidence —
+  // the threshold-crossing retraction has its own test below.
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  floorPatch(grid, 0, 1, 0, 1);
+  const cx = grid.cellX(0.1);
+  const cz = grid.cellZ(0.1);
+  const floorY = grid.levels(cx, cz)[0];
+  // A floater 30cm up steals the floor's headroom and reads as a ledge, so
+  // the only standable level moves up to it.
+  const floater = [0.1, 0.32, 0.1];
+  grid.observe(floater);
+  grid.observe([0.12, 0.33, 0.12]); // a second voxel in the same slab
+  assert.deepEqual(grid.levels(cx, cz).length, 1);
+  assert.ok(grid.levels(cx, cz)[0] > floorY + 0.2, 'standing on the floater');
+
+  assert.equal(grid.unobserve(floater), false, 'one vote remains');
+  assert.ok(grid.levels(cx, cz)[0] > floorY + 0.2);
+  assert.equal(grid.unobserve([0.12, 0.33, 0.12]), true, 'last vote clears the slab');
+  assert.equal(grid.levels(cx, cz)[0], floorY, 'back on the floor');
+  assert.equal(grid.unobserve(floater), false, 'nothing left to retract');
+});
+
+test('a cell whose every voxel is retracted reads as unseen, not blocked', () => {
+  const grid = new TraversalGrid();
+  const point = [2.1, 0.02, 2.1];
+  grid.observe(point);
+  const cx = grid.cellX(2.1);
+  const cz = grid.cellZ(2.1);
+  assert.equal(grid.isSeen(cx, cz), true);
+  const revision = grid.getRevision();
+  grid.unobserve(point);
+  assert.equal(grid.isSeen(cx, cz), false);
+  assert.equal(grid.isBlocked(cx, cz), false);
+  assert.ok(grid.getRevision() > revision);
+  assert.equal(grid.stats().seen, 0);
+});
+
+test('a retraction that drops below the footing threshold clears the bit', () => {
+  // Default threshold (4): the fourth voxel confirms the foothold, and
+  // retracting one of them un-confirms it — TSDF taking back one noisy voxel
+  // must take the evidence budget with it.
+  const grid = new TraversalGrid();
+  const pts = [[0.01, 0.02, 0.01], [0.07, 0.02, 0.01], [0.01, 0.02, 0.07], [0.07, 0.02, 0.07]];
+  for (const p of pts) grid.observe(p);
+  assert.equal(grid.levels(0, 0).length, 1, 'confirmed at four votes');
+
+  assert.equal(grid.unobserve(pts[0]), true, 'crossing back below the threshold');
+  assert.equal(grid.levels(0, 0).length, 0, 'no longer standable');
+  // The remaining three votes stay banked: one more voxel re-confirms.
+  assert.equal(grid.observe([0.13, 0.02, 0.13]), true);
+  assert.equal(grid.levels(0, 0).length, 1);
+});

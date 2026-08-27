@@ -89,13 +89,43 @@ export const CHASE_MAX_DROP_M = 1.2;
 // A ceiling looks exactly like a tabletop to the grid, so cap how high a
 // surface may be above the detected floor before it stops counting.
 export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 1.3;
-export const CHASE_MIN_WALKABLE_CELLS = 120; // refuse to start on a bare map
+// Refuse to start on a bare map. Tuned down from 120 when the default terrain
+// became the keyframe/TSDF pipeline: it confirms voxels far more conservatively
+// than the old legacy map, so the same walk yields fewer walkable cells. A real
+// on-device room scan (9 keyframes, a 47-point walk) reached only 104 walkable
+// cells, so the old 120 gate never opened and the chase — and Hachuping — never
+// started. 80 cells (~3.2 m2 at 0.2 m) still rejects a genuinely bare map while
+// letting a properly-walked room begin. See tests/chase-start-gate.test.mjs.
+export const CHASE_MIN_WALKABLE_CELLS = 80;
 export const CHASE_RETARGET_MS = 3000;
 export const CHASE_STUCK_MS = 4000;
 export const CHASE_RECENT_WINDOW_MS = 15000; // how long a visited cell stays penalised
 export const CHASE_GRID_MAX_TILES = 6000;
 export const CHASE_PATH_MAX_POINTS = 256;
 export const CHASE_GRID_REBUILD_GAP_MS = 250;
+
+// RANSAC floor plane (?floor=ransac). Fitted once when the map is frozen to
+// CONFIRM a coherent, near-horizontal floor exists, then used to fill sparse-scan
+// gaps in the chase grid AT THE OBSERVED FLOOR HEIGHT. The plane's absolute
+// height is deliberately not trusted: a scan's densest surface can be a desk
+// (which floated the character) and its lowest points can be sub-floor noise
+// (which sank it), so the fill sits at the height the observations already agree
+// on. Validated offline against four on-device scans (results/*.json): floor
+// height unchanged from the pre-feature baseline, walkable cells +30-45%.
+export const FLOOR_RANSAC_ITERATIONS = 200;
+export const FLOOR_RANSAC_DISTANCE_M = 0.06;      // inlier band ≈ one voxel
+export const FLOOR_RANSAC_MAX_TILT_DEG = 10;      // reject walls / steep surfaces
+export const FLOOR_RANSAC_MIN_INLIERS = 40;       // below this, keep the histogram
+export const FLOOR_RANSAC_KEEP_FRACTION = 0.35;   // a chosen plane must be this
+                                                  // substantial vs the best one
+// Only fit to voxels in a low band, so a ceiling or tall shelf cannot win the
+// plane. The band starts at a robust low height (a low percentile, ignoring
+// sub-floor floaters) and reaches FLOOR_BAND_M above it.
+export const FLOOR_BAND_M = 0.6;
+export const FLOOR_BAND_LOW_PERCENTILE = 0.05;
+// How far, in chase cells, the fitted floor is dilated into unobserved cells.
+// 2 cells (~0.4 m) bridges sparse gaps without conjuring floor across real holes.
+export const FLOOR_FILL_RADIUS_CELLS = 2;
 
 // Static voxel occluder (?occluder=voxel). Built once from the scan and left
 // alone, unlike the per-frame depth meshes above.
@@ -126,8 +156,49 @@ export const VOXEL_TERRAIN_MAX_CELLS = 200000;
 export const VOXEL_TERRAIN_EVICT_BATCH = 20000;
 export const VOXEL_TERRAIN_MAX_SOLID = 60000; // operator-view instance cap
 
+// TSDF fusion (the keyframe terrain's default; ?fusion=count restores hit
+// counting for A/B). See tsdf-grid.js for what each knob trades.
+// ±2 voxels = ±10cm: wider than ARCore's near-range depth noise (~2-3cm at
+// 2m) so one plane fuses into one band, narrow enough that a table top and
+// the floor under it stay separate surfaces.
+export const TSDF_TRUNCATION_VOXELS = 2;
+// After this many frames a voxel's average becomes exponential, so a moved
+// chair is forgotten in ~30 frames instead of never.
+export const TSDF_MAX_WEIGHT = 32;
+// |tsdf| below this (in truncations) is surface. 0.3 x 10cm = a shell ~3cm
+// each side; 0.5 doubled the blocked chase cells on the test scans because
+// thick floors ate their own headroom.
+export const TSDF_SURFACE_BAND = 0.3;
+// Carve free space on every 3rd column and row: an 80x60 keyframe then
+// marches ~530 rays to the surface instead of 4800, keeping the per-keyframe
+// cost within a frame's budget on a phone.
+export const TSDF_CARVE_STRIDE = 3;
+export const TSDF_CARVE_START_M = 0.3;
+// A sample at L metres weighs min(1, ref / L): depth noise grows with range,
+// so a 4m sample needs twice the agreeing frames of a 2m one. Measured on two
+// room scans against plain counting: isolated floaters -35%, blocked chase
+// cells -40%, at the price of ~25% fewer far cells confirmed — which the
+// player walking the room fills in anyway.
+export const TSDF_DEPTH_WEIGHT_REF_M = 2.0;
+export const TSDF_DEPTH_WEIGHT_POWER = 1;
+// TSDF fuses sparse samples into continuous surfaces, so it can afford half
+// the depth resolution (80x60) and run ~4x cheaper per keyframe: ~5ms on a
+// desktop, versus ~18ms at full resolution.
+export const TSDF_KEYFRAME_MAX_SAMPLES = 4800;
+
 // Scan backup to the dev server (serve.py, POST /upload). The game map is
 // re-sent on this interval and once more at session end, so a tab that dies
 // mid-run still leaves a file at most this stale in results/. The diagnostic
 // scan (tens of MB) is sent only at session end and on demand.
 export const SCAN_BACKUP_INTERVAL_MS = 30000;
+
+// Rock-paper-scissors / MediaPipe hand recognition.
+export const RPS_COUNTDOWN_MS = 3000;
+export const RPS_READ_TIMEOUT_MS = 3500;
+export const RPS_RESULT_MS = 1400;
+export const HAND_INFERENCE_GAP_MS = 80;
+export const HAND_DETECTION_CONFIDENCE = 0.5;
+export const HAND_MIN_CONFIDENCE = 0.55;
+export const HAND_REQUIRED_MATCHES = 3;
+export const HAND_SAMPLE_WINDOW = 5;
+export const HAND_SAMPLE_MAX_AGE_MS = 900;

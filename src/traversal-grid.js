@@ -70,7 +70,13 @@ export class TraversalGrid {
     raisedSupportAboveFloorM = 0.4,
     minRaisedSupport = 2,
     raisedSupportBandM = 0.10,
+    // ... and at least this fraction of the busiest slab's cells. Measured on
+    // two room scans: 0.3 puts the floor on the slab holding the surface for
+    // both hit counting and TSDF, while 0.1 still let a sub-floor noise slab
+    // through for TSDF.
+    floorMinFraction = 0.3,
   } = {}) {
+    this.floorMinFraction = floorMinFraction;
     this.cellSize = cellSize;
     this.slabHeight = slabHeight;
     this.minY = minY;
@@ -91,6 +97,10 @@ export class TraversalGrid {
     this.floorSlab = null;
     this.floorDirty = true;
     this.standGen = 0;
+    // Optional RANSAC floor plane (see applyFloorPlane). When set it overrides
+    // the histogram floor detection and can fill sparse floor gaps.
+    this.floorPlane = null;
+    this.floorPlaneRefY = null;
   }
 
   // ── coordinate helpers ────────────────────────────────────
@@ -131,25 +141,71 @@ export class TraversalGrid {
     const key = cellKey(cx, cz);
     let cell = this.cells.get(key);
     if (!cell) {
+      // votes: how many confirmed voxels back each slab. One ledger serves
+      // two features that were built apart and merged here:
+      //  - the slab only becomes standable at `minSlabVoxels` votes, so a
+      //    single stray depth point cannot conjure a 20x20cm foothold;
+      //  - TSDF retraction (unobserve) decrements the same ledger, and the
+      //    bit clears when votes drop back below the threshold.
+      // Counting must therefore CONTINUE past the threshold — capping there
+      // would make later retractions clear the bit too early.
       cell = {
         cx, cz, lo: UNSEEN, hi: UNSEEN, levels: null, levelsGen: -1,
-        counts: new Uint8Array(this.slabCount),
+        votes: new Uint16Array(this.slabCount),
       };
       this.cells.set(key, cell);
     }
 
-    // Each call is one distinct confirmed voxel, so counting calls counts
-    // voxels. The slab only becomes standable on the call that reaches the
-    // threshold; earlier ones just accumulate evidence.
-    if (cell.counts[slab] >= this.minSlabVoxels) return false; // already solid
-    if (cell.counts[slab] < 255) cell.counts[slab] += 1;
-    if (cell.counts[slab] < this.minSlabVoxels) return false;
-
+    if (cell.votes[slab] < 0xffff) cell.votes[slab] += 1;
+    // The floor histogram counts OBSERVED cells (first vote), not confirmed
+    // footing. Floor detection is statistics over many cells with its own
+    // noise defences (floorMinCells, floorMinFraction); gating it on the
+    // footing threshold starved it on sparse TSDF maps until applyFloorPlane
+    // had no floor slab to fill against.
+    if (cell.votes[slab] === 1) {
+      this.slabCells[slab] += 1;
+      if (this.floorSlab === null || slab <= this.floorSlab) this.floorDirty = true;
+    }
+    if (this.hasSlab(cell, slab)) return false;   // already solid — vote banked
+    if (cell.votes[slab] < this.minSlabVoxels) return false; // evidence pending
     if (slab < 32) cell.lo |= 1 << slab;
     else cell.hi |= 1 << (slab - 32);
-    this.slabCells[slab] += 1;
-    if (this.floorSlab === null || slab <= this.floorSlab) this.floorDirty = true;
     cell.levels = null; // recompute lazily
+    this.revision += 1;
+    return true;
+  }
+
+  // The inverse of observe, for accumulators that can take a voxel back
+  // (TSDF fusion clears a floater once enough rays pass through it). Returns
+  // true when the slab bit actually cleared. An empty cell is dropped so it
+  // reads as unseen again rather than blocked.
+  unobserve([x, y, z]) {
+    const slab = this.slabOf(y);
+    if (slab < 0 || slab >= this.slabCount) return false;
+    const cell = this.cells.get(cellKey(this.cellX(x), this.cellZ(z)));
+    if (!cell || cell.votes[slab] === 0) return false;
+    cell.votes[slab] -= 1;
+    if (cell.votes[slab] === 0) {
+      this.slabCells[slab] -= 1;
+      this.floorDirty = true;
+      // A cell with no votes anywhere is gone entirely.
+      if (cell.lo === UNSEEN && cell.hi === UNSEEN
+        && cell.votes.every((v) => v === 0)) {
+        this.cells.delete(cellKey(cell.cx, cell.cz));
+        this.revision += 1;
+        return true;
+      }
+    }
+    // The footing bit exists only while votes meet the threshold; it clears on
+    // the retraction that drops below it, not when the ledger hits zero.
+    if (!this.hasSlab(cell, slab)) return false;
+    if (cell.votes[slab] >= this.minSlabVoxels) return false;
+
+    if (slab < 32) cell.lo &= ~(1 << slab);
+    else cell.hi &= ~(1 << (slab - 32));
+    // The floor may have lost support; let the next read decide.
+    this.floorDirty = true;
+    cell.levels = null;
     this.revision += 1;
     return true;
   }
@@ -160,9 +216,19 @@ export class TraversalGrid {
   resolveFloorSlab() {
     if (!this.floorDirty) return this.floorSlab;
     this.floorDirty = false;
+    // Absolute floor of 8 cells was tuned for hit counting. A fused map emits
+    // several times more voxels, so a slab of sub-floor noise clears 8 cells
+    // easily and drags the standable ceiling down with it (measured: 2 slabs
+    // low, 158 desk-top cells lost). The bar is therefore also relative to
+    // the busiest slab, which is the real floor or something as big.
+    let busiest = 0;
+    for (let slab = 0; slab < this.slabCount; slab += 1) {
+      if (this.slabCells[slab] > busiest) busiest = this.slabCells[slab];
+    }
+    const minCells = Math.max(this.floorMinCells, Math.ceil(busiest * this.floorMinFraction));
     let found = null;
     for (let slab = 0; slab < this.slabCount; slab += 1) {
-      if (this.slabCells[slab] >= this.floorMinCells) { found = slab; break; }
+      if (this.slabCells[slab] >= minCells) { found = slab; break; }
     }
     if (found === null) {
       for (let slab = 0; slab < this.slabCount; slab += 1) {
@@ -204,7 +270,138 @@ export class TraversalGrid {
     this.slabCells.fill(0);
     this.floorSlab = null;
     this.floorDirty = true;
+    this.floorPlane = null;
+    this.floorPlaneRefY = null;
     this.standGen += 1;
+  }
+
+  // ── RANSAC floor plane ─────────────────────────────────────
+  // Every occupied voxel as a world point, for fitting the floor plane. One
+  // point per occupied slab at its top (where a body would stand). Read this
+  // BEFORE applyFloorPlane so the fit sees only real observations.
+  // Raw observations, not footing. The plane fitter has its own outlier
+  // rejection (RANSAC inlier voting), so it wants every observed voxel; the
+  // footing threshold (minSlabVoxels) would starve it on the sparse TSDF maps
+  // the floor-plane rescue exists for.
+  occupiedVoxelPoints() {
+    const points = [];
+    for (const cell of this.cells.values()) {
+      for (let slab = 0; slab < this.slabCount; slab += 1) {
+        if (cell.votes[slab] > 0) {
+          points.push([this.centerX(cell.cx), this.slabTopY(slab), this.centerZ(cell.cz)]);
+        }
+      }
+    }
+    return points;
+  }
+
+  // Occupied voxels within a low band, for fitting the floor plane. The floor is
+  // the lowest large surface, so fitting the whole cloud lets a ceiling or a
+  // tall shelf — more voxels, higher up — win the plane. Anchoring to a robust
+  // low height (a low percentile, so a stray sub-floor floater cannot drag it
+  // down) and keeping only points within bandM above it isolates the floor.
+  floorBandVoxelPoints({ bandM = 0.5, lowPercentile = 0.1 } = {}) {
+    const points = this.occupiedVoxelPoints();
+    if (!points.length) return points;
+    const ys = points.map((p) => p[1]).sort((a, b) => a - b);
+    const y0 = ys[Math.floor(lowPercentile * (ys.length - 1))];
+    return points.filter((p) => p[1] <= y0 + bandM);
+  }
+
+  // Any occupied slab in [startSlab, startSlab + count)?
+  // Any observation counts here, confirmed or not: this guards where the
+  // synthetic floor may NOT go, and even a single observed voxel overhead is
+  // reason enough to leave the space beneath it alone.
+  solidInBand(cell, startSlab, count) {
+    const end = Math.min(this.slabCount, startSlab + count);
+    for (let slab = Math.max(0, startSlab); slab < end; slab += 1) {
+      if (cell.votes[slab] > 0) return true;
+    }
+    return false;
+  }
+
+  // Add a floor voxel the map never observed, to bridge a sparse-scan gap.
+  // Marked synthetic for diagnostics; otherwise it is an ordinary occupied slab.
+  addSyntheticFloor(cx, cz, slab) {
+    const key = cellKey(cx, cz);
+    let cell = this.cells.get(key);
+    if (!cell) {
+      cell = {
+        cx, cz, lo: UNSEEN, hi: UNSEEN, votes: new Uint16Array(this.slabCount),
+        levels: null, levelsGen: -1, synthetic: true,
+      };
+      this.cells.set(key, cell);
+    }
+    if (this.hasSlab(cell, slab)) return;
+    // Synthetic floor is deliberate synthesis, not evidence: grant it the full
+    // footing threshold so the votes<->bit invariant holds for unobserve.
+    if (cell.votes[slab] === 0) this.slabCells[slab] += 1;
+    if (cell.votes[slab] < this.minSlabVoxels) cell.votes[slab] = this.minSlabVoxels;
+    if (slab < 32) cell.lo |= 1 << slab;
+    else cell.hi |= 1 << (slab - 32);
+    cell.levels = null;
+  }
+
+  // Adopt a fitted floor plane (or null to clear) and fill sparse-scan gaps in
+  // the floor. The plane's job is to CONFIRM a coherent, near-horizontal floor
+  // exists — its absolute height is deliberately not trusted, because a scan's
+  // densest surface can be a desk (floats the character) and its lowest points
+  // can be sub-floor noise (sinks it). The fill therefore bridges gaps at the
+  // height the OBSERVATIONS already agree on (the histogram floor slab), which
+  // is the height the game ran at before this feature.
+  //
+  // A cell within fillRadius of an observed floor cell gains a floor voxel at
+  // that slab UNLESS it already stands somewhere, something solid blocks the
+  // body column just above it, or it lies beyond the radius (a real hole or
+  // unscanned void, left untouched).
+  applyFloorPlane(plane, { fillRadius = 2, bodyHeightSlabs = this.headroomSlabs } = {}) {
+    this.floorPlane = plane || null;
+    this.floorPlaneRefY = null;
+    if (!plane) {
+      this.floorDirty = true;
+      this.standGen += 1;
+      this.revision += 1;
+      return;
+    }
+
+    const floorSlab = this.resolveFloorSlab();
+    if (floorSlab === null) return;
+
+    // Seeds: observed cells that carry a floor voxel at the floor slab.
+    const seeds = [];
+    for (const cell of this.cells.values()) {
+      // Raw observation seeds the fill: a sparse floor cell with votes below
+      // the footing threshold is exactly what the synthesis is for — it gets
+      // granted full footing by addSyntheticFloor below.
+      if (cell.votes[floorSlab] > 0) seeds.push([cell.cx, cell.cz]);
+    }
+
+    // Bounded dilation of the observed floor, at the observed floor height.
+    const done = new Set();
+    for (const [scx, scz] of seeds) {
+      for (let dz = -fillRadius; dz <= fillRadius; dz += 1) {
+        for (let dx = -fillRadius; dx <= fillRadius; dx += 1) {
+          const cx = scx + dx; const cz = scz + dz;
+          const key = cellKey(cx, cz);
+          if (done.has(key)) continue;
+          done.add(key);
+          const cell = this.cells.get(key);
+          if (cell) {
+            if (this.hasSlab(cell, floorSlab)) continue; // already floor here
+            if (this.solidInBand(cell, floorSlab + 1, bodyHeightSlabs)) continue; // under something
+            // Only bridge genuine gaps. A cell that already offers somewhere to
+            // stand (e.g. a shelf) keeps it; adding a floor beneath it would
+            // sink Hachuping through a surface it should rest on.
+            if (this.isWalkable(cx, cz)) continue;
+          }
+          this.addSyntheticFloor(cx, cz, floorSlab);
+        }
+      }
+    }
+
+    this.floorDirty = true;
+    this.standGen += 1;
+    this.revision += 1;
   }
 
   // ── reading ───────────────────────────────────────────────

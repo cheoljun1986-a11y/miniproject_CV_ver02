@@ -59,20 +59,55 @@ export function usesDepthCloud(mode) {
 }
 
 // Which accumulator feeds the game's space map (operator view + chase terrain).
+//   keyframe — pose-gated capture fused by TSDF (VoxelTerrain). The default:
+//              free-space evidence erases floaters and sparse samples fuse
+//              into continuous surfaces, which is what the chase grid needs.
 //   legacy   — DepthCloud + VoxelMap on a 200ms timer with no per-frame dedup,
-//              so a single frame can promote a voxel on its own. Default until
-//              the keyframe path is proven on device.
-//   keyframe — pose-gated capture with per-frame dedup (VoxelTerrain).
-//              Opt in with ?terrain=keyframe.
+//              so a single frame can promote a voxel on its own. Kept behind
+//              ?terrain=legacy for A/B against the old map.
 export const TERRAIN_SOURCES = Object.freeze({
   KEYFRAME: 'keyframe',
   LEGACY: 'legacy',
 });
 
 export function resolveTerrainSource(search = '') {
-  return new URLSearchParams(search).get('terrain') === 'keyframe'
-    ? TERRAIN_SOURCES.KEYFRAME
-    : TERRAIN_SOURCES.LEGACY;
+  return new URLSearchParams(search).get('terrain') === 'legacy'
+    ? TERRAIN_SOURCES.LEGACY
+    : TERRAIN_SOURCES.KEYFRAME;
+}
+
+// How the keyframe terrain fuses samples into voxels.
+//   tsdf  — signed-distance averaging with free-space carving (default).
+//   count — the 13-stage hit counting, kept behind ?fusion=count so a device
+//           comparison needs no rebuild.
+export const FUSION_MODES = Object.freeze({
+  TSDF: 'tsdf',
+  COUNT: 'count',
+});
+
+export function resolveFusionMode(search = '') {
+  return new URLSearchParams(search).get('fusion') === 'count'
+    ? FUSION_MODES.COUNT
+    : FUSION_MODES.TSDF;
+}
+
+// How the frozen map decides where the floor is and where Hachuping may stand.
+//   histogram — the built-in slab-vote floor detection (default).
+//   ransac    — fit the dominant floor plane, correct the floor height, and fill
+//               sparse-scan gaps. Opt in with ?floor=ransac for on-device A/B.
+export const FLOOR_MODES = Object.freeze({
+  HISTOGRAM: 'histogram',
+  RANSAC: 'ransac',
+});
+
+export function resolveFloorMode(search = '') {
+  return new URLSearchParams(search).get('floor') === 'ransac'
+    ? FLOOR_MODES.RANSAC
+    : FLOOR_MODES.HISTOGRAM;
+}
+
+export function usesRansacFloor(search = '') {
+  return resolveFloorMode(search) === FLOOR_MODES.RANSAC;
 }
 
 export function usesKeyframeTerrain(mode, search = '') {

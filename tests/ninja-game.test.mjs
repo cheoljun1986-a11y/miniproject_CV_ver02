@@ -124,8 +124,11 @@ test('session start enters mapping with the existing control availability', () =
   });
 });
 
-test('mapping candidates produce a hidden target that can be detected', () => {
-  const { game, mapper, sceneObjects } = createHarness();
+test('mapping candidates produce a hidden target that starts a duel when detected', () => {
+  const duelStarts = [];
+  const { game, mapper, sceneObjects } = createHarness({
+    onDuelStart: (target) => duelStarts.push(target),
+  });
   game.startSession();
   for (const [index, position] of [[0, 0, -2], [0.3, 0, -2], [0.6, 0, -2]].entries()) {
     mapper.recordSurface({ position, matrix: [index], upY: 1 });
@@ -136,8 +139,10 @@ test('mapping candidates produce a hidden target that can be detected', () => {
   assert.equal(sceneObjects.length, 1);
 
   assert.equal(game.triggerScan(), true);
-  assert.equal(game.getState().phase, 'found');
-  assert.equal(sceneObjects[0].revealed, true);
+  assert.equal(game.getState().phase, 'duel-countdown');
+  assert.equal(sceneObjects[0].revealed, undefined);
+  assert.equal(sceneObjects[0].visible, false);
+  assert.equal(duelStarts.length, 1);
 });
 
 test('mapping drops a visible marker for each stored scan point and clears them on a new scan', () => {
