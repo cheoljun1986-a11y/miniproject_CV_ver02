@@ -498,3 +498,31 @@ test('no forward progress for stuckMs still forces a rethink', () => {
   assert.ok(runner.target, 'it must still have somewhere to go');
   assert.ok(before, 'sanity');
 });
+
+test('approaching a target on furniture drives it back to the ground', () => {
+  // The counter-play that makes generous furniture use safe: whatever height
+  // Hachuping picks, walking at it turns that spot into a bad one, because the
+  // flee score rewards distance from the player and the retarget rule drops a
+  // destination the player has gotten closer to.
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  for (let x = 0; x <= 3; x += 0.05) {
+    for (let z = 0; z <= 1; z += 0.05) grid.observe([x, 0.02, z]);
+  }
+  // A wide platform at 0.5m, reachable and broad enough to pass the support test.
+  for (let x = 1.2; x <= 2.2; x += 0.05) {
+    for (let z = 0; z <= 1; z += 0.05) grid.observe([x, 0.50, z]);
+  }
+  const runner = new ChaseRunner({ grid, random: () => 0.5 });
+  const perch = grid.nodeAtWorld([1.7, 0.6, 0.5]);
+  assert.ok(perch && grid.worldOf(perch)[1] > 0.4, 'the platform should be standable');
+  runner.start(grid.worldOf(perch), 0);
+  assert.ok(runner.position[1] > 0.4, 'starts up on the platform');
+
+  // The player walks onto the platform's footprint.
+  let now = 0;
+  for (let f = 0; f < 60 * 30 && runner.position[1] > 0.4; f += 1) {
+    now += 1000 / 60;
+    runner.update(1 / 60, { playerPosition: [1.7, 0.1, 0.5], now });
+  }
+  assert.ok(runner.position[1] < 0.4, 'it should have come down within 30s');
+});

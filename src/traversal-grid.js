@@ -79,7 +79,7 @@ export class TraversalGrid {
     climbCostPerM = 2.0,     // charged once, per metre climbed
     dropCostPerM = 0.5,      // coming down must look like the easy direction
     jumpBaseCost = 0.6,
-    heightTollPerM = 0.4,    // charged every step taken above the floor
+    heightTollPerM = 0.1,    // charged every step taken above the floor
     // ... and at least this fraction of the busiest slab's cells. Measured on
     // two room scans: 0.3 puts the floor on the slab holding the surface for
     // both hit counting and TSDF, while 0.1 still let a sub-floor noise slab
