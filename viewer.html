@@ -77,6 +77,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { keyframeStoreFromJSON, rebuildVoxelGrid } from './src/keyframe-store.js';
 import { rebuildTsdfGrid } from './src/tsdf-grid.js';
+import { surfaceFromTsdf } from './src/surface-nets.js';
 import {
   TSDF_CARVE_START_M, TSDF_CARVE_STRIDE, TSDF_DEPTH_WEIGHT_POWER, TSDF_DEPTH_WEIGHT_REF_M,
   TSDF_KEYFRAME_SAMPLE_STRIDE, TSDF_MAX_WEIGHT, TSDF_SURFACE_BAND, TSDF_TRUNCATION_VOXELS,
@@ -162,6 +163,10 @@ let mode = 'voxel'; // voxel | surface
 // depth resolution the phone uses. Shown side by side so the two maps of one
 // scan can be judged against each other.
 let fusion = 'count';
+// The live TSDF field, kept so the surface view can read the zero crossing.
+// Null whenever the current map came from hit counting or from a game export,
+// neither of which carries signed distances.
+let lastTsdf = null;
 
 // Same batch fusion the phone's diagnostic runs at stop-of-scan, so what the
 // viewer draws and what the AR overlay drew are the same map.
@@ -182,6 +187,7 @@ function rebuildTsdf(keyframes) {
     depthWeightPower: TSDF_DEPTH_WEIGHT_POWER,
     now: () => performance.now(),
   });
+  lastTsdf = tsdf;
   return { grid, stats: { ...stats, allCells: tsdf.getCellCount() } };
 }
 
@@ -192,6 +198,7 @@ function rebuild() {
   let stats;
   if (loadedCells) {
     grid = loadedCells.grid;
+    lastTsdf = null;
     stats = { cells: grid.getCellCount(), histogram: grid.getHistogram() };
   } else {
     ({ grid, stats } = fusion === 'tsdf'
@@ -254,10 +261,15 @@ function drawVoxels(cells) {
 }
 
 function drawSurface(cells) {
-  // The occluder is built from confident cells only — a voxel seen once is as
-  // likely to be depth noise as a surface.
-  const confident = cells.filter((c) => c.observationCount >= 3);
-  const geo = buildOccluderGeometry(confident, { voxelSize: params.voxelSize });
+  // With a TSDF field in hand the surface is the zero crossing, read between
+  // voxel centres — that is the whole point of fusing signed distances, and
+  // drawing voxel faces instead throws it away. Falls back to face merging for
+  // a hit-count map or a loaded game export, which carry no distances.
+  const geo = (fusion === 'tsdf' && lastTsdf && !loadedCells)
+    ? surfaceFromTsdf(lastTsdf, { minWeight: params.minObservations })
+    // The occluder is built from confident cells only — a voxel seen once is as
+    // likely to be depth noise as a surface.
+    : buildOccluderGeometry(cells.filter((c) => c.observationCount >= 3), { voxelSize: params.voxelSize });
 
   const previous = surface.geometry;
   const next = new THREE.BufferGeometry();
