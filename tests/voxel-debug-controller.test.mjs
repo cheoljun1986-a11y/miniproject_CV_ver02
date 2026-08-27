@@ -149,3 +149,32 @@ test('the colour mode cycles and reset clears the scan', () => {
   assert.equal(controller.getRenderCells().length, 0);
   assert.equal(controller.getStats(0).keyframeCount, 0);
 });
+
+// The AR mesh view needs the signed-distance field, not the surface-cell view
+// the voxel renderers read: Surface Nets has to see the sign FLIP, and the
+// adapter filters out exactly the free-space cells that carry it.
+test('a TSDF rebuild keeps the field itself, not just the surface cells', () => {
+  const { controller } = makeController();
+  assert.equal(controller.getTsdfField(), null, 'nothing before a scan');
+  scan(controller, 3);
+
+  const field = controller.getTsdfField();
+  assert.ok(field, 'the field survives the rebuild');
+  assert.ok(field.getCellCount() > controller.grid.getCells().length,
+    'the field holds more than the surface shell');
+  assert.ok(typeof field.getRevision === 'function');
+});
+
+test('hit counting offers no field to mesh', () => {
+  const { controller } = makeController({ fusion: 'count' });
+  scan(controller, 3);
+  assert.equal(controller.getTsdfField(), null);
+});
+
+test('reset drops the field with everything else', () => {
+  const { controller } = makeController();
+  scan(controller, 3);
+  assert.ok(controller.getTsdfField());
+  controller.reset();
+  assert.equal(controller.getTsdfField(), null);
+});

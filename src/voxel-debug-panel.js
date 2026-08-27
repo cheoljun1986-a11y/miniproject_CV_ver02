@@ -19,6 +19,10 @@ export function createVoxelDebugPanel({
   controller,
   overlay,
   operatorView = null,
+  meshOverlay = null,
+  // Called when the mesh becomes visible, so the caller can extract it lazily
+  // rather than paying for a surface nobody asked to see.
+  onMeshShown = null,
   now = () => (typeof performance !== 'undefined' ? performance.now() : 0),
   onOperatorToggle = null,
   onStartGame = null,
@@ -136,8 +140,29 @@ export function createVoxelDebugPanel({
     refreshAll();
   });
 
+  // Off -> voxels -> mesh -> off. Two views of the same map answer different
+  // questions: the wireframe shows which voxels exist and how often each was
+  // seen, the mesh shows the shape they add up to. Keeping both, on one button,
+  // is what lets a defect be attributed to the map rather than to the drawing.
+  // The mesh step is skipped when there is no field to mesh (?fusion=count, or
+  // a scan loaded from JSON).
+  const OVERLAY_MODES = ['off', 'voxel', 'mesh'];
+  let overlayMode = 'off';
+
+  function canMesh() {
+    return Boolean(meshOverlay && controller.getTsdfField?.());
+  }
+
+  function applyOverlayMode() {
+    overlay.setVisible(overlayMode === 'voxel');
+    meshOverlay?.setVisible(overlayMode === 'mesh');
+    if (overlayMode === 'mesh') onMeshShown?.();
+  }
+
   const overlayBtn = button('AR 오버레이', () => {
-    overlay.setVisible(!overlay.isVisible());
+    const next = OVERLAY_MODES[(OVERLAY_MODES.indexOf(overlayMode) + 1) % OVERLAY_MODES.length];
+    overlayMode = next === 'mesh' && !canMesh() ? 'off' : next;
+    applyOverlayMode();
     refreshAll();
   });
 
@@ -185,7 +210,8 @@ export function createVoxelDebugPanel({
       }
       // Imported coordinates belong to a different XR local space origin, so
       // drawing them over the live camera would be meaningless.
-      overlay.setVisible(false);
+      overlayMode = 'off';
+      applyOverlayMode();
       syncSliders();
       refreshAll();
     };
@@ -214,9 +240,20 @@ export function createVoxelDebugPanel({
     scanBtn.textContent = scanning
       ? `스캔 정지 (${controller.getStats(time).keyframeCount}장)`
       : `스캔 시작${controller.getCellCount() ? ' · 맵 완성' : ''}`;
-    overlayBtn.style.background = overlay.isVisible() ? '#ffd66b' : 'rgba(255,255,255,.92)';
     overlayBtn.disabled = controller.isImported();
-    overlayBtn.textContent = controller.isImported() ? 'AR 오버레이(불가)' : 'AR 오버레이';
+    if (overlayBtn.disabled) {
+      // An imported scan's coordinates belong to another session's local space,
+      // so anything drawn from it would float somewhere arbitrary.
+      if (overlayMode !== 'off') { overlayMode = 'off'; applyOverlayMode(); }
+      overlayBtn.textContent = 'AR 오버레이(불가)';
+    } else if (overlayMode === 'voxel') {
+      overlayBtn.textContent = `AR 복셀 (${controller.getRenderCells().length})`;
+    } else if (overlayMode === 'mesh') {
+      overlayBtn.textContent = `AR 메시 (${meshOverlay.getTriangleCount().toLocaleString()}△)`;
+    } else {
+      overlayBtn.textContent = canMesh() ? 'AR 오버레이' : 'AR 오버레이(복셀)';
+    }
+    overlayBtn.style.background = overlayMode === 'off' ? 'rgba(255,255,255,.92)' : '#ffd66b';
     overlayBtn.style.opacity = overlayBtn.disabled ? '.42' : '1';
     frustumBtn.style.background = frustumsVisible ? '#ffd66b' : 'rgba(255,255,255,.92)';
     frustumBtn.textContent = frustumsVisible

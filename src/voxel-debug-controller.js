@@ -64,6 +64,7 @@ export class VoxelDebugController {
 
     this.colorMode = VOXEL_COLOR_MODES.OBSERVATION;
     this.grid = null;
+    this.tsdf = null;
     this.stats = null;
     this.renderCells = [];
     this.revision = 0;
@@ -140,7 +141,7 @@ export class VoxelDebugController {
       gradientMaxJumpM: this.params.gradientMaxJumpM,
       now: this.now,
     };
-    const { grid, stats } = this.fusion === 'tsdf'
+    const { grid, stats, tsdf } = this.fusion === 'tsdf'
       ? rebuildTsdfGrid(this.store.getKeyframes(), {
         ...common,
         minObservations: this.params.minObservations,
@@ -158,6 +159,11 @@ export class VoxelDebugController {
       })
       : rebuildVoxelGrid(this.store.getKeyframes(), { ...common, maxCells: this.maxCells });
     this.grid = grid;
+    // The signed-distance field itself, kept alongside the surface-cell view.
+    // `grid` only exposes cells near the zero crossing, which is what the voxel
+    // renderers want but useless for meshing: Surface Nets has to see the sign
+    // FLIP, so it needs the free-space cells the adapter filters out.
+    this.tsdf = tsdf ?? null;
     this.stats = stats;
     this.rebuildCount += 1;
     this._selectRenderCells();
@@ -168,6 +174,12 @@ export class VoxelDebugController {
       ? selectCells(this.grid.getCells(), { minObservations: this.params.minObservations })
       : [];
     this.revision += 1;
+  }
+
+  // The fused field, or null when this scan was hit-counted (?fusion=count) or
+  // loaded from a game export — neither carries signed distances to mesh.
+  getTsdfField() {
+    return this.tsdf;
   }
 
   getRenderCells() {
@@ -265,6 +277,7 @@ export class VoxelDebugController {
     this.gate.reset();
     this.capture.reset();
     this.grid = null;
+    this.tsdf = null;
     this.stats = null;
     this.renderCells = [];
     this.dirtyAt = null;

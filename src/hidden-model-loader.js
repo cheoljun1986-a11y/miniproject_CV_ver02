@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-import { applyFit, fitToHeight, srgbAttributeToLinear } from './hidden-model.js';
+import {
+  applyFit, applyForwardYaw, fitToHeight, srgbAttributeToLinear,
+} from './hidden-model.js';
 
 // A scanned mesh carries no glTF material, so GLTFLoader builds the spec's
 // default: fully metallic. Metal has no diffuse color, and with no environment
@@ -42,6 +44,8 @@ export async function loadHiddenModel(url, targetHeight) {
   const bounds = new THREE.Box3().setFromObject(model);
 
   applyFit(model, fitToHeight(bounds.min.toArray(), bounds.max.toArray(), targetHeight));
+  // The scan's own front is not +Z; the chase assumes it is. See hidden-model.js.
+  applyForwardYaw(model);
 
   const template = new THREE.Group();
   template.add(model);

@@ -272,9 +272,19 @@ test('facing eases toward the direction of travel', () => {
   const runner = new ChaseRunner({ grid, random: () => 0.5, turnRateRadPerS: 1 });
   runner.start([0.5, STAB_FLOOR + 0.1, 0.5], 0);
   runner.update(0.1, { playerPosition: [0, STAB_FLOOR, 0], now: 100 });
+  // The desired angle points along travel: atan2(dx, dz) aims the model's local
+  // +Z at the next node, which is the convention hidden-model.js corrects the
+  // scanned model onto. Pin the direction, not just that a gap exists — the
+  // previous assertion was `gap > 0 || the two are equal`, which is every case.
+  const [dx, dz] = runner.heading;
+  assert.ok(Math.abs(Math.atan2(dx, dz) - runner.targetHeadingAngle) < 1e-9,
+    'target angle must match the direction of travel');
+
+  // With a slow turn rate the drawn angle lags the desired one rather than
+  // snapping to it, and it lags on the near side.
   const gap = Math.abs(runner.targetHeadingAngle - runner.headingAngle);
-  // With a slow turn rate the drawn angle must lag the desired one.
-  assert.ok(gap > 0 || runner.targetHeadingAngle === runner.headingAngle);
+  assert.ok(gap > 0, `expected the drawn angle to lag, got ${gap}`);
+  assert.ok(gap <= Math.PI, 'and to turn the short way around');
 });
 
 test('it walks rather than teleports when its ground disappears', () => {

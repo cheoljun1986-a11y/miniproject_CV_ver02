@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   applyFit,
+  applyForwardYaw,
+  MODEL_FORWARD_YAW,
   createInstanceFrom,
   fitToHeight,
   srgbAttributeToLinear,
@@ -32,6 +34,7 @@ function makeObject({ material = null, children = [] } = {}) {
       z: 0,
       set(x, y, z) { this.x = x; this.y = y; this.z = z; },
     },
+    rotation: { x: 0, y: 0, z: 0 },
     traverse(visit) {
       visit(this);
       for (const child of this.children) child.traverse(visit);
@@ -142,4 +145,40 @@ test('converts every vertex in a multi-vertex attribute', () => {
 
   assert.ok(Math.abs(linear[0] - 1) < 1e-6);
   assert.ok(Math.abs(linear[3] - srgbToLinear(0.5)) < 1e-6);
+});
+
+// ── model forward axis ───────────────────────────────────────
+// The chase aims the model's local +Z along its direction of travel. hcp.glb is
+// a trimesh scan with identity node transforms, so its own front is NOT +Z and
+// the character moonwalks — faces where it came from while sliding the other
+// way. Nothing else in the codebase pins this, so it is pinned here.
+
+test('the scanned model is turned so its front faces +Z', () => {
+  const object = makeObject();
+
+  applyForwardYaw(object);
+
+  assert.equal(object.rotation.y, MODEL_FORWARD_YAW);
+  assert.ok(Math.abs(MODEL_FORWARD_YAW - Math.PI) < 1e-9, 'a half turn, not an arbitrary yaw');
+});
+
+test('the correction adds to whatever yaw the object already carries', () => {
+  const object = makeObject();
+  object.rotation.y = 0.5;
+
+  applyForwardYaw(object);
+
+  assert.ok(Math.abs(object.rotation.y - (0.5 + MODEL_FORWARD_YAW)) < 1e-9);
+});
+
+// Two half turns are identity: this is what makes the fix safe to reason about,
+// and it is why the correction must live in exactly ONE place. Flipping the
+// heading as well would cancel it and the character would moonwalk again.
+test('applying the correction twice returns the model to where it started', () => {
+  const object = makeObject();
+
+  applyForwardYaw(object);
+  applyForwardYaw(object);
+
+  assert.ok(Math.abs(Math.cos(object.rotation.y) - 1) < 1e-9, 'back to facing its own front');
 });

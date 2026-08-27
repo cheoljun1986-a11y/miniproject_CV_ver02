@@ -39,6 +39,7 @@ import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
 import { TraversalGrid, nodeKey } from './traversal-grid.js';
 import { ChaseRunner } from './chase-runner.js';
 import { ChaseOverlay } from './chase-overlay.js';
+import { MeshOverlay } from './mesh-overlay.js';
 import {
   CAPTURE_RADIUS_M, CaptureGauge, angleToTargetDeg, directionInViewSpace,
   makeArrowGate, screenAngleFromViewDirection,
@@ -154,6 +155,11 @@ let chaseTilesRevision = -1;
 let chaseLog = null;
 let chaseArrowGate = null;
 let chaseOverlay = null;      // in-AR terrain view (지형 보기)
+let meshOverlay = null;       // in-AR fused surface, the third step of that toggle
+// off -> tiles -> mesh -> off. Two views of one map: the tiles are the chase's
+// own decision (green/red/amber), the mesh is the geometry it decided from.
+const TERRAIN_MODES = ['off', 'tiles', 'mesh'];
+let terrainMode = 'off';
 // The occluders write real-world depth, which would cull every tile lying on
 // the real floor. The static one's state is remembered so turning the overlay
 // off puts it back exactly as it was.
@@ -400,16 +406,22 @@ async function init() {
     // button to drive it; the diagnostic has its own overlay and panel.
     if (chaseGrid && ui.hasTerrainOverlayButton() && !VOXEL_DEBUG_MODE) {
       chaseOverlay = new ChaseOverlay({ scene });
+      meshOverlay = new MeshOverlay({ scene });
       ui.setTerrainOverlayButtonVisible(true);
-      ui.setTerrainOverlayOn(false);
-      ui.bindTerrainOverlay({ onToggle: toggleTerrainOverlay });
+      ui.setTerrainOverlayOn(terrainMode);
+      ui.bindTerrainOverlay({ onToggle: cycleTerrainOverlay });
     }
+    if (VOXEL_DEBUG_MODE) meshOverlay = new MeshOverlay({ scene });
     if (VOXEL_DEBUG_MODE) {
       voxelPanel = createVoxelDebugPanel({
         root: document.querySelector('#hud'),
         controller: voxelDebug,
         overlay: voxelOverlay,
         operatorView,
+        meshOverlay,
+        // Extracted lazily: a room is ~300ms of Surface Nets, and most sessions
+        // never open the mesh view at all.
+        onMeshShown: () => buildMeshOverlay(),
         onOperatorToggle: () => {
           operatorVisible = !operatorVisible;
           ui.setOperatorVisible(operatorVisible);
@@ -463,6 +475,7 @@ async function init() {
     voxelDebug?.reset();
     voxelOverlay?.clear();
     chaseOverlay?.clear();
+    meshOverlay?.clear();
     voxelOccluder?.reset();
     chaseFedRevision = -1;
     mapBuilding = false;
@@ -498,6 +511,7 @@ async function init() {
     voxelDebug?.reset();
     voxelOverlay?.clear();
     chaseOverlay?.clear();
+    meshOverlay?.clear();
     voxelOccluder?.reset();
     mapBuilding = false;
     mapFrozen = false;
@@ -782,20 +796,46 @@ function updateChase(time, frame, localSpace, viewerPose) {
 // it writes real-world depth, so the tile lying on the real floor — the one
 // you are trying to see Hachuping stand on — would be culled by the floor
 // itself. Occlusion comes straight back when the overlay goes away.
-function toggleTerrainOverlay() {
+// The fused surface for whichever map this session is building. Null in the
+// legacy accumulator and under ?fusion=count: neither stores signed distances,
+// so there is no zero crossing to mesh.
+function terrainField() {
+  if (VOXEL_DEBUG_MODE) return voxelDebug?.getTsdfField?.() ?? null;
+  const grid = voxelTerrain?.grid;
+  return grid && typeof grid.getSolidCells === 'function' && 'surfaceBand' in grid ? grid : null;
+}
+
+function buildMeshOverlay() {
+  const field = terrainField();
+  if (!meshOverlay || !field) return 0;
+  return meshOverlay.build(field, field.getRevision(), {
+    minWeight: VOXEL_TERRAIN_MIN_OBSERVATIONS,
+  });
+}
+
+function cycleTerrainOverlay() {
   if (!chaseOverlay) return;
-  const next = !chaseOverlay.isVisible();
-  chaseOverlay.setVisible(next);
-  ui.setTerrainOverlayOn(next);
-  if (next) {
-    occluderWasVisible = voxelOccluder ? voxelOccluder.isVisible() : null;
-    cpuDepthOccluder?.setSuppressed(true);
-    voxelOccluder?.setVisible(false);
-  } else {
+  const next = TERRAIN_MODES[(TERRAIN_MODES.indexOf(terrainMode) + 1) % TERRAIN_MODES.length];
+  // Skip a step that has nothing to draw rather than showing an empty screen.
+  terrainMode = next === 'mesh' && !terrainField() ? 'off' : next;
+
+  chaseOverlay.setVisible(terrainMode === 'tiles');
+  if (terrainMode === 'mesh') buildMeshOverlay();
+  meshOverlay?.setVisible(terrainMode === 'mesh');
+  ui.setTerrainOverlayOn(terrainMode, meshOverlay?.getTriangleCount() ?? 0);
+
+  // Either overlay draws with depthTest on, so a live depth mesh would cull
+  // everything lying on the real floor — exactly what needs looking at.
+  if (terrainMode === 'off') {
     cpuDepthOccluder?.setSuppressed(false);
     if (voxelOccluder && occluderWasVisible !== null) voxelOccluder.setVisible(occluderWasVisible);
     occluderWasVisible = null;
     chaseOverlay.clear();
+    meshOverlay?.clear();
+  } else if (occluderWasVisible === null) {
+    occluderWasVisible = voxelOccluder ? voxelOccluder.isVisible() : null;
+    cpuDepthOccluder?.setSuppressed(true);
+    voxelOccluder?.setVisible(false);
   }
 }
 

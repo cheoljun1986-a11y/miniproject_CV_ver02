@@ -41,10 +41,16 @@ export class BufferGeometry {
   setIndex(attribute) { this.index = attribute; return this; }
   setDrawRange(start, count) { this.drawRange = { start, count }; }
   computeBoundingSphere() { this.boundingSphereComputed = true; }
+  computeVertexNormals() { this.vertexNormalsComputed = true; }
   dispose() { this.disposed = true; }
 }
 
 export class MeshBasicMaterial {
+  constructor(options) { Object.assign(this, options); }
+  dispose() { this.disposed = true; }
+}
+
+export class MeshLambertMaterial {
   constructor(options) { Object.assign(this, options); }
   dispose() { this.disposed = true; }
 }

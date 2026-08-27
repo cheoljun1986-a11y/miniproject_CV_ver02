@@ -330,10 +330,19 @@ export function createUI(documentRoot = document) {
         elements.terrainOverlayBtn.style.display = visible ? '' : 'none';
       }
     },
-    setTerrainOverlayOn(on) {
+    // Three states, not two: off -> tiles -> mesh. The label has to say which
+    // of the two views is up, because they answer different questions and
+    // "지형 보기" alone would leave the tester guessing which one they are
+    // looking at. Accepts the legacy boolean so older callers keep working.
+    setTerrainOverlayOn(mode, triangleCount = 0) {
       if (!elements.terrainOverlayBtn) return;
-      elements.terrainOverlayBtn.textContent = on ? '지형 숨기기' : '지형 보기';
-      elements.terrainOverlayBtn.classList.toggle('primary', Boolean(on));
+      const state = mode === true ? 'tiles' : (mode || 'off');
+      elements.terrainOverlayBtn.textContent = state === 'tiles'
+        ? '지형: 격자'
+        : state === 'mesh'
+          ? `지형: 메시 (${triangleCount.toLocaleString()}△)`
+          : '지형 보기';
+      elements.terrainOverlayBtn.classList.toggle('primary', state !== 'off');
     },
     setCatchCelebrationVisible(visible) {
       if (elements.catchCelebrationOverlay) {

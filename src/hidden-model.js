@@ -28,6 +28,27 @@ export function applyFit(object, { scale, offset }) {
   object.position.set(offset[0], offset[1], offset[2]);
 }
 
+// Yaw that turns the scanned model's own front onto +Z.
+//
+// hcp.glb is a photogrammetry scan exported by trimesh: every node transform is
+// identity, and a scan pipeline does not honour glTF's "assets face +Z"
+// modelling convention. Everything downstream assumes +Z is forward — the chase
+// aims the model's local +Z along its direction of travel (Math.atan2(dx, dz)
+// in chase-runner) — so a model whose front is -Z moonwalks: it faces where it
+// came from while sliding the other way.
+//
+// Correcting the model rather than the heading is deliberate. The heading angle
+// keeps meaning "direction of travel" for every other reader, the raw heading
+// vector the flee scoring uses stays in step with it, and the pose the hidden
+// model is placed at (identity rotation) comes out right as well.
+export const MODEL_FORWARD_YAW = Math.PI;
+
+// Turn a loaded model so its front faces +Z. Applied to the inner node, under
+// the wrapper the game rotates, so the correction survives every placement.
+export function applyForwardYaw(object, yaw = MODEL_FORWARD_YAW) {
+  object.rotation.y += yaw;
+}
+
 // Copy the loaded template into a scene-ready object. Materials are cloned per
 // instance: the template's materials are shared across every mesh three.js
 // created from the same glTF primitive, so fading one hidden model would
