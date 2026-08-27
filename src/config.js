@@ -101,6 +101,13 @@ export const CHASE_RETARGET_MS = 3000;
 export const CHASE_STUCK_MS = 4000;
 export const CHASE_RECENT_WINDOW_MS = 15000; // how long a visited cell stays penalised
 export const CHASE_GRID_MAX_TILES = 6000;
+// In-AR terrain overlay (the 지형 button). Tighter than the operator view's
+// 6000 tiles: these are drawn over a live camera composite every frame, and a
+// 4m radius is as far as "is it standing on that tile" can be judged anyway.
+export const CHASE_OVERLAY_MAX_INSTANCES = 2500;
+export const CHASE_OVERLAY_RADIUS_M = 4.0;
+export const CHASE_OVERLAY_REBUILD_STEP_M = 0.3;
+export const CHASE_OVERLAY_TILE_THICKNESS_M = 0.02;
 export const CHASE_PATH_MAX_POINTS = 256;
 export const CHASE_GRID_REBUILD_GAP_MS = 250;
 
@@ -185,6 +192,10 @@ export const TSDF_DEPTH_WEIGHT_POWER = 1;
 // the depth resolution (80x60) and run ~4x cheaper per keyframe: ~5ms on a
 // desktop, versus ~18ms at full resolution.
 export const TSDF_KEYFRAME_MAX_SAMPLES = 4800;
+// The same halving expressed for offline rebuilds: the diagnostic and the PC
+// viewer store full-resolution keyframes, so they must subsample by this to
+// reproduce what the game fused live.
+export const TSDF_KEYFRAME_SAMPLE_STRIDE = 2;
 
 // Scan backup to the dev server (serve.py, POST /upload). The game map is
 // re-sent on this interval and once more at session end, so a tab that dies

@@ -360,3 +360,92 @@ export class TsdfGrid {
 export function cellCenter(cell) {
   return [cell.sumX, cell.sumY, cell.sumZ];
 }
+
+// Drops every Nth column and row of a stored keyframe. The phone captures the
+// game terrain at half resolution (TSDF_KEYFRAME_MAX_SAMPLES), so an offline
+// rebuild has to subsample the full-resolution scan the same way or it is not
+// measuring what the game runs.
+export function subsampleKeyframe(keyframe, stride = 1) {
+  if (stride <= 1) return keyframe;
+  const width = Math.ceil(keyframe.width / stride);
+  const height = Math.ceil(keyframe.height / stride);
+  const depths = new Float32Array(width * height);
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      depths[row * width + col] = keyframe.depths[(row * stride) * keyframe.width + col * stride];
+    }
+  }
+  return { ...keyframe, width, height, depths };
+}
+
+// Batch counterpart of rebuildVoxelGrid: fuses stored keyframes into a fresh
+// TSDF grid and reports the same stats shape, so the diagnostic panel and the
+// PC viewer can swap fusions without knowing which one ran.
+//
+// The returned `grid` exposes only the surface cells — the ones near the zero
+// crossing. Free-space and deep-inside cells are bookkeeping, and handing them
+// to a renderer would draw a solid block of every room the camera swept.
+export function rebuildTsdfGrid(keyframes, {
+  voxelSize = 0.05,
+  minObservations = 3,
+  nearM = 0.3,
+  farM = 5.0,
+  gradientMaxJumpM = 0.10,
+  maxCells = 4000000,
+  sampleStride = 2,
+  now = () => 0,
+  ...tsdfOptions
+} = {}) {
+  const startedAt = now();
+  const tsdf = new TsdfGrid({
+    voxelSize,
+    minWeight: minObservations,
+    maxCells,
+    ...tsdfOptions,
+  });
+  const stats = {
+    keyframes: keyframes.length,
+    samplesTotal: 0,
+    rejectedZero: 0,
+    rejectedRange: 0,
+    rejectedGradient: 0,
+    rejectedUnproject: 0,
+    accepted: 0,
+    carved: 0,
+    cleared: 0,
+    cells: 0,
+    truncated: false,
+    histogram: null,
+    buildMs: 0,
+  };
+
+  for (const keyframe of keyframes) {
+    const pass = tsdf.integrate(subsampleKeyframe(keyframe, sampleStride), {
+      nearM, farM, gradientMaxJumpM,
+    });
+    stats.samplesTotal += pass.total;
+    stats.rejectedZero += pass.rejectedZero;
+    stats.rejectedRange += pass.rejectedRange;
+    stats.rejectedGradient += pass.rejectedGradient;
+    stats.rejectedUnproject += pass.rejectedUnproject;
+    stats.accepted += pass.accepted;
+    stats.carved += pass.carved;
+    stats.cleared += pass.becameClear;
+    if (tsdf.isFull()) stats.truncated = true;
+  }
+
+  const surface = tsdf.getSurfaceCells();
+  stats.cells = surface.length;
+  stats.histogram = tsdf.getHistogram();
+  stats.buildMs = now() - startedAt;
+
+  return {
+    tsdf,
+    stats,
+    grid: {
+      getCells: () => surface,
+      getCellCount: () => surface.length,
+      getHistogram: () => stats.histogram,
+    },
+  };
+}

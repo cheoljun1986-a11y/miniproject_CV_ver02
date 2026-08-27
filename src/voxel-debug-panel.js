@@ -19,6 +19,7 @@ export function createVoxelDebugPanel({
   controller,
   overlay,
   operatorView = null,
+  now = () => (typeof performance !== 'undefined' ? performance.now() : 0),
   onOperatorToggle = null,
   onStartGame = null,
   occluder = null,
@@ -56,6 +57,13 @@ export function createVoxelDebugPanel({
   ].join(';'), '▾');
   header.append(status, collapseBtn);
   panel.appendChild(header);
+
+  const uploadStatus = el('div', [
+    'margin-top:4px', 'padding:3px 6px', 'border-radius:6px',
+    'background:rgba(255,255,255,.14)', 'font-size:11px', 'white-space:pre-line',
+  ].join(';'));
+  uploadStatus.style.display = 'none';
+  panel.appendChild(uploadStatus);
 
   const body = el('div', 'margin-top:6px;');
   panel.appendChild(body);
@@ -112,6 +120,16 @@ export function createVoxelDebugPanel({
     buttons.appendChild(node);
     return node;
   };
+
+  // The scan has to be ended by hand: the map is only built when the window
+  // closes, so without this there is nothing to overlay until the 10-minute
+  // timer runs out. Keyframes survive a stop, so starting again resumes.
+  const scanBtn = button('스캔 정지', () => {
+    const time = now();
+    if (controller.isScanning(time)) controller.stopScan(time);
+    else controller.startScan(time);
+    refreshAll();
+  });
 
   const colorBtn = button('색상 전환', () => {
     controller.cycleColorMode();
@@ -190,6 +208,12 @@ export function createVoxelDebugPanel({
   }
 
   function refreshAll() {
+    const time = now();
+    const scanning = controller.isScanning(time);
+    scanBtn.style.background = scanning ? '#ff9c6b' : '#8ee6a0';
+    scanBtn.textContent = scanning
+      ? `스캔 정지 (${controller.getStats(time).keyframeCount}장)`
+      : `스캔 시작${controller.getCellCount() ? ' · 맵 완성' : ''}`;
     overlayBtn.style.background = overlay.isVisible() ? '#ffd66b' : 'rgba(255,255,255,.92)';
     overlayBtn.disabled = controller.isImported();
     overlayBtn.textContent = controller.isImported() ? 'AR 오버레이(불가)' : 'AR 오버레이';
@@ -209,6 +233,13 @@ export function createVoxelDebugPanel({
 
   return {
     setStatus(text) { status.textContent = text; },
+    // Upload progress gets its own line: it must stay readable while the
+    // status block above keeps ticking over with scan numbers, and a 20MB
+    // send is long enough that "did it work" is a real question.
+    setUploadStatus(text) {
+      uploadStatus.textContent = text ?? '';
+      uploadStatus.style.display = text ? '' : 'none';
+    },
     refresh: refreshAll,
     isFrustumsVisible: () => frustumsVisible,
     destroy() { panel.remove(); },

@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TsdfGrid, tsdfKey } from '../src/tsdf-grid.js';
+import {
+  TsdfGrid, rebuildTsdfGrid, subsampleKeyframe, tsdfKey,
+} from '../src/tsdf-grid.js';
 
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
@@ -164,4 +166,47 @@ test('surface cells, histogram and reset follow VoxelGrid conventions', () => {
   assert.equal(grid.getCellCount(), 0);
   assert.equal(grid.getSolidCount(), 0);
   assert.ok(grid.getRevision() > rev);
+});
+
+test('subsampleKeyframe halves both axes and keeps the sampled depths', () => {
+  const depths = Float32Array.from({ length: 16 }, (_, i) => i);
+  const k = keyframe({ width: 4, height: 4, depths });
+  const half = subsampleKeyframe(k, 2);
+  assert.equal(half.width, 2);
+  assert.equal(half.height, 2);
+  // Rows 0 and 2, columns 0 and 2.
+  assert.deepEqual(Array.from(half.depths), [0, 2, 8, 10]);
+  assert.equal(subsampleKeyframe(k, 1), k, 'stride 1 is a no-op');
+  // The matrices must ride along or the samples unproject nowhere.
+  assert.equal(half.viewMatrix, k.viewMatrix);
+});
+
+test('rebuildTsdfGrid fuses stored keyframes and reports the shared stats shape', () => {
+  const keyframes = [1, 2, 3, 4].map((frameId) => keyframe({ depth: 1.0, frameId, width: 8, height: 6 }));
+  const { grid, stats, tsdf } = rebuildTsdfGrid(keyframes, {
+    voxelSize: 0.1,
+    minObservations: 3,
+    nearM: 0.1,
+    farM: 5,
+    sampleStride: 1,
+    truncationVoxels: 2,
+    carveStride: 1,
+  });
+  assert.equal(stats.keyframes, 4);
+  assert.ok(stats.samplesTotal > 0);
+  assert.ok(stats.accepted > 0);
+  assert.equal(stats.cells, grid.getCellCount());
+  assert.deepEqual(stats.histogram, grid.getHistogram());
+  // Only the zero crossing is handed out: free space and the far side of the
+  // band are bookkeeping the renderers must never draw.
+  assert.ok(grid.getCellCount() > 0);
+  assert.ok(grid.getCellCount() < tsdf.getCellCount(), 'surface cells are a subset');
+  assert.ok(grid.getCells().every((c) => Math.abs(c.tsdf) < 0.5));
+});
+
+test('rebuildTsdfGrid subsamples like the phone by default', () => {
+  const keyframes = [keyframe({ depth: 1.0, frameId: 1, width: 8, height: 6 })];
+  const full = rebuildTsdfGrid(keyframes, { voxelSize: 0.05, sampleStride: 1, nearM: 0.1, farM: 5 });
+  const half = rebuildTsdfGrid(keyframes, { voxelSize: 0.05, nearM: 0.1, farM: 5 });
+  assert.ok(half.stats.samplesTotal < full.stats.samplesTotal, 'default stride is 2');
 });

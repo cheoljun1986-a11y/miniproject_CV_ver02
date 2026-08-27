@@ -11,6 +11,17 @@ import {
 import { KeyframeCapture } from './keyframe-capture.js';
 import { KeyframeGate } from './keyframe-gate.js';
 import { KeyframeStore, keyframeStoreFromJSON, rebuildVoxelGrid } from './keyframe-store.js';
+import { rebuildTsdfGrid } from './tsdf-grid.js';
+import {
+  TSDF_CARVE_START_M,
+  TSDF_CARVE_STRIDE,
+  TSDF_DEPTH_WEIGHT_POWER,
+  TSDF_DEPTH_WEIGHT_REF_M,
+  TSDF_KEYFRAME_SAMPLE_STRIDE,
+  TSDF_MAX_WEIGHT,
+  TSDF_SURFACE_BAND,
+  TSDF_TRUNCATION_VOXELS,
+} from './config.js';
 import { DEFAULT_VOXEL_DEBUG_PARAMS, applyParam } from './voxel-debug-params.js';
 import { VOXEL_COLOR_MODES, VOXEL_COLOR_MODE_LABELS, nextColorMode } from './voxel-color-modes.js';
 import { histogramDisplayCount, selectCells } from './voxel-grid.js';
@@ -24,11 +35,16 @@ export class VoxelDebugController {
     scanSeconds = VOXEL_SCAN_SECONDS,
     maxKeyframes = VOXEL_KEYFRAME_MAX,
     maxCells = VOXEL_DEBUG_MAX_CELLS,
+    // Which fusion the stop-of-scan rebuild runs. 'tsdf' is the default so the
+    // AR overlay shows the same kind of map the game plays on; 'count' keeps
+    // the original hit counting for A/B (?voxel=debug&fusion=count).
+    fusion = 'tsdf',
     now = () => (typeof performance !== 'undefined' ? performance.now() : 0),
   }) {
     this.scanSeconds = scanSeconds;
     this.maxKeyframes = maxKeyframes;
     this.maxCells = maxCells;
+    this.fusion = fusion === 'count' ? 'count' : 'tsdf';
     this.now = now;
     this.params = { ...params };
 
@@ -117,14 +133,30 @@ export class VoxelDebugController {
   }
 
   _rebuild() {
-    const { grid, stats } = rebuildVoxelGrid(this.store.getKeyframes(), {
+    const common = {
       voxelSize: this.params.voxelSize,
       nearM: this.params.nearM,
       farM: this.params.farM,
       gradientMaxJumpM: this.params.gradientMaxJumpM,
-      maxCells: this.maxCells,
       now: this.now,
-    });
+    };
+    const { grid, stats } = this.fusion === 'tsdf'
+      ? rebuildTsdfGrid(this.store.getKeyframes(), {
+        ...common,
+        minObservations: this.params.minObservations,
+        // Room-sized TSDF holds several times more cells than the hit-count
+        // grid: free space and the band behind each surface are cells too.
+        maxCells: this.maxCells * 20,
+        sampleStride: TSDF_KEYFRAME_SAMPLE_STRIDE,
+        truncationVoxels: TSDF_TRUNCATION_VOXELS,
+        maxWeight: TSDF_MAX_WEIGHT,
+        surfaceBand: TSDF_SURFACE_BAND,
+        carveStride: TSDF_CARVE_STRIDE,
+        carveStartM: TSDF_CARVE_START_M,
+        depthWeightRefM: TSDF_DEPTH_WEIGHT_REF_M,
+        depthWeightPower: TSDF_DEPTH_WEIGHT_POWER,
+      })
+      : rebuildVoxelGrid(this.store.getKeyframes(), { ...common, maxCells: this.maxCells });
     this.grid = grid;
     this.stats = stats;
     this.rebuildCount += 1;

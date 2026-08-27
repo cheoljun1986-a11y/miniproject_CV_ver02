@@ -76,10 +76,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { keyframeStoreFromJSON, rebuildVoxelGrid } from './src/keyframe-store.js';
-import { TsdfGrid } from './src/tsdf-grid.js';
+import { rebuildTsdfGrid } from './src/tsdf-grid.js';
 import {
   TSDF_CARVE_START_M, TSDF_CARVE_STRIDE, TSDF_DEPTH_WEIGHT_POWER, TSDF_DEPTH_WEIGHT_REF_M,
-  TSDF_MAX_WEIGHT, TSDF_SURFACE_BAND, TSDF_TRUNCATION_VOXELS,
+  TSDF_KEYFRAME_SAMPLE_STRIDE, TSDF_MAX_WEIGHT, TSDF_SURFACE_BAND, TSDF_TRUNCATION_VOXELS,
 } from './src/config.js';
 import { voxelCellsFromJSON } from './src/voxel-cells-codec.js';
 import { cellMeanPosition, selectCells } from './src/voxel-grid.js';
@@ -163,20 +163,16 @@ let mode = 'voxel'; // voxel | surface
 // scan can be judged against each other.
 let fusion = 'count';
 
-function halfResolution(k) {
-  const width = Math.ceil(k.width / 2);
-  const height = Math.ceil(k.height / 2);
-  const depths = new Float32Array(width * height);
-  for (let r = 0; r < height; r += 1) {
-    for (let c = 0; c < width; c += 1) depths[r * width + c] = k.depths[(r * 2) * k.width + c * 2];
-  }
-  return { ...k, width, height, depths };
-}
-
+// Same batch fusion the phone's diagnostic runs at stop-of-scan, so what the
+// viewer draws and what the AR overlay drew are the same map.
 function rebuildTsdf(keyframes) {
-  const grid = new TsdfGrid({
+  const { grid, stats, tsdf } = rebuildTsdfGrid(keyframes, {
     voxelSize: params.voxelSize,
-    minWeight: params.minObservations,
+    minObservations: params.minObservations,
+    nearM: params.nearM,
+    farM: params.farM,
+    gradientMaxJumpM: params.gradientMaxJumpM,
+    sampleStride: TSDF_KEYFRAME_SAMPLE_STRIDE,
     truncationVoxels: TSDF_TRUNCATION_VOXELS,
     maxWeight: TSDF_MAX_WEIGHT,
     surfaceBand: TSDF_SURFACE_BAND,
@@ -184,25 +180,9 @@ function rebuildTsdf(keyframes) {
     carveStartM: TSDF_CARVE_START_M,
     depthWeightRefM: TSDF_DEPTH_WEIGHT_REF_M,
     depthWeightPower: TSDF_DEPTH_WEIGHT_POWER,
-    maxCells: 4000000,
+    now: () => performance.now(),
   });
-  const stats = { rejectedZero: 0, rejectedRange: 0, rejectedGradient: 0, cleared: 0 };
-  for (const k of keyframes) {
-    const r = grid.integrate(halfResolution(k), {
-      nearM: params.nearM, farM: params.farM, gradientMaxJumpM: params.gradientMaxJumpM,
-    });
-    stats.rejectedZero += r.rejectedZero;
-    stats.rejectedRange += r.rejectedRange;
-    stats.rejectedGradient += r.rejectedGradient;
-    stats.cleared += r.becameClear;
-  }
-  // Solid cells only, in the VoxelGrid shape the drawing code reads. The
-  // observation threshold is already applied by minWeight above.
-  const solid = grid.getSolidCells();
-  return {
-    grid: { getCells: () => solid, getCellCount: () => solid.length, getHistogram: () => grid.getHistogram() },
-    stats: { ...stats, cells: grid.getSolidCount(), histogram: grid.getHistogram(), allCells: grid.getCellCount() },
-  };
+  return { grid, stats: { ...stats, allCells: tsdf.getCellCount() } };
 }
 
 function rebuild() {
@@ -238,7 +218,7 @@ function rebuild() {
   const head = loadedCells
     ? `게임 복셀맵 (${loadedCells.meta.source}) · 세션 ${loadedCells.meta.sessionId ?? '-'} · 키프레임 ${loadedCells.meta.keyframeCount}\n`
       + `복셀 ${stats.cells} (표시 ${shown.length})\n`
-    : `키프레임 ${store.getCount()} · ${fusion === 'tsdf' ? `TSDF solid ${stats.cells} / 셀 ${stats.allCells} · 철회 ${stats.cleared}` : `복셀 ${stats.cells}`} (표시 ${shown.length})
+    : `키프레임 ${store.getCount()} · ${fusion === 'tsdf' ? `TSDF 표면 ${stats.cells} / 전체 셀 ${stats.allCells} · 철회 ${stats.cleared}` : `복셀 ${stats.cells}`} (표시 ${shown.length})
 `;
   const rejected = loadedCells
     ? ''
