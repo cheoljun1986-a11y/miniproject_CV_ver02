@@ -70,6 +70,16 @@ export class TraversalGrid {
     raisedSupportAboveFloorM = 0.4,
     minRaisedSupport = 2,
     raisedSupportBandM = 0.10,
+    // How reluctant Hachuping is to use furniture. These were tuned when the
+    // penalties were the ONLY defence against the aerial-highway bug (touring
+    // the room at tabletop height without ever landing). hasRaisedSupport now
+    // blocks the noise ledges that made that bug dangerous, so the tax exists
+    // only for believability — a small creature mostly runs on the ground.
+    // Measured on a real room scan; see the commit that introduced them.
+    climbCostPerM = 2.0,     // charged once, per metre climbed
+    dropCostPerM = 0.5,      // coming down must look like the easy direction
+    jumpBaseCost = 0.6,
+    heightTollPerM = 0.4,    // charged every step taken above the floor
     // ... and at least this fraction of the busiest slab's cells. Measured on
     // two room scans: 0.3 puts the floor on the slab holding the surface for
     // both hit counting and TSDF, while 0.1 still let a sub-floor noise slab
@@ -91,6 +101,10 @@ export class TraversalGrid {
     this.raisedSupportAboveFloorM = raisedSupportAboveFloorM;
     this.minRaisedSupport = minRaisedSupport;
     this.raisedSupportBandM = raisedSupportBandM;
+    this.climbCostPerM = climbCostPerM;
+    this.dropCostPerM = dropCostPerM;
+    this.jumpBaseCost = jumpBaseCost;
+    this.heightTollPerM = heightTollPerM;
     this.cells = new Map();
     this.revision = 0;
     this.slabCells = new Int32Array(64);
@@ -229,6 +243,18 @@ export class TraversalGrid {
     let found = null;
     for (let slab = 0; slab < this.slabCount; slab += 1) {
       if (this.slabCells[slab] >= minCells) { found = slab; break; }
+    }
+    // A real floor is never one clean slab: depth noise and an uneven scan
+    // spread it over three or four. Taking the lowest qualifying slab lands on
+    // the bottom shoulder of that spread, 10-20cm below the actual surface
+    // (measured on all five room scans). Walk up while the population is still
+    // growing to sit on the peak instead. Stopping at the first decrease is
+    // what keeps this from wandering off onto a desk plane higher up.
+    if (found !== null) {
+      while (found + 1 < this.slabCount
+        && this.slabCells[found + 1] > this.slabCells[found]) {
+        found += 1;
+      }
     }
     if (found === null) {
       for (let slab = 0; slab < this.slabCount; slab += 1) {
@@ -568,14 +594,17 @@ export class TraversalGrid {
           // Climbing is charged double its height, dropping half: coming down
           // must always look like the easy direction.
           const jumpCost = jump
-            ? 0.6 + (rise > 0 ? rise * 2 : Math.abs(rise) * 0.5)
+            ? this.jumpBaseCost + (rise > 0
+              ? rise * this.climbCostPerM
+              : Math.abs(rise) * this.dropCostPerM)
             : 0;
           // Toll for walking above the floor, per step and proportional to
           // altitude. This is what turns table-chair-table routes into
           // table-floor-table ones without forbidding furniture outright.
           const heightToll = floorY === null
             ? 0
-            : Math.max(0, levels[level] - floorY - this.slabHeight / 2) * 0.8;
+            : Math.max(0, levels[level] - floorY - this.slabHeight / 2)
+              * this.heightTollPerM;
           out.push({
             cx: nx,
             cz: nz,

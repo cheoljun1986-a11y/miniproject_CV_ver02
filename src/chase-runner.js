@@ -78,6 +78,10 @@ export class ChaseRunner {
     // space, so walking that way always meets valid terrain again.
     escapeAfterFailures = 3,
     escapeMinSpeed = 0.35,
+    // Passed straight through to chooseFleeTarget: how far a destination must
+    // be, and how much Hachuping likes furniture. Kept as one bag so tuning
+    // does not need a new constructor argument each time.
+    fleeOptions = null,
     onEvent = null,
   } = {}) {
     this.grid = grid;
@@ -94,6 +98,7 @@ export class ChaseRunner {
     this.speedAccelMps2 = speedAccelMps2;
     this.escapeAfterFailures = escapeAfterFailures;
     this.escapeMinSpeed = escapeMinSpeed;
+    this.fleeOptions = fleeOptions;
     this.onEvent = onEvent;
     this.reset();
   }
@@ -373,6 +378,7 @@ export class ChaseRunner {
     this.reachable = reachableFrom(this.grid, this.node);
 
     const target = chooseFleeTarget(this.grid, {
+      ...this.fleeOptions,
       from: this.node,
       playerPosition,
       recentVisits: this.recentVisits,

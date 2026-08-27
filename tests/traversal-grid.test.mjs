@@ -423,3 +423,60 @@ test('a retraction that drops below the footing threshold clears the bit', () =>
   assert.equal(grid.observe([0.13, 0.02, 0.13]), true);
   assert.equal(grid.levels(0, 0).length, 1);
 });
+
+// ── floor detection sits on the peak, not the shoulder ───────
+test('a floor spread over several slabs resolves to its busiest one', () => {
+  // Real scans never put the floor in one clean slab: depth noise spreads it
+  // over three or four, and taking the lowest qualifying slab landed 10-20cm
+  // below the actual surface on every room scan we have. Everything measured
+  // "above the floor" — the height toll, the platform test, the standable
+  // ceiling — inherited that error.
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  const put = (y, count) => {
+    for (let i = 0; i < count; i += 1) {
+      grid.observe([(i % 40) * 0.2 + 0.05, y, Math.floor(i / 40) * 0.2 + 0.05]);
+    }
+  };
+  put(-1.45, 40);   // bottom shoulder
+  put(-1.35, 120);  // the real surface
+  put(-1.25, 60);   // top shoulder
+  const slab = grid.resolveFloorSlab();
+  assert.ok(
+    Math.abs(grid.slabTopY(slab) - grid.slabTopY(grid.slabOf(-1.35))) < 1e-9,
+    `floor landed at ${grid.slabTopY(slab)}, expected the busiest slab`,
+  );
+});
+
+test('climbing to the peak stops before a separate surface higher up', () => {
+  // The walk-up must not wander off the floor cluster onto a desk plane.
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  const put = (y, count) => {
+    for (let i = 0; i < count; i += 1) {
+      grid.observe([(i % 40) * 0.2 + 0.05, y, Math.floor(i / 40) * 0.2 + 0.05]);
+    }
+  };
+  put(-1.45, 60);
+  put(-1.35, 200);  // floor peak
+  put(-1.25, 80);   // decreasing — the walk-up stops here
+  put(-0.65, 400);  // a huge desk plane, deliberately busier than the floor
+  const slab = grid.resolveFloorSlab();
+  assert.ok(grid.slabTopY(slab) < -1.2, `floor jumped up to ${grid.slabTopY(slab)}`);
+});
+
+test('the furniture-reluctance costs are tunable, not baked in', () => {
+  const cheap = new TraversalGrid({ minSlabVoxels: 1, heightTollPerM: 0 });
+  const dear = new TraversalGrid({ minSlabVoxels: 1, heightTollPerM: 4 });
+  for (const g of [cheap, dear]) {
+    for (let x = 0; x <= 1.4; x += 0.05) {
+      for (let z = 0; z <= 0.6; z += 0.05) g.observe([x, 0.02, z]);
+    }
+    for (let x = 0.6; x <= 1.0; x += 0.05) {
+      for (let z = 0; z <= 0.6; z += 0.05) g.observe([x, 0.50, z]);
+    }
+  }
+  const shelfOf = (g) => {
+    const from = g.nodeAtWorld([0.3, 0.1, 0.3]);
+    return g.neighbors(from).find((n) => n.rise > 0.2);
+  };
+  assert.ok(shelfOf(dear).cost > shelfOf(cheap).cost, 'the toll must reach the cost');
+});

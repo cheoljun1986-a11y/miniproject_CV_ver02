@@ -117,6 +117,10 @@ export function chooseFleeTarget(grid, {
   random = Math.random,
   sampleLimit = 4000,
   reachable = null,
+  // Score adjustment for a destination that is not on the ground. Measured on
+  // five room scans: moving this knob barely changed the outcome, because the
+  // grid's height toll dominates. Left where it was.
+  raisedTargetScore = -1.2,
 } = {}) {
   if (!from) return null;
   const fromWorld = grid.worldOf(from);
@@ -173,7 +177,7 @@ export function chooseFleeTarget(grid, {
 
       // Ground is where a small creature believably runs; furniture is the
       // exception. The old +0.8 bonus here kept Hachuping touring tabletops.
-      if (level > 0) score -= 1.2;
+      if (level > 0) score += raisedTargetScore;
 
       score += random() * 1.2;
 
