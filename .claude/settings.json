@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(grep -vE \"^remote:\\\\s*$\")",
+      "Bash(cd c:/DS2/miniproject_CV_ver02 && echo \"=== cpu-depth-occluder 가시성\"; grep -n \"setVisible\\\\|visible\\\\|mesh\\\\.\" src/cpu-depth-occluder.js | head -12; echo; echo \"=== ui.js 버튼 목록\"; grep -n \"querySelector\\('#\" src/ui.js; echo; echo \"=== ui.js 반환 API\"; sed -n '/^  return {/,/^  };/p' src/ui.js | head -40)",
+      "Bash(git checkout *)",
+      "Bash(node --test tests/tsdf-grid.test.mjs tests/voxel-debug-controller.test.mjs tests/module-syntax.test.mjs)",
+      "Bash(node --test tests/tsdf-grid.test.mjs)",
+      "Bash(node --test tests/voxel-debug-controller.test.mjs)",
+      "Bash(python -)",
+      "Bash(node --input-type=module --check)",
+      "Bash(git cherry-pick *)"
+    ],
+    "additionalDirectories": [
+      "C:\\DS2\\miniproject_CV_ver02\\src"
+    ]
+  }
+}
