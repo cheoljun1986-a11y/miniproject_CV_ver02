@@ -640,12 +640,24 @@ function stopChase(message) {
   game.setTargetOpacity(NINJA_CAMOUFLAGE_OPACITY);
   ui.setChaseVisible(false);
   ui.setChaseArrow(null);
-  ui.setRespawnVisible(false);
   ui.setScanVisible(true);
-  // The round is over; the only way on is a fresh map.
   ui.setMapButton('맵 다시 만들기', true);
-  ui.setChaseButton('도망 모드 시작', false);
+  // A finished round must not force a rescan. The map is still frozen and
+  // still valid, so offer another round on it: the start button comes back
+  // whenever the terrain can still support one.
+  const replayable = mapFrozen && chaseGrid
+    ? chaseStartReadiness({
+      walkable: chaseGrid.stats().walkable,
+      candidateCount: gridCandidatePool(chaseGrid).length,
+      minWalkable: CHASE_MIN_WALKABLE_CELLS,
+    }).ready
+    : false;
+  ui.setRespawnVisible(false);
+  ui.setChaseButton(replayable ? '다시 도망 시작' : '도망 모드 시작', replayable);
   if (message) ui.setMessage(message);
+  if (replayable) {
+    ui.setMessage(`${message ? message + ' ' : ''}같은 지도로 다시 도망 시작을 누를 수 있습니다.`);
+  }
 }
 
 // Begins the chase only after the frozen map has passed the visible readiness gate.

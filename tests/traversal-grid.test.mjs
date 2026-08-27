@@ -480,3 +480,24 @@ test('the furniture-reluctance costs are tunable, not baked in', () => {
   };
   assert.ok(shelfOf(dear).cost > shelfOf(cheap).cost, 'the toll must reach the cost');
 });
+
+test('the standable ceiling keeps furniture but rejects high floating clusters', () => {
+  // Measured on five room scans: at a 1.3m cap, 873 reachable cells sat above
+  // 80cm, most with nothing beneath them. Chairs are ~44cm and desks ~69cm.
+  const grid = new TraversalGrid({ minSlabVoxels: 1, maxStandAboveFloor: 0.85 });
+  for (let x = 0; x <= 2.0; x += 0.05) {
+    for (let z = 0; z <= 0.6; z += 0.05) grid.observe([x, 0.02, z]);
+  }
+  const at = (h, x0, x1) => {
+    for (let x = x0; x <= x1; x += 0.05) {
+      for (let z = 0; z <= 0.6; z += 0.05) grid.observe([x, h, z]);
+    }
+  };
+  at(0.44, 0.4, 0.7);   // chair seat
+  at(0.69, 1.0, 1.4);   // desk top
+  at(1.10, 1.6, 2.0);   // monitor / partition top — above the cap
+  const heights = (x) => grid.levels(grid.cellX(x), grid.cellZ(0.3));
+  assert.ok(heights(0.5).some((y) => y > 0.4), '의자 높이는 남아야 한다');
+  assert.ok(heights(1.2).some((y) => y > 0.6), '책상 높이는 남아야 한다');
+  assert.ok(!heights(1.8).some((y) => y > 0.9), '상한 위는 설 수 없어야 한다');
+});

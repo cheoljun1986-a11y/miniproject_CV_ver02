@@ -7,3 +7,6 @@ slides/generator/out/
 results/
 # Local temp/working files (pptx extraction, research scratch)
 .tmp/
+
+# 수업자료 PDF는 저장소에 넣지 않는다 (개인 학습자료, 최대 206MB)
+수업자료/

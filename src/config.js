@@ -88,7 +88,13 @@ export const CHASE_MAX_JUMP_UP_M = 0.95;   // above this it cannot go at all
 export const CHASE_MAX_DROP_M = 1.2;
 // A ceiling looks exactly like a tabletop to the grid, so cap how high a
 // surface may be above the detected floor before it stops counting.
-export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 1.3;
+// Lowered from 1.3 after on-device play: at 1.3 the room's real furniture
+// (chair 44cm, desk 69cm) shared the cap with 873 reachable cells ABOVE 80cm,
+// most of them floating clusters with nothing beneath — monitor tops, sparse
+// wall patches, partition edges. Hachuping perching there reads as a bug even
+// when the geometry is real. 0.85 keeps chairs and desks (measured on five
+// room scans) and removes 84% of the high cells.
+export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 0.85;
 // Refuse to start on a bare map. Tuned down from 120 when the default terrain
 // became the keyframe/TSDF pipeline: it confirms voxels far more conservatively
 // than the old legacy map, so the same walk yields fewer walkable cells. A real

@@ -461,3 +461,19 @@ test('operator view compares hachuping and the player in one space', async () =>
   assert.match(src, /playerPos: playerMapPos/);
   assert.doesNotMatch(src, /playerPos: viewerPose/);
 });
+
+// ── a finished round can be replayed on the same frozen map ──
+test('stopChase offers another round instead of demanding a rescan', async () => {
+  // Normalise line endings first: the checkout is CRLF on Windows, so a
+  // '\n}\n' boundary never matches and the slice runs past the end of the
+  // function into the next one.
+  const src = (await readFile(new URL('../src/main.js', import.meta.url), 'utf8'))
+    .replace(/\r\n/g, '\n');
+  const fn = src.slice(src.indexOf('function stopChase('));
+  const body = fn.slice(0, fn.indexOf('\n}\n'));
+  // Catching Hachuping used to hide the respawn button AND leave the start
+  // button disabled, so the only way on was rebuilding the whole map.
+  assert.match(body, /chaseStartReadiness/);
+  assert.match(body, /setChaseButton\(replayable/);
+  assert.doesNotMatch(body, /setChaseButton\('[^']*', false\)/);
+});
