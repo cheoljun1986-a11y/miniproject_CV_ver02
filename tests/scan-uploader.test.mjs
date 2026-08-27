@@ -82,3 +82,33 @@ test('formatBytes', () => {
   assert.equal(formatBytes(2048), '2KB');
   assert.equal(formatBytes(3 * 1024 * 1024), '3.0MB');
 });
+
+// A diagnostic scan is tens of megabytes over a phone tunnel, and the send
+// only survives while the page does — the first thing a tester needs to know
+// is that it started and that leaving now would kill it.
+test('the upload announces its start, its size and the risk of leaving', async () => {
+  const statuses = [];
+  const uploader = new ScanUploader({
+    fetchFn: async () => ({ ok: true, json: async () => ({ file: 'results/scan-1.json' }) }),
+    onStatus: (text) => statuses.push(text),
+    now: () => 0,
+  });
+  await uploader.upload('scan-1', 'x'.repeat(2 * 1024 * 1024));
+  assert.match(statuses[0], /전송 시작/);
+  assert.match(statuses[0], /2\.0MB/);
+  assert.match(statuses[0], /AR을 끄지 마세요/);
+});
+
+test('completion reports the file and how long the send took', async () => {
+  const statuses = [];
+  let clock = 1000;
+  const uploader = new ScanUploader({
+    fetchFn: async () => { clock += 4200; return { ok: true, json: async () => ({ file: 'results/scan-1.json' }) }; },
+    onStatus: (text) => statuses.push(text),
+    now: () => clock,
+  });
+  const result = await uploader.upload('scan-1', '{}');
+  assert.equal(result.ok, true);
+  assert.match(statuses.at(-1), /전송 완료 · results\/scan-1\.json/);
+  assert.match(statuses.at(-1), /4\.2초/);
+});

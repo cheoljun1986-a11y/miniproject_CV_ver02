@@ -330,7 +330,12 @@ async function init() {
     depthSource = new CpuDepthFrameSource({
       getSession: () => xrSession.getSession(),
     });
-    uploader = new ScanUploader({ onStatus: (text) => ui.setMessage(text) });
+    uploader = new ScanUploader({
+      onStatus: (text) => {
+        ui.setMessage(text);
+        voxelPanel?.setUploadStatus(text);
+      },
+    });
     if (ui.hasChaseControls()) {
       chaseGrid = new TraversalGrid({
         cellSize: CHASE_CELL_SIZE_M,
