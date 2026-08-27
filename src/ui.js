@@ -160,6 +160,7 @@ export function createUI(documentRoot = document) {
     scanFlash: documentRoot.querySelector('#scanFlash'),
     fallback: documentRoot.querySelector('#fallback'),
     fallbackDetail: documentRoot.querySelector('#fallbackDetail'),
+    terrainOverlayBtn: documentRoot.querySelector('#terrainOverlayBtn'),
     operatorBtn: documentRoot.querySelector('#operatorBtn'),
     operatorOverlay: documentRoot.querySelector('#operatorOverlay'),
     operatorCanvas: documentRoot.querySelector('#operatorCanvas'),
@@ -256,6 +257,17 @@ export function createUI(documentRoot = document) {
     });
   }
 
+  // One button, one job: put the terrain the chase runs on over the camera.
+  // Stays a plain toggle rather than a mode, because it is meant to be flicked
+  // on for a second mid-play to see what Hachuping is standing on.
+  function bindTerrainOverlay({ onToggle }) {
+    if (!elements.terrainOverlayBtn) return;
+    elements.terrainOverlayBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      onToggle();
+    });
+  }
+
   // Chase mode used to ask the player to HOLD scan. On Android a long press on
   // a DOM button raises the text-selection toolbar, and dismissing it with Back
   // closes the browser, so the hold is gone unless handlers are passed in.
@@ -338,6 +350,20 @@ export function createUI(documentRoot = document) {
     },
     flash,
     bindOperator,
+    bindTerrainOverlay,
+    hasTerrainOverlayButton() {
+      return Boolean(elements.terrainOverlayBtn);
+    },
+    setTerrainOverlayButtonVisible(visible) {
+      if (elements.terrainOverlayBtn) {
+        elements.terrainOverlayBtn.style.display = visible ? '' : 'none';
+      }
+    },
+    setTerrainOverlayOn(on) {
+      if (!elements.terrainOverlayBtn) return;
+      elements.terrainOverlayBtn.textContent = on ? '지형 숨기기' : '지형 보기';
+      elements.terrainOverlayBtn.classList.toggle('primary', Boolean(on));
+    },
     bindManualMoves,
     hasDuelUI() {
       return Boolean(elements.rpsOverlay);

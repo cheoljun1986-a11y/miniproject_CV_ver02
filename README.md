@@ -561,7 +561,11 @@ WebXR는 세션당 depth 모드를 하나만 쓸 수 있어, URL로 구분한다
 - `v4-chase.html` — 도망 모드 페이지. `?occlusion=cpu`를 자동으로 붙인다.
 - `?terrain=legacy` — 게임 지형 누적기를 옛 `VoxelMap`(200ms 타이머, 프레임 중복 제거 없음)으로
   되돌린다. 기본은 키프레임 `VoxelTerrain`(13·14단계). `?occlusion=cpu`·`?depth=cloud`에서만 의미가 있다.
-- `?fusion=count` — 키프레임 지형의 융합을 TSDF(기본) 대신 12단계 카운팅으로. 실기기 A/B용.
+- `?fusion=count` — 융합을 TSDF(기본) 대신 12단계 카운팅으로. 게임 지형과 `?voxel=debug`
+  진단 모드에 모두 적용되므로, 두 방식을 같은 조건에서 비교할 수 있다.
+- **`지형 보기` 버튼** — 도망 모드와 `app.html`의 HUD 버튼. 하츄핑이 밟는 통행 격자를
+  카메라 위에 겹쳐 그린다(초록=설 수 있음, 빨강=막힘, 주황=닿을 수 없음). 켜는 동안
+  CPU 깊이 가림막을 잠시 끈다 — 실제 바닥이 바닥 타일을 가려버리기 때문이다.
 - `?occluder=voxel` — 정적 복셀 occluder(실험). depth 파이프라인과 별개 축이라 별도 파라미터이며,
   CPU 깊이가 필요하므로 실질 조합은 `?occlusion=cpu&occluder=voxel`이다.
 
@@ -630,7 +634,7 @@ node --test tests/*.test.mjs   # 자동 테스트 336개
 | 키프레임 복셀 진단 모드 | ✅ 구현·자동 테스트 / 갤럭시 1·2차 진단 완료 |
 | 키프레임 지형 + TSDF fusion (기본) | ✅ 구현·자동 테스트·저장 스캔 오프라인 검증 / **실기기 미검증** (`?terrain=legacy`·`?fusion=count`로 비교) |
 | 정적 복셀 occluder | ⚠️ 실험 (`?occluder=voxel`) / 체감 효과 미미, 기본 꺼짐 |
-| 자동 테스트 | ✅ **407개 통과** |
+| 자동 테스트 | ✅ **442개 통과** |
 
 ## 9. 미해결 과제 / 다음 단계
 

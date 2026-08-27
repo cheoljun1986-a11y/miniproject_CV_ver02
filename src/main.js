@@ -51,6 +51,7 @@ import { RawCameraFrameSource } from './raw-camera-frame-source.js';
 import { RpsRuntime } from './rps-runtime.js';
 import { TraversalGrid, nodeKey } from './traversal-grid.js';
 import { ChaseRunner } from './chase-runner.js';
+import { ChaseOverlay } from './chase-overlay.js';
 import {
   CAPTURE_RADIUS_M, CaptureGauge, angleToTargetDeg, directionInViewSpace,
   makeArrowGate, screenAngleFromViewDirection,
@@ -169,6 +170,11 @@ let chaseTiles = null;
 let chaseTilesRevision = -1;
 let chaseLog = null;
 let chaseArrowGate = null;
+let chaseOverlay = null;      // in-AR terrain view (지형 보기)
+// The occluders write real-world depth, which would cull every tile lying on
+// the real floor. The static one's state is remembered so turning the overlay
+// off puts it back exactly as it was.
+let occluderWasVisible = null;
 // Pre-built-map lifecycle (chase page): the map is gathered while mapBuilding,
 // then frozen — nothing feeds it during play, which is what stops terrain from
 // changing under Hachuping's feet and errors from accumulating into the map.
@@ -384,7 +390,12 @@ async function init() {
     if (KEYFRAME_SCAN_MODE) {
       // Keyframe-gated capture with per-frame dedup, replacing DepthCloud's
       // 200ms timer which lets a single frame promote a voxel on its own.
-      voxelDebug = new VoxelDebugController({ depthSource });
+      voxelDebug = new VoxelDebugController({
+        depthSource,
+        // Same switch the game terrain reads, so ?fusion=count compares the
+        // two fusions in the diagnostic exactly as it does in play.
+        fusion: resolveFusionMode(location.search),
+      });
     }
     if (VOXEL_DEBUG_MODE) {
       voxelOverlay = new VoxelOverlay({ scene });
@@ -419,6 +430,14 @@ async function init() {
     } catch (error) {
       console.error('Operator view unavailable:', error);
       operatorView = null;
+    }
+    // In-AR terrain overlay. Only where there is a chase grid to draw and a
+    // button to drive it; the diagnostic has its own overlay and panel.
+    if (chaseGrid && ui.hasTerrainOverlayButton() && !VOXEL_DEBUG_MODE) {
+      chaseOverlay = new ChaseOverlay({ scene });
+      ui.setTerrainOverlayButtonVisible(true);
+      ui.setTerrainOverlayOn(false);
+      ui.bindTerrainOverlay({ onToggle: toggleTerrainOverlay });
     }
     if (VOXEL_DEBUG_MODE) {
       voxelPanel = createVoxelDebugPanel({
@@ -478,6 +497,7 @@ async function init() {
     cameraAccess = null;
     voxelDebug?.reset();
     voxelOverlay?.clear();
+    chaseOverlay?.clear();
     voxelOccluder?.reset();
     chaseFedRevision = -1;
     mapBuilding = false;
@@ -513,6 +533,7 @@ async function init() {
     cameraAccess = null;
     voxelDebug?.reset();
     voxelOverlay?.clear();
+    chaseOverlay?.clear();
     voxelOccluder?.reset();
     mapBuilding = false;
     mapFrozen = false;
@@ -770,6 +791,27 @@ function updateChase(time, frame, localSpace, viewerPose) {
   }
 }
 
+// The 지형 button. While the overlay is up the CPU depth mesh is suppressed:
+// it writes real-world depth, so the tile lying on the real floor — the one
+// you are trying to see Hachuping stand on — would be culled by the floor
+// itself. Occlusion comes straight back when the overlay goes away.
+function toggleTerrainOverlay() {
+  if (!chaseOverlay) return;
+  const next = !chaseOverlay.isVisible();
+  chaseOverlay.setVisible(next);
+  ui.setTerrainOverlayOn(next);
+  if (next) {
+    occluderWasVisible = voxelOccluder ? voxelOccluder.isVisible() : null;
+    cpuDepthOccluder?.setSuppressed(true);
+    voxelOccluder?.setVisible(false);
+  } else {
+    cpuDepthOccluder?.setSuppressed(false);
+    if (voxelOccluder && occluderWasVisible !== null) voxelOccluder.setVisible(occluderWasVisible);
+    occluderWasVisible = null;
+    chaseOverlay.clear();
+  }
+}
+
 function buildChaseTiles(time) {
   if (!chaseGrid) return;
   if (time - lastTileBuildAt < CHASE_GRID_REBUILD_GAP_MS) return;
@@ -844,7 +886,15 @@ function render(time, frame) {
     if (viewerPose) playerTrail?.record(viewerPose.position);
     if (cameraAccess === null) cameraAccess = probeCameraAccess(frame, localSpace);
     updateChase(time, frame, localSpace, viewerPose);
-    if (operatorVisible) buildChaseTiles(time);
+    // Both consumers read the same tile list, so build it when either wants it.
+    if (operatorVisible || chaseOverlay?.isVisible()) buildChaseTiles(time);
+    if (chaseOverlay?.isVisible()) {
+      chaseOverlay.setTiles(chaseTiles ?? [], chaseTilesRevision, {
+        cameraPosition: viewerPose?.position ?? null,
+        // Map space -> render space, the same conversion the character gets.
+        toRender: toRenderSpace,
+      });
+    }
     maybeBackupGameMap(time);
 
     const ninjaPosition = game.getTargetPosition();
