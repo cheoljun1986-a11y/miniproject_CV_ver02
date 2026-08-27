@@ -142,6 +142,9 @@ export class TraversalGrid {
     this.floorSlab = null;
     this.floorDirty = true;
     this.standGen = 0;
+    this.floorHeightCache = null;
+    this.floorHeightGen = -1;
+    this.floorHeightSlab = null;
     // Optional RANSAC floor plane (see applyFloorPlane). When set it overrides
     // the histogram floor detection and can fill sparse floor gaps.
     this.floorPlane = null;
@@ -161,6 +164,51 @@ export class TraversalGrid {
     return Math.floor((y - this.minY) / this.slabHeight);
   }
 
+  // Where feet actually go in this cell's slab: the interpolated surface when
+  // the fusion could resolve one, the slab top otherwise. Clamped inside the
+  // slab so levels() stays ascending — a refined height is at most half a voxel
+  // outside its own slab, and letting one overtake the slab above would break
+  // the level ordering every caller assumes.
+  _slabHeight(cell, slab) {
+    const n = cell.heightCount[slab];
+    if (!n) return this.slabTopY(slab);
+    const mean = cell.heightSum[slab] / n;
+    const bottom = this.minY + slab * this.slabHeight;
+    const slack = this.slabHeight / 2;
+    return Math.min(Math.max(mean, bottom - slack), bottom + this.slabHeight + slack);
+  }
+
+  // The height a cell's feet sit at, or null when it has no footing there.
+  slabHeightAt(cx, cz, slab) {
+    const cell = this.getCell(cx, cz);
+    if (!cell || !this.hasSlab(cell, slab)) return null;
+    return this._slabHeight(cell, slab);
+  }
+
+  // Representative floor height: the refined mean across every cell holding the
+  // floor slab, falling back to the slab top. Replaces slabTopY(floorSlab) at
+  // the call sites that compare a (now continuous) level against the floor —
+  // mixing the two conventions there would bias every comparison by up to a
+  // full slab.
+  floorHeightY() {
+    const slab = this.resolveFloorSlab();
+    if (slab === null) return null;
+    if (this.floorHeightGen === this.standGen && this.floorHeightSlab === slab) {
+      return this.floorHeightCache;
+    }
+    let sum = 0;
+    let count = 0;
+    for (const cell of this.cells.values()) {
+      if (!cell.heightCount[slab] || !this.hasSlab(cell, slab)) continue;
+      sum += this._slabHeight(cell, slab);
+      count += 1;
+    }
+    this.floorHeightCache = count ? sum / count : this.slabTopY(slab);
+    this.floorHeightGen = this.standGen;
+    this.floorHeightSlab = slab;
+    return this.floorHeightCache;
+  }
+
   // Top of a slab: standing on it puts your feet here.
   slabTopY(slab) {
     return this.minY + (slab + 1) * this.slabHeight;
@@ -177,7 +225,13 @@ export class TraversalGrid {
   // ── writing ───────────────────────────────────────────────
   // Called once per voxel that became solid. O(1) — never rebuild the whole
   // grid per frame, that measured 110x slower than updating touched cells.
-  observe([x, y, z]) {
+  // `surfaceY` is the interpolated height of the surface this voxel sits on,
+  // or null when the fusion could not resolve one. It is deliberately NOT used
+  // to pick the slab: keeping slab assignment on the voxel centre leaves the
+  // vote ledger, the floor histogram and the footing threshold bit-identical to
+  // before, and stops a flat surface's votes splitting across two slabs (which
+  // would drop cells below minSlabVoxels and erase walkable ground).
+  observe([x, y, z], surfaceY = y) {
     const slab = this.slabOf(y);
     if (slab < 0 || slab >= this.slabCount) return false;
 
@@ -198,11 +252,29 @@ export class TraversalGrid {
         cx, cz, lo: UNSEEN, hi: UNSEEN,
         rawLevels: null, rawGen: -1, levels: null, levelsGen: -1, levelsArea: -1,
         votes: new Uint16Array(this.slabCount),
+        // Interpolated standing heights, summed per slab. Counted separately
+        // from `votes` because only some voxels can be refined — mixing the
+        // un-refined ones in would bias the mean upward, slab tops sitting
+        // systematically above the real surface.
+        heightSum: new Float64Array(this.slabCount),
+        heightCount: new Uint16Array(this.slabCount),
       };
       this.cells.set(key, cell);
     }
 
     if (cell.votes[slab] < 0xffff) cell.votes[slab] += 1;
+    if (surfaceY !== null && cell.heightCount[slab] < 0xffff) {
+      cell.heightSum[slab] += surfaceY;
+      cell.heightCount[slab] += 1;
+      // The mean moved, so both memoised answers are stale — the height is
+      // part of the RAW one, not something the neighbour filter adds.
+      // Deliberately does NOT bump `revision` (that gates the instanced chase
+      // overlay, which would rebuild every keyframe for a millimetre) nor
+      // `areaGen` (the neighbour test has 12cm of tolerance; a sample cannot
+      // nudge the mean across it).
+      cell.rawLevels = null;
+      cell.levels = null;
+    }
     // The floor histogram counts OBSERVED cells (first vote), not confirmed
     // footing. Floor detection is statistics over many cells with its own
     // noise defences (floorMinCells, floorMinFraction); gating it on the
@@ -227,19 +299,24 @@ export class TraversalGrid {
   // (TSDF fusion clears a floater once enough rays pass through it). Returns
   // true when the slab bit actually cleared. An empty cell is dropped so it
   // reads as unseen again rather than blocked.
-  unobserve([x, y, z]) {
+  unobserve([x, y, z], surfaceY = y) {
     const slab = this.slabOf(y);
     if (slab < 0 || slab >= this.slabCount) return false;
     const cell = this.cells.get(cellKey(this.cellX(x), this.cellZ(z)));
     if (!cell || cell.votes[slab] === 0) return false;
     cell.votes[slab] -= 1;
+    if (surfaceY !== null && cell.heightCount[slab] > 0) {
+      cell.heightSum[slab] -= surfaceY;
+      cell.heightCount[slab] -= 1;
+      if (cell.heightCount[slab] === 0) cell.heightSum[slab] = 0;
+      cell.rawLevels = null;
+      cell.levels = null;
+    }
     if (cell.votes[slab] === 0) {
       this.slabCells[slab] -= 1;
       this.floorDirty = true;
       // A cell with no votes anywhere is gone entirely.
-      if (cell.lo === UNSEEN && cell.hi === UNSEEN
-        && cell.votes.every((v) => v === 0)) {
-        this.cells.delete(cellKey(cell.cx, cell.cz));
+      if (this._dropIfEmpty(cell)) {
         this.revision += 1;
         return true;
       }
@@ -257,6 +334,18 @@ export class TraversalGrid {
     cell.levels = null;
     this.areaGen += 1;
     this.revision += 1;
+    // Checked again AFTER clearing the bit. The emptiness test above runs while
+    // the footing is still set, so a cell whose last vote was just retracted
+    // would survive as an empty husk — seen, unwalkable, and therefore read as
+    // a wall by isBlocked. That is the opposite of what a full retraction means.
+    this._dropIfEmpty(cell);
+    return true;
+  }
+
+  _dropIfEmpty(cell) {
+    if (cell.lo !== UNSEEN || cell.hi !== UNSEEN) return false;
+    if (!cell.votes.every((v) => v === 0)) return false;
+    this.cells.delete(cellKey(cell.cx, cell.cz));
     return true;
   }
 
@@ -350,7 +439,7 @@ export class TraversalGrid {
     for (const cell of this.cells.values()) {
       for (let slab = 0; slab < this.slabCount; slab += 1) {
         if (cell.votes[slab] > 0) {
-          points.push([this.centerX(cell.cx), this.slabTopY(slab), this.centerZ(cell.cz)]);
+          points.push([this.centerX(cell.cx), this._slabHeight(cell, slab), this.centerZ(cell.cz)]);
         }
       }
     }
@@ -384,12 +473,19 @@ export class TraversalGrid {
 
   // Add a floor voxel the map never observed, to bridge a sparse-scan gap.
   // Marked synthetic for diagnostics; otherwise it is an ordinary occupied slab.
-  addSyntheticFloor(cx, cz, slab) {
+  // `height` is the observed floor's refined height. Without it a filled cell
+  // would fall back to the slab top and put a 10cm cliff at the seam between
+  // scanned and synthesised floor — the exact discontinuity the fill exists to
+  // remove. The RANSAC plane is deliberately not used for this: its absolute
+  // height is not trusted (see applyFloorPlane).
+  addSyntheticFloor(cx, cz, slab, height = null) {
     const key = cellKey(cx, cz);
     let cell = this.cells.get(key);
     if (!cell) {
       cell = {
         cx, cz, lo: UNSEEN, hi: UNSEEN, votes: new Uint16Array(this.slabCount),
+        heightSum: new Float64Array(this.slabCount),
+        heightCount: new Uint16Array(this.slabCount),
         rawLevels: null, rawGen: -1, levels: null, levelsGen: -1, levelsArea: -1,
         synthetic: true,
       };
@@ -400,6 +496,12 @@ export class TraversalGrid {
     // footing threshold so the votes<->bit invariant holds for unobserve.
     if (cell.votes[slab] === 0) this.slabCells[slab] += 1;
     if (cell.votes[slab] < this.minSlabVoxels) cell.votes[slab] = this.minSlabVoxels;
+    if (height !== null && cell.heightCount[slab] === 0) {
+      // One sample standing for the whole synthesised footing, so the mean is
+      // exactly the observed floor height rather than a fraction of it.
+      cell.heightSum[slab] = height;
+      cell.heightCount[slab] = 1;
+    }
     if (slab < 32) cell.lo |= 1 << slab;
     else cell.hi |= 1 << (slab - 32);
     cell.rawLevels = null;
@@ -431,6 +533,9 @@ export class TraversalGrid {
 
     const floorSlab = this.resolveFloorSlab();
     if (floorSlab === null) return;
+    // Resolved before any synthesis, so the fill copies the height the real
+    // observations agree on rather than one polluted by its own output.
+    const floorHeight = this.floorHeightY();
 
     // Seeds: observed cells that carry a floor voxel at the floor slab.
     const seeds = [];
@@ -459,7 +564,7 @@ export class TraversalGrid {
             // sink Hachuping through a surface it should rest on.
             if (this.isWalkable(cx, cz)) continue;
           }
-          this.addSyntheticFloor(cx, cz, floorSlab);
+          this.addSyntheticFloor(cx, cz, floorSlab, floorHeight);
         }
       }
     }
@@ -504,7 +609,7 @@ export class TraversalGrid {
           break;
         }
       }
-      if (clear) levels.push(this.slabTopY(slab));
+      if (clear) levels.push(this._slabHeight(cell, slab));
     }
     cell.rawLevels = levels;
     cell.rawGen = this.standGen;
@@ -550,7 +655,7 @@ export class TraversalGrid {
   hasRaisedSupport(cx, cz, y) {
     const floorSlab = this.resolveFloorSlab();
     if (floorSlab === null) return true;
-    const height = y - this.slabTopY(floorSlab);
+    const height = y - (this.floorHeightY() ?? this.slabTopY(floorSlab));
     if (height <= this.raisedSupportAboveFloorM) return true; // ground level
 
     let support = 0;
@@ -626,7 +731,7 @@ export class TraversalGrid {
     const fromY = this.levelY(node.cx, node.cz, node.level);
     if (fromY === null) return [];
     const floorSlab = this.resolveFloorSlab();
-    const floorY = floorSlab === null ? null : this.slabTopY(floorSlab);
+    const floorY = floorSlab === null ? null : (this.floorHeightY() ?? this.slabTopY(floorSlab));
 
     const out = [];
     for (let dz = -1; dz <= 1; dz += 1) {

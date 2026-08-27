@@ -91,7 +91,7 @@ test('a small rise is a walk and a bigger one is a jump', () => {
   const grid = new TraversalGrid({ minSlabVoxels: 1, cellSize: 0.2, maxStepUp: 0.15, maxJumpUp: 0.7 });
   grid.observe([0.1, 0.02, 0.1]);
   grid.observe([0.3, 0.12, 0.1]); // +10cm
-  grid.observe([0.5, 0.45, 0.1]); // +35cm from the second cell
+  grid.observe([0.5, 0.40, 0.1]); // +28cm from the second cell
 
   const a = { cx: grid.cellX(0.1), cz: grid.cellZ(0.1), level: 0 };
   const stepUp = grid.neighbors(a).find((n) => n.cx === grid.cellX(0.3));
@@ -151,7 +151,8 @@ test('a ceiling is not somewhere to stand', () => {
   const cz = grid.cellZ(1.1);
   const levels = grid.levels(cx, cz);
   assert.equal(levels.length, 1);
-  assert.ok(Math.abs(levels[0] - 0.1) < 1e-6);
+  // The observed floor height, not the slab top 8cm above it.
+  assert.ok(Math.abs(levels[0] - 0.02) < 1e-6, `got ${levels[0]}`);
 });
 
 test('furniture height still counts', () => {
@@ -181,7 +182,7 @@ test('a few stray points below the floor do not raise the cap', () => {
   floorPatch(grid, 0, 2, 0, 2, 2.4);
   const levels = grid.levels(grid.cellX(1.1), grid.cellZ(1.1));
   assert.equal(levels.length, 1);
-  assert.ok(Math.abs(levels[0] - 0.1) < 1e-6);
+  assert.ok(Math.abs(levels[0] - 0.02) < 1e-6, `got ${levels[0]}`);
 });
 
 test('the cap is re-applied when the floor is found later', () => {
@@ -193,7 +194,7 @@ test('the cap is re-applied when the floor is found later', () => {
   floorPatch(grid, 0, 2, 0, 2);
   const after = grid.levels(grid.cellX(1.1), grid.cellZ(1.1));
   assert.equal(after.length, 1);
-  assert.ok(Math.abs(after[0] - 0.1) < 1e-6);
+  assert.ok(Math.abs(after[0] - 0.02) < 1e-6, `got ${after[0]}`);
 });
 
 // ── pre-built-map era movement rules ─────────────────────────
@@ -525,4 +526,107 @@ test('open floor far from furniture is untouched by the rule', () => {
   const loose = new TraversalGrid({ minSlabVoxels: 1 });
   for (const grid of [strict, loose]) floorPatch(grid, 0, 2, 0, 2);
   assert.equal(strict.stats().walkable, loose.stats().walkable);
+});
+
+// ── refined standing heights ─────────────────────────────────
+// The fusion can say where a surface actually is, to the millimetre. Without
+// this the character stands on the slab TOP, up to 10cm off (measured on a real
+// scan: a median of 49mm too high — it visibly floats).
+
+test('a slab with refined samples stands the character at their mean', () => {
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  // Three voxels of one footing, all inside the same slab, surface at ~0.043.
+  grid.observe([0.1, 0.02, 0.1], 0.041);
+  grid.observe([0.12, 0.02, 0.12], 0.043);
+  grid.observe([0.14, 0.02, 0.14], 0.045);
+  const [y] = grid.levels(grid.cellX(0.1), grid.cellZ(0.1));
+  assert.ok(Math.abs(y - 0.043) < 1e-6, `got ${y}`);
+});
+
+// Every observation carries a height — the voxel centre when the fusion could
+// not resolve a crossing — so the slab top survives only where a footing was
+// synthesised with no height at all.
+test('a footing with no height sample at all falls back to the slab top', () => {
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  const slab = grid.slabOf(0.02);
+  grid.addSyntheticFloor(grid.cellX(0.1), grid.cellZ(0.1), slab);
+  assert.equal(grid.levels(grid.cellX(0.1), grid.cellZ(0.1))[0], grid.slabTopY(slab));
+});
+
+// The load-bearing invariant: heights must not decide slabs. Letting them would
+// split a flat surface's votes across two slabs, drop cells under the footing
+// threshold and erase walkable ground.
+test('the refined height never changes which slab a voxel votes in', () => {
+  const plain = new TraversalGrid({ minSlabVoxels: 1 });
+  const refined = new TraversalGrid({ minSlabVoxels: 1 });
+  for (let x = 0; x <= 1; x += 0.05) {
+    for (let z = 0; z <= 1; z += 0.05) {
+      plain.observe([x, 0.02, z]);
+      // A height near the slab boundary, which naive code would round into the
+      // slab below.
+      refined.observe([x, 0.02, z], -0.004);
+    }
+  }
+  assert.deepEqual(Array.from(refined.slabCells), Array.from(plain.slabCells));
+  assert.equal(refined.resolveFloorSlab(), plain.resolveFloorSlab());
+  assert.deepEqual(refined.stats(), plain.stats());
+});
+
+// Bounded, but not clamped hard to the slab: a refined crossing legitimately
+// sits a little outside the slab holding its voxel centre, and squeezing it
+// back in would put the 10cm step right at the boundary again.
+test('an absurd height is bounded to half a slab outside its own', () => {
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  grid.observe([0.1, 0.02, 0.1], -0.5);
+  const [y] = grid.levels(grid.cellX(0.1), grid.cellZ(0.1));
+  const slab = grid.slabOf(0.02);
+  const bottom = grid.minY + slab * grid.slabHeight;
+  assert.ok(y >= bottom - grid.slabHeight / 2 - 1e-9, `${y} escaped the bound`);
+  assert.ok(Math.abs(y - (bottom - grid.slabHeight / 2)) < 1e-9, 'clamped to the bound');
+});
+
+test('a height just outside its slab is kept, not snapped back in', () => {
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  // 1cm below the slab its voxel centre sits in — a plausible crossing.
+  const slab = grid.slabOf(0.02);
+  const justBelow = grid.minY + slab * grid.slabHeight - 0.01;
+  grid.observe([0.1, 0.02, 0.1], justBelow);
+  assert.ok(Math.abs(grid.levels(grid.cellX(0.1), grid.cellZ(0.1))[0] - justBelow) < 1e-9);
+});
+
+test('retracting a refined voxel restores the height it contributed', () => {
+  const grid = new TraversalGrid({ minSlabVoxels: 1 });
+  grid.observe([0.1, 0.02, 0.1], 0.030);
+  grid.observe([0.12, 0.02, 0.12], 0.050);
+  const cx = grid.cellX(0.1);
+  const cz = grid.cellZ(0.1);
+  assert.ok(Math.abs(grid.levels(cx, cz)[0] - 0.040) < 1e-6);
+
+  grid.unobserve([0.12, 0.02, 0.12], 0.050);
+  assert.ok(Math.abs(grid.levels(cx, cz)[0] - 0.030) < 1e-6, 'back to the first sample');
+
+  grid.unobserve([0.1, 0.02, 0.1], 0.030);
+  assert.equal(grid.isSeen(cx, cz), false, 'the cell is gone entirely');
+});
+
+test('synthetic floor is filled at the observed floor height, not the slab top', async () => {
+  const { fitFloorPlane } = await import('../src/plane-fit.js');
+  const grid = new TraversalGrid({ minSlabVoxels: 1, floorMinCells: 1 });
+  // An observed floor with a real height, and one gap cell inside it.
+  for (let x = 0; x <= 1.0; x += 0.2) {
+    for (let z = 0; z <= 1.0; z += 0.2) {
+      if (Math.abs(x - 0.6) < 0.01 && Math.abs(z - 0.6) < 0.01) continue;
+      grid.observe([x, -1.05, z], -1.043);
+    }
+  }
+  const observed = grid.levels(grid.cellX(0.2), grid.cellZ(0.2))[0];
+  assert.ok(Math.abs(observed - -1.043) < 1e-6);
+
+  const plane = fitFloorPlane(grid.occupiedVoxelPoints(), { now: () => 0 });
+  grid.applyFloorPlane(plane ?? { normal: [0, 1, 0], d: -1.043 }, { fillRadius: 2 });
+
+  const filled = grid.levels(grid.cellX(0.6), grid.cellZ(0.6))[0];
+  assert.ok(filled !== undefined, 'the gap was filled');
+  // No 10cm cliff at the seam between scanned and synthesised floor.
+  assert.ok(Math.abs(filled - observed) < 1e-6, `seam step of ${Math.abs(filled - observed)}m`);
 });

@@ -102,6 +102,8 @@ test('occupiedVoxelPoints returns one point per occupied slab, in world space', 
   const points = grid.occupiedVoxelPoints();
   assert.equal(points.length, 2);
   const ys = points.map((p) => p[1]).sort((a, b) => a - b);
-  assert.ok(Math.abs(ys[0] - feetY(grid, -1.0)) < 1e-9);
-  assert.ok(Math.abs(ys[1] - feetY(grid, -0.4)) < 1e-9);
+  // The heights the observations actually reported. Feeding RANSAC slab tops
+  // handed it a 10cm staircase to fit, wider than its own 6cm inlier band.
+  assert.ok(Math.abs(ys[0] - -1.0) < 1e-9, `got ${ys[0]}`);
+  assert.ok(Math.abs(ys[1] - -0.4) < 1e-9, `got ${ys[1]}`);
 });

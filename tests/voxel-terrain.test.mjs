@@ -224,3 +224,48 @@ test('tsdf reset drops the solid index with everything else', () => {
   assert.equal(terrain.solidIndex.size, 0);
   assert.equal(terrain.getSolidCount(), 0);
 });
+
+// A retraction must undo exactly what the confirmation did. The traversal grid
+// keys its vote ledger by slab, so if the two land in different slabs the
+// increment is never undone: the footing bit sticks forever and the floor
+// histogram desynchronises with it.
+test('a retraction reports the coordinates its confirmation used', () => {
+  const confirmed = [];
+  const cleared = [];
+  const terrain = new VoxelTerrain({
+    depthSource: makeSource(makeView(1.5, 4, 3)),
+    minObservations: 1,
+    minGapMs: 0,
+    onSolid: (center, surfaceY) => confirmed.push([center.slice(), surfaceY]),
+    onCleared: (center, surfaceY) => cleared.push([center.slice(), surfaceY]),
+  });
+  terrain.update({}, {}, 0, pose(0));
+  assert.ok(confirmed.length > 0);
+
+  // Move the field on so a freshly computed centre would differ, then retract.
+  const [cell] = terrain.grid.getSolidCells();
+  const before = terrain.solidIndex.size;
+  cell.surfaceY = 99;               // a later, different resolution
+  terrain.grid.onCleared(terrain.grid.constructor === Object ? null : [0, 0, 0], cell);
+
+  assert.equal(cleared.length, 1);
+  assert.equal(terrain.solidIndex.size, before - 1);
+  const stored = confirmed.find(([c]) => c[0] === cleared[0][0][0] && c[2] === cleared[0][0][2]);
+  assert.ok(stored, 'the cleared centre is one that was confirmed');
+  assert.equal(cleared[0][1], stored[1], 'and it carries the height confirm used');
+});
+
+test('the confirmed surface height is the one the fusion resolved', () => {
+  const heights = [];
+  const terrain = new VoxelTerrain({
+    depthSource: makeSource(makeView(1.5, 4, 3)),
+    minObservations: 1,
+    minGapMs: 0,
+    onSolid: (center, surfaceY) => heights.push(surfaceY),
+  });
+  terrain.update({}, {}, 0, pose(0));
+  // A wall seen head-on has no vertical gradient, so every height is null and
+  // the grid falls back to the slab top — the pre-existing behaviour.
+  assert.ok(heights.length > 0);
+  assert.ok(heights.every((h) => h === null));
+});

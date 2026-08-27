@@ -349,8 +349,16 @@ async function init() {
         // voxel, never a full grid rebuild. TSDF can also take a voxel back
         // once enough rays have passed through it, so the chase grid must
         // release that cell or a floater stays a wall forever.
-        onSolid: chaseGrid ? (center) => chaseGrid.observe(toMapSpace(center)) : null,
-        onCleared: chaseGrid ? (center) => chaseGrid.unobserve(toMapSpace(center)) : null,
+        // The refined surface height rides alongside the voxel centre: the
+        // grid picks its slab from the centre (unchanged) and stands Hachuping
+        // at the interpolated height. Both go through the anchor transform, or
+        // a drift correction would move one and not the other.
+        onSolid: chaseGrid
+          ? (center, surfaceY) => chaseGrid.observe(toMapSpace(center), toMapHeight(center, surfaceY))
+          : null,
+        onCleared: chaseGrid
+          ? (center, surfaceY) => chaseGrid.unobserve(toMapSpace(center), toMapHeight(center, surfaceY))
+          : null,
       });
     }
     if (LEGACY_TERRAIN_MODE) {
@@ -1233,6 +1241,14 @@ function respawnHachuping() {
 // ── map-anchor space helpers ──────────────────────────────────
 // Everything the map stores lives in the anchor's frame; these are identity
 // until an anchor exists, so every caller can use them unconditionally.
+// A world-space surface height expressed in the map anchor's frame. Null stays
+// null: the grid falls back to the slab top for voxels the fusion could not
+// resolve a crossing for.
+function toMapHeight(center, surfaceY) {
+  if (surfaceY === null || surfaceY === undefined) return null;
+  return toMapSpace([center[0], surfaceY, center[2]])[1];
+}
+
 function toMapSpace(point) {
   return mapAnchor ? mapAnchor.toAnchor(point) : point;
 }

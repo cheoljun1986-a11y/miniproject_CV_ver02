@@ -210,3 +210,89 @@ test('rebuildTsdfGrid subsamples like the phone by default', () => {
   const half = rebuildTsdfGrid(keyframes, { voxelSize: 0.05, nearM: 0.1, farM: 5 });
   assert.ok(half.stats.samplesTotal < full.stats.samplesTotal, 'default stride is 2');
 });
+
+// ── vertical zero crossing (standing height) ─────────────────
+// The traversal grid would otherwise stand the character on a 10cm slab top,
+// up to 10cm off the real surface. The field knows better; this reads it.
+
+function column(grid, iz, values, { weight = 5, frame = 1 } = {}) {
+  // values: { [iy]: tsdf }. Written straight into the record so the test states
+  // the field it means, instead of deriving it from rays.
+  for (const [iy, tsdf] of Object.entries(values)) {
+    grid._fuse(0.001, Number(iy) * 0.1 + 0.05, iz * 0.1 + 0.05, 0, frame, true);
+    const cell = grid.getCell(0, Number(iy), iz);
+    cell.tsdf = tsdf;
+    cell.weight = weight;
+  }
+}
+
+test('the surface height is interpolated between the two straddling voxels', () => {
+  const { grid } = rig({ minWeight: 1 });
+  // Centres at y = -0.05 (value -0.6) and y = +0.05 (value +0.4): the field
+  // reaches zero 60% of the way up, at y = +0.01.
+  column(grid, 0, { '-1': -0.6, 0: 0.4 });
+  const y = grid._surfaceY(grid.getCell(0, 0, 0));
+  assert.ok(Math.abs(y - 0.01) < 1e-9, `got ${y}`);
+  // Reading from the lower cell must give the same crossing, not a different one.
+  assert.ok(Math.abs(grid._surfaceY(grid.getCell(0, -1, 0)) - 0.01) < 1e-9);
+});
+
+test('a column with no vertical neighbour has no height to give', () => {
+  const { grid } = rig({ minWeight: 1 });
+  column(grid, 0, { 0: 0.1 });
+  assert.equal(grid._surfaceY(grid.getCell(0, 0, 0)), null, 'a wall seen edge-on');
+});
+
+test('a column that never changes sign has no crossing', () => {
+  const { grid } = rig({ minWeight: 1 });
+  column(grid, 0, { '-1': -0.6, 0: -0.2 });
+  assert.equal(grid._surfaceY(grid.getCell(0, 0, 0)), null);
+});
+
+test('thin evidence and saturated values are refused rather than guessed', () => {
+  const { grid } = rig({ minWeight: 3 });
+  column(grid, 0, { '-1': -0.6, 0: 0.4 }, { weight: 1 });
+  assert.equal(grid._surfaceY(grid.getCell(0, 0, 0)), null, 'weight below minWeight');
+
+  const { grid: g2 } = rig({ minWeight: 1 });
+  // +1 is what carving writes; it carries no gradient, so interpolating against
+  // it would drag the crossing far toward the negative cell.
+  column(g2, 0, { '-1': -0.2, 0: 1.0 });
+  assert.equal(g2._surfaceY(g2.getCell(0, 0, 0)), null, 'saturated');
+});
+
+// Looking straight down: view X stays world X, view -Z becomes world -Y, so a
+// depth of d is a floor at y = -d. The default rig looks along -Z at a wall,
+// which has no vertical gradient at all — that case is covered above.
+const LOOK_DOWN = [1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1];
+
+test('a floor seen from above resolves a surface height on the floor', () => {
+  const { grid, solid } = rig({ minWeight: 3, carveStartM: 0 });
+  const opts = { nearM: 0.1, farM: 5 };
+  for (let frameId = 1; frameId <= 3; frameId += 1) {
+    grid.integrate({
+      frameId,
+      width: 4,
+      height: 4,
+      depths: new Float32Array(16).fill(1.0),
+      invProjectionMatrix: IDENTITY,
+      viewMatrix: LOOK_DOWN,
+    }, opts);
+  }
+  assert.ok(solid.length > 0);
+  const resolved = grid.getSolidCells().filter((c) => c.surfaceY !== null);
+  assert.ok(resolved.length > 0, 'a downward view resolves a crossing');
+  // The resolved heights must lie on the floor plane, inside one voxel of it —
+  // that is the whole claim: better than the voxel centre it replaces.
+  for (const cell of resolved) {
+    assert.ok(Math.abs(cell.surfaceY + 1.0) < 0.05, `surfaceY ${cell.surfaceY}`);
+  }
+});
+
+test('a wall seen head-on reports no height rather than a wrong one', () => {
+  const { grid } = rig({ minWeight: 3, carveStartM: 0 });
+  const opts = { nearM: 0.1, farM: 5 };
+  for (let f = 1; f <= 3; f += 1) grid.integrate(pencil({ depth: 1.0, frameId: f }), opts);
+  assert.ok(grid.getSolidCells().length > 0);
+  assert.ok(grid.getSolidCells().every((c) => c.surfaceY === null), 'no vertical gradient');
+});

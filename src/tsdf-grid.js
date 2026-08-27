@@ -40,6 +40,11 @@ export function tsdfKey(ix, iy, iz) {
   return ((ix + KEY_HALF) * KEY_SPAN + (iy + KEY_HALF)) * KEY_SPAN + (iz + KEY_HALF);
 }
 
+// Carving writes exactly +1 and the band clamps to ±1, so a saturated value
+// carries no gradient — interpolating against one drags the crossing hard
+// toward the other cell. Anything this close to the rails is refused.
+const SATURATED = 0.95;
+
 export class TsdfGrid {
   constructor({
     voxelSize = 0.05,
@@ -208,6 +213,8 @@ export class TsdfGrid {
         observationCount: 0,
         lastFrameId: null,
         solid: false,
+        // Interpolated surface height, filled in when the cell turns solid.
+        surfaceY: null,
         // Frame-local undo state, see below.
         frameTsdf: 0,
         frameWeight: 0,
@@ -245,6 +252,34 @@ export class TsdfGrid {
     cell.observationCount += 1;
   }
 
+  // Where this voxel's column actually crosses zero, in world Y — the surface
+  // height the character should stand on, rather than the 10cm slab top the
+  // traversal grid would otherwise quantise it to.
+  //
+  // It must be read from a VERTICAL neighbour pair. `tsdf` is a distance along
+  // the RAY, so `y - tsdf * tau` is only correct for a straight-down view; the
+  // neighbour difference recovers the vertical component of the gradient, which
+  // is the quantity actually wanted.
+  //
+  // Returns null when the column cannot answer — no neighbour (a wall seen
+  // edge-on has none), no sign change, thin evidence, or a saturated value.
+  // Callers fall back to the voxel centre.
+  _surfaceY(cell) {
+    const size = this.voxelSize;
+    const centreY = (iy) => this.origin[1] + (iy + 0.5) * size;
+    const above = this.cells.get(tsdfKey(cell.ix, cell.iy + 1, cell.iz));
+    const below = this.cells.get(tsdfKey(cell.ix, cell.iy - 1, cell.iz));
+    // Prefer the pair that brackets the crossing; either side is equally valid.
+    for (const [a, b] of [[cell, above], [below, cell]]) {
+      if (!a || !b) continue;
+      if ((a.tsdf < 0) === (b.tsdf < 0)) continue;
+      if (a.weight < this.minWeight || b.weight < this.minWeight) continue;
+      if (Math.abs(a.tsdf) > SATURATED || Math.abs(b.tsdf) > SATURATED) continue;
+      return centreY(a.iy) + size * (a.tsdf / (a.tsdf - b.tsdf));
+    }
+    return null;
+  }
+
   _isSolid(cell) {
     return cell.weight >= this.minWeight && Math.abs(cell.tsdf) < this.surfaceBand;
   }
@@ -259,6 +294,11 @@ export class TsdfGrid {
       if (solid) {
         this.solidCount += 1;
         becameSolid += 1;
+        // Resolved once, here, while the neighbours are in hand. A cell that
+        // stays solid while its crossing drifts emits no event, so this is not
+        // a live value — the drift is bounded by the surface band (±3cm along
+        // the ray) and is far smaller than the 10cm error it replaces.
+        cell.surfaceY = this._surfaceY(cell);
         this.onSolid?.(cellCenter(cell), cell);
       } else {
         this.solidCount -= 1;

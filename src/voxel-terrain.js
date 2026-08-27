@@ -139,17 +139,27 @@ export class VoxelTerrain {
 
   _confirm(cell, center) {
     // Same shape VoxelMap produced, so OperatorView draws either map.
+    // surfaceY rides along: the traversal grid wants the interpolated standing
+    // height, but must keep deriving its slab from the voxel centre.
+    const surfaceY = cell.surfaceY ?? null;
     if (this.solid.length < this.maxSolid) {
       const colorT = Math.min(1, Math.max(0, (center[1] + 1) / 3));
       this.solidIndex.set(cell.key, this.solid.length);
-      this.solid.push({ position: center, colorT, key: cell.key });
+      this.solid.push({ position: center, colorT, key: cell.key, surfaceY });
       this.revision += 1;
     }
-    this.onSolid?.(center);
+    this.onSolid?.(center, surfaceY);
   }
 
   _retract(cell, center) {
     const index = this.solidIndex.get(cell.key);
+    // Retract with the coordinates CONFIRM used, not freshly computed ones. The
+    // traversal grid's vote ledger is keyed by slab: if the two land in
+    // different slabs the increment is never undone, the footing bit sticks
+    // forever, and the floor histogram desynchronises with it.
+    const entry = index === undefined ? null : this.solid[index];
+    const position = entry ? entry.position : center;
+    const surfaceY = entry ? entry.surfaceY : (cell.surfaceY ?? null);
     if (index !== undefined) {
       const last = this.solid.length - 1;
       if (index !== last) {
@@ -162,7 +172,7 @@ export class VoxelTerrain {
       this.revision += 1;
     }
     this.stats.cleared += 1;
-    this.onCleared?.(center);
+    this.onCleared?.(position, surfaceY);
   }
 
   // Per-frame entry point. Cheap on frames the pose gate rejects: the depth
