@@ -33,10 +33,12 @@ export class ScanUploader {
     fetchFn = (...args) => globalThis.fetch(...args),
     endpoint = './upload',
     onStatus = null,
+    now = () => Date.now(),
   } = {}) {
     this.fetchFn = fetchFn;
     this.endpoint = endpoint;
     this.onStatus = onStatus;
+    this.now = now;
     this.inFlight = null;
     this.lastResult = null;
   }
@@ -50,7 +52,9 @@ export class ScanUploader {
   async upload(name, text, { label = name } = {}) {
     if (this.inFlight) return { ok: false, skipped: true };
     const bytes = text.length;
-    this.onStatus?.(`서버 전송 중… ${label} (${formatBytes(bytes)})`);
+    const startedAt = this.now();
+    this.onStatus?.(`⬆ 서버 전송 시작 · ${label} (${formatBytes(bytes)})
+끝날 때까지 AR을 끄지 마세요`);
     const run = (async () => {
       try {
         const response = await this.fetchFn(
@@ -59,7 +63,7 @@ export class ScanUploader {
         );
         if (!response.ok) {
           const reason = response.status === 404 ? '업로드 서버 없음' : `HTTP ${response.status}`;
-          this.onStatus?.(`전송 실패 · ${reason}`);
+          this.onStatus?.(`❌ 전송 실패 · ${reason}`);
           return { ok: false, status: response.status };
         }
         let file = `${name}.json`;
@@ -69,10 +73,11 @@ export class ScanUploader {
         } catch {
           // A bare 200 is still a success.
         }
-        this.onStatus?.(`전송 완료 · ${file} (${formatBytes(bytes)})`);
+        const seconds = Math.max(0, (this.now() - startedAt) / 1000);
+        this.onStatus?.(`✅ 전송 완료 · ${file} (${formatBytes(bytes)}, ${seconds.toFixed(1)}초)`);
         return { ok: true, file };
       } catch (error) {
-        this.onStatus?.(`전송 실패 · ${error?.message ?? error}`);
+        this.onStatus?.(`❌ 전송 실패 · ${error?.message ?? error}`);
         return { ok: false, error };
       }
     })();

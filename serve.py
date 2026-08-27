@@ -27,6 +27,14 @@ MAX_BYTES = 200 * 1024 * 1024  # a 400-keyframe diagnostic scan is ~40MB
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
 
+class Server(ThreadingHTTPServer):
+    # A module page opens ~50 requests at once, and cloudflared forwards them
+    # over as many parallel connections. The socketserver default backlog of 5
+    # made Windows refuse the overflow, so the page loaded only partly.
+    request_queue_size = 128
+    daemon_threads = True
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
@@ -94,7 +102,7 @@ class Handler(SimpleHTTPRequestHandler):
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server = Server(("0.0.0.0", port), Handler)
     print(f"serving {ROOT} on http://localhost:{port}  (uploads -> results/)")
     try:
         server.serve_forever()

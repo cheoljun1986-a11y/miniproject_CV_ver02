@@ -120,6 +120,24 @@ test('a malformed import is refused and leaves the state intact', () => {
   assert.equal(controller.isImported(), false);
 });
 
+// The diagnostic exists to judge the map the game plays on, so it must fuse
+// the same way by default. ?fusion=count keeps the old hit counting for A/B.
+test('the scan is fused by TSDF unless counting is asked for', () => {
+  const { controller } = makeController();
+  assert.equal(controller.fusion, 'tsdf');
+  scan(controller, 3);
+  const cells = controller.grid.getCells();
+  assert.ok(cells.length > 0);
+  // A TSDF rebuild hands out surface cells only — every one carries a signed
+  // distance, which a hit-count cell never has.
+  assert.ok(cells.every((c) => typeof c.tsdf === 'number'));
+
+  const counting = makeController({ fusion: 'count' }).controller;
+  assert.equal(counting.fusion, 'count');
+  scan(counting, 3);
+  assert.ok(counting.grid.getCells().every((c) => c.tsdf === undefined));
+});
+
 test('the colour mode cycles and reset clears the scan', () => {
   const { controller } = makeController();
   scan(controller, 2);

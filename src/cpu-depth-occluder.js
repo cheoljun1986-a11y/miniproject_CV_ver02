@@ -52,7 +52,16 @@ export class CpuDepthOccluder {
     this.mesh.renderOrder = -2;
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
+    this.suppressed = false;
     this.scene.add(this.mesh);
+  }
+
+  // Stops the mesh being drawn without tearing down the sampling, so the
+  // terrain overlay can borrow the depth buffer for a moment and hand it back.
+  // Sampling continues meanwhile: coming back to a stale mesh would pop.
+  setSuppressed(suppressed) {
+    this.suppressed = Boolean(suppressed);
+    if (this.suppressed) this.mesh.visible = false;
   }
 
   update(frame, referenceSpace, time) {
@@ -66,7 +75,7 @@ export class CpuDepthOccluder {
     for (const { view, depthInformation } of snapshot.views) {
       this.sampleView(depthInformation, view);
       this.lastDepthTime = time;
-      this.mesh.visible = this.triangleCount > 0;
+      this.mesh.visible = !this.suppressed && this.triangleCount > 0;
       return this.triangleCount;
     }
 
