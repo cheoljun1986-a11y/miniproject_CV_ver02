@@ -202,14 +202,3 @@ export const TSDF_KEYFRAME_SAMPLE_STRIDE = 2;
 // mid-run still leaves a file at most this stale in results/. The diagnostic
 // scan (tens of MB) is sent only at session end and on demand.
 export const SCAN_BACKUP_INTERVAL_MS = 30000;
-
-// Rock-paper-scissors / MediaPipe hand recognition.
-export const RPS_COUNTDOWN_MS = 3000;
-export const RPS_READ_TIMEOUT_MS = 3500;
-export const RPS_RESULT_MS = 1400;
-export const HAND_INFERENCE_GAP_MS = 80;
-export const HAND_DETECTION_CONFIDENCE = 0.5;
-export const HAND_MIN_CONFIDENCE = 0.55;
-export const HAND_REQUIRED_MATCHES = 3;
-export const HAND_SAMPLE_WINDOW = 5;
-export const HAND_SAMPLE_MAX_AGE_MS = 900;

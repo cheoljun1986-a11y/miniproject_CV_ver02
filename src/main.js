@@ -16,11 +16,6 @@ import {
 import {
   HIDDEN_MODEL_HEIGHT_M,
   HIDDEN_MODEL_URL,
-  HAND_INFERENCE_GAP_MS,
-  HAND_MIN_CONFIDENCE,
-  HAND_REQUIRED_MATCHES,
-  HAND_SAMPLE_MAX_AGE_MS,
-  HAND_SAMPLE_WINDOW,
   HORIZONTAL_SURFACE_THRESHOLD,
   MAP_SECONDS,
   MAX_TRACKING_STEP,
@@ -28,9 +23,6 @@ import {
   NINJA_CAMOUFLAGE_OPACITY,
   OPERATOR_RENDER_GAP_MS,
   OPERATOR_STATUS_GAP_MS,
-  RPS_COUNTDOWN_MS,
-  RPS_READ_TIMEOUT_MS,
-  RPS_RESULT_MS,
   SCAN_BACKUP_INTERVAL_MS,
   TRAIL_MAX_POINTS,
   TRAIL_MIN_STEP_M,
@@ -44,11 +36,6 @@ import {
   VOXEL_SOLID_MIN_HITS,
 } from './config.js';
 import { CpuDepthFrameSource } from './cpu-depth-frame-source.js';
-import { GestureConsensus } from './gesture-consensus.js';
-import { HandGestureRecognizer } from './hand-gesture-recognizer.js';
-import { resolveInputMode } from './input-mode.js';
-import { RawCameraFrameSource } from './raw-camera-frame-source.js';
-import { RpsRuntime } from './rps-runtime.js';
 import { TraversalGrid, nodeKey } from './traversal-grid.js';
 import { ChaseRunner } from './chase-runner.js';
 import { ChaseOverlay } from './chase-overlay.js';
@@ -131,7 +118,6 @@ const SPACE_MAPPING_MODE = usesSpaceMapping(APP_MODE) || VOXEL_OCCLUDER_ON;
 // (maybeFeedChaseGrid), so neither terrain accumulator runs alongside them.
 const KEYFRAME_TERRAIN_MODE = usesKeyframeTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
 const LEGACY_TERRAIN_MODE = usesLegacyTerrain(APP_MODE, location.search) && !KEYFRAME_SCAN_MODE;
-const MANUAL_INPUT_MODE = resolveInputMode(location.search) === 'manual';
 const RANSAC_FLOOR_MODE = usesRansacFloor(location.search);
 
 const ui = createUI();
@@ -143,9 +129,6 @@ let reticle;
 let mapper;
 let xrSession;
 let game;
-let rpsRuntime;
-let handRecognizer;
-let rawCameraSource;
 let depthSource = null;
 // null until the first frame answers it: does XRView carry a camera, i.e. did
 // the browser actually grant camera-access for this session?
@@ -254,31 +237,8 @@ async function init() {
     getCandidatePool: ui.hasMapButton()
       ? () => (chaseGrid ? gridCandidatePool(chaseGrid) : [])
       : null,
-    onDuelStart: () => rpsRuntime?.startDuel(performance.now()),
   });
 
-  if (ui.hasDuelUI()) {
-    handRecognizer = new HandGestureRecognizer({
-      consensus: new GestureConsensus({
-        minConfidence: HAND_MIN_CONFIDENCE,
-        requiredMatches: HAND_REQUIRED_MATCHES,
-        windowSize: HAND_SAMPLE_WINDOW,
-        maxAgeMs: HAND_SAMPLE_MAX_AGE_MS,
-      }),
-    });
-    rawCameraSource = new RawCameraFrameSource({ minIntervalMs: HAND_INFERENCE_GAP_MS });
-    rpsRuntime = new RpsRuntime({
-      ui,
-      game,
-      recognizer: handRecognizer,
-      cameraSource: rawCameraSource,
-      manualMode: MANUAL_INPUT_MODE,
-      countdownMs: RPS_COUNTDOWN_MS,
-      readTimeoutMs: RPS_READ_TIMEOUT_MS,
-      resultMs: RPS_RESULT_MS,
-      resetRendererState: () => renderer.resetState?.(),
-    });
-  }
 
   controller = renderer.xr.getController(0);
   controller.addEventListener('select', () => game.triggerScan());
@@ -515,11 +475,9 @@ async function init() {
     backedUpRevision = -1;
     voxelDebug?.startScan(performance.now());
     await xrSession.start();
-    rpsRuntime?.startSession(xrSession.getSession(), renderer.getContext());
     if (autoStartsGame(APP_MODE)) game.startSession();
   });
   renderer.xr.addEventListener('sessionend', () => {
-    rpsRuntime?.resetSession();
     // Serialised before anything below resets it. The page outlives the XR
     // session, so the upload itself can finish after the resets.
     backupScan('final');
@@ -790,7 +748,7 @@ function updateChase(time, frame, localSpace, viewerPose) {
   if (capture.captured) {
     chaseLog?.push(time, 'captured', `${distance.toFixed(2)}m`);
     stopChase(`검거 성공! ${distance.toFixed(2)}m 에서 잡았습니다.`);
-    ui.setStatus('하츄핑 검거 완료');
+    game.startCatchCelebration();
     ui.setChaseGauge(1);
     ui.flash();
   }
@@ -842,7 +800,6 @@ function render(time, frame) {
   const { viewerPose, surface } = xrSession.update(frame);
   if (viewerPose) mapper.recordViewer(viewerPose.position);
   game.update(time, frame, surface);
-  rpsRuntime?.update(time, frame, xrSession.getLocalSpace());
 
   if (SPACE_MAPPING_MODE) {
     const localSpace = xrSession.getLocalSpace();

@@ -98,6 +98,31 @@
     margin-top:-96px; pointer-events:none; z-index:15;
   }
   button.ctrl.chase { background:#ff5fd2; color:#fff; }
+  #catchCelebrationOverlay {
+    position:fixed; inset:0; z-index:19; display:none;
+    align-items:center; justify-content:center; pointer-events:none; overflow:hidden;
+    background:radial-gradient(circle at center,rgba(255,255,255,.3),rgba(255,95,170,.13) 38%,transparent 70%);
+  }
+  .catch-celebration-card {
+    width:min(78vw,520px); text-align:center;
+    filter:drop-shadow(0 14px 24px rgba(61,13,56,.42));
+    animation:catchLogoBurst 1s cubic-bezier(.18,.75,.22,1) both;
+  }
+  #catchTeeniepingLogo { display:block; width:100%; height:auto; }
+  .catch-celebration-text {
+    margin-top:4px; color:#fff; font-size:clamp(24px,8vw,52px); font-weight:950;
+    letter-spacing:.04em; text-shadow:0 3px 12px #d81787,0 0 24px #ff9ed9;
+  }
+  @keyframes catchLogoBurst {
+    0% { opacity:0; transform:scale(.3) rotate(-8deg); }
+    28% { opacity:1; transform:scale(1.12) rotate(3deg); }
+    72% { opacity:1; transform:scale(1); }
+    100% { opacity:0; transform:scale(.92); }
+  }
+  @media (prefers-reduced-motion:reduce) {
+    .catch-celebration-card { animation:catchLogoFade 1s linear both; }
+    @keyframes catchLogoFade { 0%,100% { opacity:0; } 15%,85% { opacity:1; } }
+  }
 </style>
 
 <script type="importmap">
@@ -126,6 +151,12 @@
   // Android builds still raises a context menu.
   document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 </script>
+<div id="catchCelebrationOverlay" role="status" aria-live="assertive" aria-label="캐치! 티니핑">
+  <div class="catch-celebration-card">
+    <img id="catchTeeniepingLogo" src="./assets/catch-teenieping-logo.png" alt="캐치! 티니핑"/>
+    <div class="catch-celebration-text">캐치 성공!</div>
+  </div>
+</div>
 <div id="hud">
   <div class="card" id="status">WebXR 확인 중…</div>
   <div class="card" id="metrics">pose: -</div>

@@ -13,6 +13,7 @@ import {
   rankCandidates,
 } from './game-rules.js';
 import { placeNinjaOnSurface } from './surface-placement.js';
+import { CatchCelebration } from './catch-celebration.js';
 
 export class NinjaGame {
   constructor({
@@ -32,7 +33,6 @@ export class NinjaGame {
     // than the crosshair hit-test pool. index.html keeps the defaults.
     autoMapping = true,
     getCandidatePool = null,
-    onDuelStart = () => {},
   }) {
     this.scene = scene;
     this.ui = ui;
@@ -47,7 +47,7 @@ export class NinjaGame {
     this.makeRigidTransform = makeRigidTransform;
     this.autoMapping = autoMapping;
     this.getCandidatePool = getCandidatePool;
-    this.onDuelStart = onDuelStart;
+    this.catchCelebration = new CatchCelebration();
     this.phase = 'idle';
     this.mappingEnd = 0;
     this.lastSampleTime = 0;
@@ -136,6 +136,7 @@ export class NinjaGame {
       if (left <= 0) this.finishMapping();
     }
 
+    this.updateCatchCelebration(time);
     this.updateTargetAnchor(frame);
   }
 
@@ -219,7 +220,7 @@ export class NinjaGame {
       DETECT_MAX_ANGLE_DEG,
     );
     if (detected) {
-      this.startDuel();
+      this.startCatchCelebration();
       return true;
     }
 
@@ -232,51 +233,34 @@ export class NinjaGame {
     return false;
   }
 
-  startDuel() {
+  startCatchCelebration() {
     if (!this.target) return false;
-    this.phase = 'duel-countdown';
-    this.target.object.visible = false;
+    this.phase = 'caught';
+    this.target.found = true;
+    this.target.celebrating = true;
+    this.target.object.visible = true;
+    this.target.object.matrixAutoUpdate = true;
     this.clearSurfaceMarkers();
     this.setControls({ scan: false });
-    this.ui.setStatus('Ninja와 가위바위보!');
-    this.ui.setMessage('화면 안내에 맞춰 손 모양을 준비하세요.');
-    this.onDuelStart({ target: this.target });
-    return true;
-  }
-
-  setDuelPhase(phase) {
-    if (!this.target || !phase.startsWith('duel-')) return false;
-    this.phase = phase;
-    return true;
-  }
-
-  resolveDuel(outcome) {
-    if (!this.target || !this.phase.startsWith('duel-')) return false;
-    if (outcome === 'win') {
-      this.revealTarget();
-      return true;
-    }
-    if (outcome === 'draw') {
-      this.target.object.visible = false;
-      this.model.setNinjaOpacity(this.target.object, NINJA_CAMOUFLAGE_OPACITY);
-      this.phase = 'duel-countdown';
-      return true;
-    }
-    if (outcome === 'lose') {
-      const previousCandidate = this.target.candidate;
-      this.clearTarget();
-      return this.hideNewTarget({ excludeCandidate: previousCandidate });
-    }
-    return false;
-  }
-
-  revealTarget() {
-    if (!this.target) return;
-    this.target.object.visible = true;
-    this.target.found = true;
-    this.phase = 'found';
     this.model.revealNinja(this.target.object);
-    this.setControls({ scan: false });
+    this.catchCelebration.start(this.now(), this.target.object.rotation?.y ?? 0);
+    this.ui.setCatchCelebrationVisible?.(true);
+    this.ui.setStatus('CATCH!');
+    this.ui.setMessage('캐치 성공! 하츄핑을 잡았습니다.');
+    return true;
+  }
+
+  updateCatchCelebration(time) {
+    if (this.phase !== 'caught' || !this.target) return;
+    const frame = this.catchCelebration.update(time);
+    if (!frame) return;
+    if (this.target.object.rotation) this.target.object.rotation.y = frame.rotationY;
+    this.target.object.updateMatrix?.();
+    if (!frame.completed) return;
+
+    this.target.celebrating = false;
+    this.phase = 'found';
+    this.ui.setCatchCelebrationVisible?.(false);
     this.ui.setStatus('DETECTED!');
     this.ui.setMessage('발견 성공. 다시 숨기기를 누르면 같은 스캔 데이터에서 새 위치로 시작합니다.');
   }
@@ -342,7 +326,7 @@ export class NinjaGame {
     }
 
     const target = this.target;
-    if (!target?.anchor || !localSpace || typeof frame?.getPose !== 'function') return;
+    if (target?.found || !target?.anchor || !localSpace || typeof frame?.getPose !== 'function') return;
 
     let pose = null;
     try {
@@ -389,7 +373,7 @@ export class NinjaGame {
 
     target.anchorPromise = Promise.resolve(anchorResult)
       .then((anchor) => {
-        if (this.target !== target) {
+        if (this.target !== target || target.found) {
           try {
             anchor?.delete?.();
           } catch {
@@ -422,6 +406,8 @@ export class NinjaGame {
   }
 
   clearTarget() {
+    this.catchCelebration.reset();
+    this.ui.setCatchCelebrationVisible?.(false);
     if (!this.target) return;
     try {
       this.target.anchor?.delete?.();

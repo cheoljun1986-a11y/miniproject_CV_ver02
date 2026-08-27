@@ -24,11 +24,13 @@ function createHarness(gameOptions = {}) {
   const statuses = [];
   const controls = [];
   const sceneObjects = [];
+  const catchVisibility = [];
   const ui = {
     setStatus(value) { statuses.push(value); },
     setMessage() {},
     setControls(value) { controls.push(value); },
     flash() {},
+    setCatchCelebrationVisible(value) { catchVisibility.push(value); },
   };
   const scene = {
     add(object) { sceneObjects.push(object); },
@@ -57,6 +59,8 @@ function createHarness(gameOptions = {}) {
           },
         },
         quaternion: { identity() {} },
+        rotation: { y: 0 },
+        updateMatrix() { this.matrixUpdates = (this.matrixUpdates ?? 0) + 1; },
       };
     },
     revealNinja(object) { object.revealed = true; },
@@ -84,7 +88,7 @@ function createHarness(gameOptions = {}) {
     ...gameOptions,
   });
 
-  return { game, mapper, statuses, controls, sceneObjects };
+  return { game, mapper, statuses, controls, sceneObjects, catchVisibility };
 }
 
 function addHorizontalCandidate(mapper, position = [0, 0, -2]) {
@@ -124,11 +128,8 @@ test('session start enters mapping with the existing control availability', () =
   });
 });
 
-test('mapping candidates produce a hidden target that starts a duel when detected', () => {
-  const duelStarts = [];
-  const { game, mapper, sceneObjects } = createHarness({
-    onDuelStart: (target) => duelStarts.push(target),
-  });
+test('mapping candidates produce a target that celebrates immediately when detected', () => {
+  const { game, mapper, sceneObjects, catchVisibility } = createHarness();
   game.startSession();
   for (const [index, position] of [[0, 0, -2], [0.3, 0, -2], [0.6, 0, -2]].entries()) {
     mapper.recordSurface({ position, matrix: [index], upY: 1 });
@@ -139,10 +140,19 @@ test('mapping candidates produce a hidden target that starts a duel when detecte
   assert.equal(sceneObjects.length, 1);
 
   assert.equal(game.triggerScan(), true);
-  assert.equal(game.getState().phase, 'duel-countdown');
-  assert.equal(sceneObjects[0].revealed, undefined);
-  assert.equal(sceneObjects[0].visible, false);
-  assert.equal(duelStarts.length, 1);
+  assert.equal(game.getState().phase, 'caught');
+  assert.equal(sceneObjects[0].revealed, true);
+  assert.equal(sceneObjects[0].visible, true);
+  assert.equal(catchVisibility.at(-1), true);
+
+  game.update(1500, {}, null);
+  assert.ok(Math.abs(sceneObjects[0].rotation.y - Math.PI * 2) < 1e-9);
+  assert.equal(game.getState().phase, 'caught');
+
+  game.update(2000, {}, null);
+  assert.ok(Math.abs(sceneObjects[0].rotation.y - Math.PI * 4) < 1e-9);
+  assert.equal(game.getState().phase, 'found');
+  assert.equal(catchVisibility.at(-1), false);
 });
 
 test('mapping drops a visible marker for each stored scan point and clears them on a new scan', () => {
