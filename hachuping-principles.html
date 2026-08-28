@@ -1,0 +1,1695 @@
+<title>하츄핑 해부도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap">
+
+<style>
+/* ─────────────────────────────────────────────────────────────
+   토큰 — 라이트가 기본, 다크는 토큰만 재정의
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --bg:        #EDF0F3;
+  --bg-deep:   #E2E7EC;
+  --surface:   #FFFFFF;
+  --surface-2: #F5F7F9;
+  --ink:       #10161E;
+  --ink-2:     #4A5765;
+  --ink-3:     #7C8899;
+  --rule:      #D3DAE2;
+  --rule-2:    #E6EAEF;
+
+  --accent:      #D6246E;
+  --accent-soft: #FBE4EE;
+  --accent-line: #EFA9C7;
+
+  --ray:      #0B6E77;
+  --ray-soft: #DCEFF1;
+  --ray-line: #8FC9CE;
+
+  --ok:    #157F4C;
+  --block: #B3391C;
+  --far:   #A96B06;
+  --block-soft: #FBE5DE;
+
+  --serif: "Gowun Batang", "Nanum Myeongjo", Georgia, serif;
+  --sans:  "IBM Plex Sans KR", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --mono:  "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --measure: 68ch;
+  --band: 1060px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:        #0A0F16;
+    --bg-deep:   #060A0F;
+    --surface:   #121A24;
+    --surface-2: #0F1620;
+    --ink:       #E4ECF5;
+    --ink-2:     #93A1B2;
+    --ink-3:     #6B7A8B;
+    --rule:      #222D3A;
+    --rule-2:    #1A232E;
+
+    --accent:      #FF74B0;
+    --accent-soft: #331A28;
+    --accent-line: #7A3557;
+
+    --ray:      #45D2DE;
+    --ray-soft: #0E2A2E;
+    --ray-line: #2A6970;
+
+    --ok:    #4ED18A;
+    --block: #FF8163;
+    --far:   #F2B23C;
+    --block-soft: #35190F;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:        #0A0F16;
+  --bg-deep:   #060A0F;
+  --surface:   #121A24;
+  --surface-2: #0F1620;
+  --ink:       #E4ECF5;
+  --ink-2:     #93A1B2;
+  --ink-3:     #6B7A8B;
+  --rule:      #222D3A;
+  --rule-2:    #1A232E;
+
+  --accent:      #FF74B0;
+  --accent-soft: #331A28;
+  --accent-line: #7A3557;
+
+  --ray:      #45D2DE;
+  --ray-soft: #0E2A2E;
+  --ray-line: #2A6970;
+
+  --ok:    #4ED18A;
+  --block: #FF8163;
+  --far:   #F2B23C;
+  --block-soft: #35190F;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   기본
+   ───────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-weight: 400;
+  font-size: 16.5px;
+  line-height: 1.78;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+svg.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* ── 상단 바 ───────────────────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 24px;
+  padding: 0 24px;
+  height: 48px;
+  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--rule-2);
+}
+.topbar .mark {
+  font-family: var(--mono);
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent);
+}
+.topbar nav { margin-left: auto; display: flex; gap: 18px; }
+.topbar nav a {
+  font-family: var(--mono);
+  font-size: 11.5px; letter-spacing: 0.06em;
+  color: var(--ink-3); text-decoration: none;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 1px;
+}
+.topbar nav a:hover { color: var(--accent); border-bottom-color: var(--accent-line); }
+@media (max-width: 860px) { .topbar nav { display: none; } }
+
+/* ── 레이아웃 ──────────────────────────────────────────────── */
+.wrap { max-width: var(--band); margin: 0 auto; padding: 0 24px 120px; }
+.col  { max-width: var(--measure); }
+.band { max-width: var(--band); }
+
+/* ── 히어로 ────────────────────────────────────────────────── */
+.hero { padding: 72px 0 8px; }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11.5px; font-weight: 500;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 20px;
+}
+h1 {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: clamp(38px, 6.2vw, 66px);
+  line-height: 1.14;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  margin: 0 0 24px;
+}
+h1 .pink { color: var(--accent); }
+.lede {
+  font-size: 19px; line-height: 1.72;
+  color: var(--ink-2);
+  max-width: 60ch;
+  margin: 0 0 10px;
+  font-weight: 300;
+}
+.thesis {
+  border-left: 3px solid var(--accent);
+  padding: 4px 0 4px 20px;
+  margin: 34px 0 0;
+  max-width: 62ch;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+/* ── 장 ────────────────────────────────────────────────────── */
+.chapter { margin-top: 96px; scroll-margin-top: 68px; }
+.chapter-head {
+  display: flex; align-items: baseline; gap: 20px;
+  border-top: 1px solid var(--ink);
+  padding-top: 14px;
+  margin-bottom: 34px;
+}
+.chapter-num {
+  font-family: var(--mono);
+  font-size: 13px; font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  flex: none;
+}
+.chapter-head h2 {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: clamp(26px, 3.4vw, 36px);
+  line-height: 1.24;
+  letter-spacing: -0.015em;
+  margin: 0;
+  text-wrap: balance;
+}
+.chapter-head .kicker {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  flex: none;
+  align-self: center;
+}
+@media (max-width: 700px) { .chapter-head .kicker { display: none; } }
+
+h3 {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 19px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  margin: 48px 0 14px;
+}
+h3 + p { margin-top: 0; }
+
+p { margin: 0 0 18px; max-width: var(--measure); }
+p.tight { margin-bottom: 8px; }
+
+strong { font-weight: 600; color: var(--ink); }
+em { font-style: normal; color: var(--accent); font-weight: 500; }
+
+a.src {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-line);
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+a.src:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+ul { max-width: var(--measure); padding-left: 0; list-style: none; margin: 0 0 20px; }
+ul li {
+  position: relative;
+  padding-left: 22px;
+  margin-bottom: 9px;
+}
+ul li::before {
+  content: "";
+  position: absolute; left: 3px; top: 0.72em;
+  width: 7px; height: 1px;
+  background: var(--accent);
+}
+
+/* ── 콜아웃 ────────────────────────────────────────────────── */
+.note {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ray);
+  border-radius: 3px;
+  padding: 18px 22px;
+  margin: 28px 0;
+  max-width: var(--measure);
+  font-size: 15.5px;
+  line-height: 1.72;
+  color: var(--ink-2);
+}
+.note .tag {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ray);
+  margin-bottom: 7px;
+}
+.note.bug { border-left-color: var(--block); }
+.note.bug .tag { color: var(--block); }
+.note p:last-child { margin-bottom: 0; }
+.note p { max-width: none; }
+
+/* ── 도해 ──────────────────────────────────────────────────── */
+figure {
+  margin: 40px 0;
+  max-width: var(--band);
+}
+.fig-scroll { overflow-x: auto; padding-bottom: 4px; }
+figure svg {
+  display: block;
+  width: 100%;
+  min-width: 640px;
+  height: auto;
+  color: var(--ink-2);
+}
+figure.wide svg { min-width: 780px; }
+figcaption {
+  margin-top: 14px;
+  font-size: 14px;
+  line-height: 1.66;
+  color: var(--ink-2);
+  max-width: 74ch;
+  border-top: 1px solid var(--rule-2);
+  padding-top: 10px;
+}
+figcaption b { color: var(--ink); font-weight: 600; }
+
+/* SVG 유틸 */
+.s-box   { fill: var(--surface); stroke: var(--rule); stroke-width: 1.4; }
+.s-box2  { fill: var(--surface-2); stroke: var(--rule); stroke-width: 1.4; }
+.s-line  { fill: none; stroke: var(--ink-2); stroke-width: 1.5; }
+.s-thin  { fill: none; stroke: var(--ink-3); stroke-width: 1; }
+.s-dash  { stroke-dasharray: 5 4; }
+.s-grid  { fill: none; stroke: var(--rule); stroke-width: 1; }
+.s-lab   { fill: var(--ink); font-family: var(--sans); font-size: 13px; font-weight: 500; }
+.s-sub   { fill: var(--ink-2); font-family: var(--sans); font-size: 11.5px; font-weight: 400; }
+.s-mono  { fill: var(--ink-3); font-family: var(--mono); font-size: 11px; }
+.s-num   { fill: var(--ink-2); font-family: var(--mono); font-size: 11px; }
+.t-mid   { text-anchor: middle; }
+.t-end   { text-anchor: end; }
+
+.a-f  { fill: var(--accent); }
+.a-s  { fill: none; stroke: var(--accent); stroke-width: 1.8; }
+.a-bg { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; }
+.a-t  { fill: var(--accent); font-family: var(--sans); font-size: 12px; font-weight: 600; }
+
+.r-f  { fill: var(--ray); }
+.r-s  { fill: none; stroke: var(--ray); stroke-width: 1.6; }
+.r-bg { fill: var(--ray-soft); stroke: var(--ray-line); stroke-width: 1.2; }
+.r-t  { fill: var(--ray); font-family: var(--sans); font-size: 12px; font-weight: 500; }
+
+.b-f  { fill: var(--block); }
+.b-s  { fill: none; stroke: var(--block); stroke-width: 1.6; }
+.b-bg { fill: var(--block-soft); stroke: var(--block); stroke-width: 1.3; }
+.b-t  { fill: var(--block); font-family: var(--sans); font-size: 12px; font-weight: 500; }
+
+.mk-ink { fill: var(--ink-2); }
+.mk-a   { fill: var(--accent); }
+.mk-r   { fill: var(--ray); }
+.mk-b   { fill: var(--block); }
+
+/* ── 코드 ──────────────────────────────────────────────────── */
+.code {
+  margin: 30px 0;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--surface);
+  overflow: hidden;
+  max-width: var(--band);
+}
+.code-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.code-head .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); flex: none;
+}
+.code-head .ln { margin-left: auto; color: var(--ink-3); font-size: 11px; }
+.code pre {
+  margin: 0;
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12.8px;
+  line-height: 1.72;
+  color: var(--ink);
+  tab-size: 2;
+}
+.code pre .c { color: var(--ink-3); }
+.code pre .k { color: var(--ray); }
+.code pre .hi { color: var(--accent); font-weight: 600; }
+.code-note {
+  padding: 11px 18px;
+  border-top: 1px solid var(--rule-2);
+  background: var(--surface-2);
+  font-size: 13.5px;
+  line-height: 1.62;
+  color: var(--ink-2);
+}
+.code-note b { color: var(--ink); font-weight: 600; }
+
+/* ── 표 ────────────────────────────────────────────────────── */
+.table-scroll { overflow-x: auto; margin: 30px 0; max-width: var(--band); }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 560px;
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+thead th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 0 16px 9px 0;
+  border-bottom: 1px solid var(--ink);
+  white-space: nowrap;
+}
+tbody td {
+  padding: 11px 16px 11px 0;
+  border-bottom: 1px solid var(--rule-2);
+  vertical-align: top;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody td:first-child { font-weight: 500; color: var(--ink); }
+td .m, th .m { font-family: var(--mono); font-size: 0.92em; font-variant-numeric: tabular-nums; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.pill.ok  { color: var(--ok); }
+.pill.no  { color: var(--block); }
+.pill.mid { color: var(--far); }
+
+/* ── 마무리 ────────────────────────────────────────────────── */
+.closer {
+  margin-top: 104px;
+  border-top: 1px solid var(--ink);
+  padding-top: 40px;
+}
+.principles { display: grid; gap: 24px; grid-template-columns: repeat(2, 1fr); max-width: var(--band); }
+@media (max-width: 760px) { .principles { grid-template-columns: 1fr; } }
+.principle {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 24px;
+}
+.principle h4 {
+  font-family: var(--serif);
+  font-size: 20px; font-weight: 700;
+  margin: 0 0 12px;
+  line-height: 1.35;
+}
+.principle p { font-size: 15px; color: var(--ink-2); margin: 0; max-width: none; }
+
+.colophon {
+  margin-top: 56px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule-2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 2;
+  color: var(--ink-3);
+}
+.colophon span { color: var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+@media print {
+  :root {
+    --bg: #fff; --surface: #fff; --surface-2: #fafbfc;
+    --ink: #000; --ink-2: #333; --ink-3: #666;
+    --rule: #ccc; --rule-2: #e5e5e5;
+  }
+  .topbar { display: none; }
+  .chapter { break-before: page; }
+  figure, .code, .note, .table-scroll { break-inside: avoid; }
+  figure svg { min-width: 0; }
+}
+</style>
+
+<!-- 공용 마커·패턴 -->
+<svg class="defs" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0.6 L10,5 L0,9.4 Z" class="mk-ink"/>
+    </marker>
+    <marker id="arwA" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0.6 L10,5 L0,9.4 Z" class="mk-a"/>
+    </marker>
+    <marker id="arwR" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0.6 L10,5 L0,9.4 Z" class="mk-r"/>
+    </marker>
+    <marker id="arwB" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0.6 L10,5 L0,9.4 Z" class="mk-b"/>
+    </marker>
+    <pattern id="cell30" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M30 0 H0 V30" class="s-grid"/>
+    </pattern>
+    <pattern id="cell20" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0 H0 V20" class="s-grid"/>
+    </pattern>
+    <pattern id="cell18" width="18" height="18" patternUnits="userSpaceOnUse">
+      <path d="M18 0 H0 V18" fill="none" stroke="var(--ray-line)" stroke-width="1"/>
+    </pattern>
+    <pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="7" stroke="var(--far)" stroke-width="1.6"/>
+    </pattern>
+  </defs>
+</svg>
+
+<header class="topbar">
+  <span class="mark">하츄핑 해부도</span>
+  <nav>
+    <a href="#c1">01 센서</a>
+    <a href="#c2">02 복원</a>
+    <a href="#c3">03 정합</a>
+    <a href="#c4">04 지형</a>
+    <a href="#c5">05 도망</a>
+    <a href="#c6">06 검거</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<!-- ═══════════════ 히어로 ═══════════════ -->
+<section class="hero">
+  <p class="eyebrow">WebXR · ARCore · Computer Vision 미니프로젝트</p>
+  <h1>폰 한 대로<br>방을 <span class="pink">3D로 복원</span>하고<br>그 위에서 술래잡기</h1>
+  <p class="lede">
+    카메라는 2D 영상만 준다. 그런데 하츄핑은 책상 위로 뛰어오르고, 소파 뒤에 숨고,
+    벽을 통과하지 못한다. 그 사이에 무슨 일이 일어나는가.
+  </p>
+  <p class="thesis">
+    <strong>카메라 2D 영상 + IMU</strong> →&nbsp;(ARCore)&nbsp;<strong>6DoF 포즈 + 픽셀별 깊이</strong>
+    →&nbsp;(우리)&nbsp;<strong>역투영으로 3D 복셀 지도</strong>
+    →&nbsp;<strong>“설 수 있는 곳” 격자</strong>
+    →&nbsp;<strong>A* 도망 · 거리·각도·가시성으로 검거</strong>
+  </p>
+</section>
+
+<figure class="wide">
+  <div class="fig-scroll">
+    <svg viewBox="0 0 1120 250" role="img" aria-label="카메라 영상과 IMU에서 ARCore가 6DoF 포즈와 깊이맵을 만들고, 우리 코드가 역투영·TSDF 복셀 지도·통행 격자를 거쳐 하츄핑의 도망과 검거로 잇는 전체 파이프라인">
+      <!-- 담당 경계 -->
+      <line x1="372" y1="40" x2="372" y2="230" class="s-thin s-dash"/>
+      <text x="360" y="32" class="s-mono t-end">ARCore 가 준다</text>
+      <text x="384" y="32" class="s-mono">우리가 만든다</text>
+
+      <!-- A 입력 -->
+      <rect x="16" y="121" width="140" height="58" rx="5" class="s-box2"/>
+      <text x="86" y="145" class="s-lab t-mid">카메라 2D 영상</text>
+      <text x="86" y="163" class="s-sub t-mid">+ 관성센서(IMU)</text>
+
+      <!-- 분기 -->
+      <path d="M156 150 H178" class="s-line"/>
+      <path d="M178 110 V190" class="s-line"/>
+      <path d="M178 110 H194" class="s-line" marker-end="url(#arw)"/>
+      <path d="M178 190 H194" class="s-line" marker-end="url(#arw)"/>
+      <text x="271" y="70" class="s-mono t-mid">SLAM · depth-from-motion</text>
+
+      <!-- B 포즈 / 깊이 -->
+      <rect x="196" y="86" width="150" height="48" rx="5" class="s-box"/>
+      <text x="271" y="115" class="s-lab t-mid">6DoF 카메라 포즈</text>
+      <rect x="196" y="166" width="150" height="48" rx="5" class="s-box"/>
+      <text x="271" y="187" class="s-lab t-mid">픽셀별 깊이맵</text>
+      <text x="271" y="204" class="s-sub t-mid">160×120 · 약 15 Hz</text>
+        <text x="271" y="220" class="s-sub t-mid">지도용은 80×60으로 솎아 읽음</text>
+
+      <!-- 합류 -->
+      <path d="M346 110 H358" class="s-line"/>
+      <path d="M346 190 H358" class="s-line"/>
+      <path d="M358 110 V190" class="s-line"/>
+      <path d="M358 149 H388" class="s-line" marker-end="url(#arw)"/>
+
+      <!-- C 역투영 -->
+      <rect x="392" y="120" width="132" height="58" rx="5" class="s-box"/>
+      <text x="458" y="145" class="s-lab t-mid">역투영</text>
+      <text x="458" y="163" class="s-sub t-mid">unprojection</text>
+
+      <path d="M524 149 H562" class="s-line" marker-end="url(#arw)"/>
+      <text x="543" y="136" class="s-mono t-mid">융합</text>
+
+      <!-- D 복셀 -->
+      <rect x="566" y="120" width="150" height="58" rx="5" class="s-box"/>
+      <text x="641" y="145" class="s-lab t-mid">TSDF 복셀 지도</text>
+      <text x="641" y="163" class="s-sub t-mid">5 cm 격자</text>
+
+      <path d="M716 149 H752" class="s-line" marker-end="url(#arw)"/>
+      <text x="734" y="136" class="s-mono t-mid">격자화</text>
+
+      <!-- E 통행격자 -->
+      <rect x="756" y="120" width="140" height="58" rx="5" class="s-box"/>
+      <text x="826" y="145" class="s-lab t-mid">통행 격자</text>
+      <text x="826" y="163" class="s-sub t-mid">20 cm · 슬랩</text>
+
+      <path d="M896 149 H932" class="s-line" marker-end="url(#arwA)"/>
+      <text x="914" y="136" class="s-mono t-mid">A*</text>
+
+      <!-- F 게임 -->
+      <rect x="936" y="120" width="168" height="58" rx="5" class="a-bg"/>
+      <text x="1020" y="145" class="a-t t-mid">하츄핑 도망 · 검거</text>
+      <text x="1020" y="163" class="s-sub t-mid">경로 · 잡기 게이지</text>
+    </svg>
+  </div>
+  <figcaption>
+    <b>전체 파이프라인.</b> 점선 왼쪽은 우리가 만들지 않는다 — 카메라 추적과 깊이 추정은 ARCore의 일이다.
+    우리 코드는 <b>그 결과를 3D로 되돌리고(역투영), 누적하고(융합), 게임 규칙으로 바꾸는</b> 층이다.
+  </figcaption>
+</figure>
+
+<!-- ═══════════════ 01 센서 ═══════════════ -->
+<section class="chapter" id="c1">
+  <div class="chapter-head">
+    <span class="chapter-num">01</span>
+    <h2>ARCore가 주는 것</h2>
+    <span class="kicker">우리가 만들지 않는 부분</span>
+  </div>
+
+  <p>
+    WebXR <span class="pill">immersive-ar</span> 세션을 열면 ARCore가 매 프레임 네 가지를 준다.
+    이 네 가지가 게임 전체의 원재료다.
+  </p>
+
+  <div class="table-scroll">
+  <table>
+    <thead>
+      <tr><th>받는 정보</th><th>뒤에 있는 CV 개념</th><th>우리 코드의 진입점</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>XRViewerPose<br><span class="s-sub">카메라의 6DoF 위치·자세</span></td>
+        <td>Visual-Inertial SLAM<br><span class="m">특징점 추적 + IMU 융합</span></td>
+        <td><a class="src" href="src/xr-session.js#L64">xr-session.js:64</a><br><span class="m">frame.getViewerPose()</span></td>
+      </tr>
+      <tr>
+        <td>XRView<br><span class="s-sub">projectionMatrix · transform</span></td>
+        <td>핀홀 카메라 모델<br><span class="m">내부 K · 외부 [R|t]</span></td>
+        <td>역투영·재투영의 입력</td>
+      </tr>
+      <tr>
+        <td>XRCPUDepthInformation<br><span class="s-sub">픽셀별 미터 깊이</span></td>
+        <td>Depth-from-motion<br><span class="m">단안 모션 스테레오</span></td>
+        <td><span class="m">getDepthInMeters(u, v)</span></td>
+      </tr>
+      <tr>
+        <td>XRHitTest · XRAnchor</td>
+        <td>평면 추정 · 드리프트 보정</td>
+        <td><a class="src" href="src/map-anchor.js">map-anchor.js</a></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <span class="tag">depth-from-motion 이란</span>
+    <p>
+      폰을 들고 조금 움직이면 서로 다른 시점의 두 프레임이 생기고, 그 시차(parallax)로 삼각측량이 된다.
+      스테레오 카메라 없이 한 눈으로 깊이를 얻는 방식이라 — <strong>움직여야 깊이가 나온다.</strong>
+      게임이 “방을 충분히 스캔하세요”라고 시키는 이유가 정확히 이것이다.
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════════ 02 복원 ═══════════════ -->
+<section class="chapter" id="c2">
+  <div class="chapter-head">
+    <span class="chapter-num">02</span>
+    <h2>2D 깊이를 3D 공간으로</h2>
+    <span class="kicker">핵심 CV 파트</span>
+  </div>
+
+  <h3>역투영 — 픽셀 하나를 3D 점으로</h3>
+  <p>
+    깊이맵의 한 픽셀 <span class="pill">(u, v)</span>와 그 깊이 <span class="pill">d</span>가 있을 때,
+    그 점이 방 안 어디인지를 계산한다. 여기서 딱 하나만 틀려도 방 전체가 어긋난다:
+    <em>깊이는 광선의 길이가 아니라, 카메라 −Z 축에 내린 수직거리다.</em>
+  </p>
+
+  <figure>
+    <div class="fig-scroll">
+      <svg viewBox="0 0 900 340" role="img" aria-label="카메라 원점에서 이미지 평면의 (u,v)를 지나는 광선을 그리고, 깊이 d는 광선 길이가 아니라 카메라 마이너스 Z축에 내린 수직거리임을 표시한 그림">
+        <!-- 카메라 -->
+        <rect x="60" y="188" width="48" height="44" rx="4" class="s-box"/>
+        <polygon points="108,198 128,206 128,214 108,222" class="s-box2"/>
+        <text x="84" y="180" class="s-sub t-mid">카메라 원점 O</text>
+
+        <!-- 프러스텀 -->
+        <path d="M110 210 L250 115" class="s-thin s-dash"/>
+        <path d="M110 210 L250 305" class="s-thin s-dash"/>
+
+        <!-- 이미지 평면 -->
+        <line x1="250" y1="115" x2="250" y2="305" class="r-s"/>
+        <text x="250" y="105" class="r-t t-mid">이미지 평면</text>
+        <text x="250" y="324" class="s-sub t-mid">좌상단 원점 · v 는 아래로 → NDC 로 갈 때 뒤집는다</text>
+
+        <!-- (u,v) -->
+        <circle cx="250" cy="168" r="4.5" class="a-f"/>
+        <text x="240" y="162" class="a-t t-end">(u, v)</text>
+
+        <!-- 광선 -->
+        <path d="M110 210 L610 60" class="r-s" marker-end="url(#arwR)"/>
+        <text x="356" y="118" class="s-mono t-mid">광선 길이 ≠ d</text>
+
+        <!-- -Z 축 -->
+        <path d="M110 210 H700" class="s-line s-dash" marker-end="url(#arw)"/>
+        <text x="710" y="214" class="s-mono">−Z</text>
+
+        <!-- 월드 점 -->
+        <circle cx="610" cy="60" r="5.5" class="a-f"/>
+        <text x="624" y="56" class="a-t">월드 점 P</text>
+        <path d="M610 60 V210" class="s-thin s-dash"/>
+        <path d="M598 210 V198 H610" class="s-thin"/>
+
+        <!-- 측정선 d -->
+        <path d="M110 250 H610" class="s-line"/>
+        <path d="M110 243 V257" class="s-line"/>
+        <path d="M610 243 V257" class="s-line"/>
+        <text x="360" y="276" class="s-lab t-mid">d = getDepthInMeters(u, v) — −Z 축에 내린 수직거리</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>역투영.</b> 투영행렬의 역행렬로 <span class="m">(u, v)</span>를 카메라 좌표계의 광선으로 되돌린 뒤,
+      그 광선의 −Z 성분이 <span class="m">d</span>가 되도록 스케일한다. 광선을 그냥 <span class="m">d</span>만큼
+      늘이면 화면 가장자리로 갈수록 점이 앞으로 튀어나온다.
+    </figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/depth-math.js<span class="ln">L30–44 · depthSampleToWorld()</span></div>
+<pre><span class="c">// 이미지 좌표는 좌상단 원점, NDC 는 y 가 위 → v 뒤집기</span>
+const xNdc = u * 2 - 1;
+const yNdc = (1 - v) * 2 - 1;
+
+<span class="c">// 근평면 클립 좌표를 역투영해 카메라 좌표계의 광선을 얻는다</span>
+const ray = multiplyMat4Vec4(invProjection, [xNdc, yNdc, -1, 1]);
+const vx = ray[0] / ray[3];
+const vy = ray[1] / ray[3];
+const vz = ray[2] / ray[3];
+if (!(vz &lt; 0)) return null; <span class="c">// 카메라 앞이어야 한다</span>
+
+<span class="c">// Scale the ray so its perpendicular (view-Z) distance equals the depth.</span>
+<span class="hi">const scale = depth / -vz;</span>
+const world = multiplyMat4Vec4(viewMatrix, [vx * scale, vy * scale, vz * scale, 1]);</pre>
+    <div class="code-note">
+      이 14줄이 “2D 영상 → 3D 공간”의 전부다. 나머지는 이것을 <b>몇만 번 반복해서 누적</b>하는 이야기다.
+      three.js 의존이 없어 PC에서 단위 테스트로 검증된다.
+    </div>
+  </div>
+
+  <h3>키프레임 — 왜 매 프레임을 쓰지 않는가</h3>
+  <p>
+    가만히 서 있는 60프레임은 <strong>새 정보가 0</strong>인데, 같은 점을 60번 세면
+    “여러 번 관측됐으니 진짜다”라는 판정이 무너진다. 그래서 직전 키프레임 대비
+    <em>20 cm 이동 또는 15° 회전</em>했을 때만 깊이를 읽는다.
+  </p>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/keyframe-gate.js<span class="ln">L23–33 · isKeyframe()</span></div>
+<pre>if (!lastPose) return true;
+
+const dx = position[0] - lastPose.position[0];
+const dy = position[1] - lastPose.position[1];
+const dz = position[2] - lastPose.position[2];
+<span class="hi">if (Math.hypot(dx, dy, dz) &gt;= minTranslationM) return true;   <span class="c">// 0.20 m</span></span>
+
+<span class="hi">return quaternionAngleDeg(lastPose.quaternion, quaternion) &gt;= minRotationDeg;  <span class="c">// 15°</span></span></pre>
+    <div class="code-note">
+      게이트는 <b>매 프레임 평가</b>한다. 타이머 안에서 폴링하면 90°/s 로 도는 폰에서 200 ms 간격이
+      15°를 사실상 18°로 넓혀버려, 포즈 드리프트와 느슨한 게이트를 구분할 수 없게 된다.
+    </div>
+  </div>
+
+
+  <h3>깊이 필터 — 경계의 유령 점 버리기</h3>
+  <p>
+    ARCore의 깊이맵은 깨끗하지 않다. 값이 아예 없는 픽셀(투명·반사 물체, 너무 가까운 손),
+    신뢰 구간 밖의 값, 그리고 물체 <strong>경계에서 생기는 flying pixel</strong>을 순서대로 거른다.
+  </p>
+
+  <figure>
+    <div class="fig-scroll">
+      <svg viewBox="0 0 820 290" role="img" aria-label="앞 물체의 모서리를 스치는 광선이 앞 물체와 뒤 벽 사이 허공에 잘못된 깊이 점을 만들고, 이웃 픽셀과의 깊이 차가 10센티미터를 넘으면 거부하는 그림">
+        <!-- 카메라 -->
+        <rect x="34" y="122" width="42" height="38" rx="4" class="s-box"/>
+        <polygon points="76,131 94,138 94,146 76,153" class="s-box2"/>
+
+        <!-- 앞 물체 -->
+        <rect x="358" y="60" width="24" height="110" rx="2" class="s-box2"/>
+        <text x="370" y="50" class="s-sub t-mid">앞 물체</text>
+        <text x="352" y="118" class="s-mono t-end">0.8 m</text>
+
+        <!-- 뒤 벽 -->
+        <rect x="700" y="40" width="24" height="200" rx="2" class="s-box2"/>
+        <text x="712" y="30" class="s-sub t-mid">뒤 벽</text>
+        <text x="740" y="96" class="s-mono">2.6 m</text>
+
+        <!-- 정상 광선 1 -->
+        <path d="M92 142 L356 120" class="r-s"/>
+        <circle cx="358" cy="120" r="4" class="r-f"/>
+
+        <!-- 정상 광선 3 -->
+        <path d="M92 138 L698 90" class="r-s"/>
+        <circle cx="700" cy="90" r="4" class="r-f"/>
+
+        <!-- 경계 스치는 광선 -->
+        <path d="M92 144 L698 215" class="s-line s-dash"/>
+        <circle cx="700" cy="215" r="4" class="s-thin" fill="var(--surface)"/>
+
+        <!-- flying pixel -->
+        <circle cx="530" cy="195" r="7" class="b-bg"/>
+        <path d="M525 190 L535 200 M535 190 L525 200" class="b-s"/>
+        <path d="M530 204 V226" class="b-s s-dash"/>
+        <text x="530" y="244" class="b-t t-mid">flying pixel · 허공에 찍힌 1.7 m</text>
+        <text x="530" y="264" class="s-sub t-mid">이웃 픽셀과 깊이 차 &gt; 10 cm → 거부</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>flying pixel.</b> 광선 하나가 물체 모서리를 스치면 앞·뒤 두 표면의 중간값이 돌아와,
+      아무것도 없는 허공에 점이 찍힌다. 4-이웃과의 깊이 차가 10 cm를 넘으면 버린다
+      (<a class="src" href="src/depth-grid-filter.js">depth-grid-filter.js</a>).
+    </figcaption>
+  </figure>
+
+  <h3>TSDF fusion — 지도를 만드는 방식</h3>
+  <p>
+    가장 중요한 개념이다. 방을 <strong>5 cm 복셀 격자</strong>로 나누고, 각 복셀에
+    “가장 가까운 표면까지의 <em>부호 있는 거리</em>”를 저장해 프레임마다 평균낸다.
+    표면은 그 평균값이 <strong>0을 가로지르는 곳</strong>이다.
+  </p>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+      <svg viewBox="0 0 1000 315" role="img" aria-label="하나의 깊이 광선을 따라 통과한 복셀에는 플러스 1 자유공간 값이, 히트 지점 앞뒤 밴드에는 부호 있는 거리 값이 기록되고 표면은 0을 가로지르는 곳이라는 그림">
+        <!-- sdf 축 -->
+        <line x1="145" y1="44" x2="145" y2="136" class="s-thin"/>
+        <text x="138" y="54" class="s-num t-end">+1</text>
+        <text x="138" y="94" class="s-num t-end">0</text>
+        <text x="138" y="134" class="s-num t-end">−1</text>
+        <line x1="145" y1="90" x2="900" y2="90" class="s-thin s-dash"/>
+
+        <!-- sdf 곡선 -->
+        <path d="M150 50 H630" class="r-s"/>
+        <path d="M630 50 L750 130" class="a-s"/>
+        <path d="M750 130 H870" class="s-thin s-dash"/>
+        <circle cx="690" cy="90" r="4.5" class="a-f"/>
+        <text x="702" y="84" class="a-t">표면 = 0 교차</text>
+
+        <!-- 복셀 열 -->
+        <rect x="150" y="180" width="480" height="30" class="r-bg"/>
+        <rect x="630" y="180" width="120" height="30" class="a-bg"/>
+        <rect x="750" y="180" width="120" height="30" fill="none" stroke="var(--rule)" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <rect x="150" y="180" width="720" height="30" fill="url(#cell30)"/>
+
+        <!-- 카메라 · 광선 -->
+        <polygon points="28,182 60,190 60,200 28,208" class="s-box2"/>
+        <path d="M62 195 H684" class="r-s" marker-end="url(#arwR)"/>
+
+        <!-- 히트 -->
+        <line x1="690" y1="164" x2="690" y2="226" class="a-s" stroke-width="2.6"/>
+        <text x="690" y="156" class="a-t t-mid">깊이 히트 L · 실제 표면</text>
+
+        <!-- 브래킷 -->
+        <path d="M150 222 v7 H630 v-7" class="s-thin"/>
+        <path d="M630 232 v7 H750 v-7" class="s-thin"/>
+        <text x="390" y="248" class="s-mono t-mid">카빙 구간</text>
+        <text x="810" y="248" class="s-mono t-mid">truncated ±τ</text>
+        <text x="690" y="258" class="s-mono t-mid">밴드</text>
+
+        <!-- 범례 -->
+        <rect x="150" y="278" width="14" height="14" class="r-bg"/>
+        <text x="172" y="290" class="s-sub">광선이 통과 → sdf = +1 (자유공간)</text>
+        <rect x="440" y="278" width="14" height="14" class="a-bg"/>
+        <text x="462" y="290" class="s-sub">밴드 ±τ → sdf = (L − t) / τ</text>
+        <rect x="720" y="278" width="14" height="14" fill="none" stroke="var(--rule)" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <text x="742" y="290" class="s-sub">잘림 — 보지 않은 것으로 둔다</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>밴드와 카빙.</b> 히트 지점 앞뒤 ±τ(=2복셀)에는 부호 있는 거리를 기록하고,
+      <b>광선이 통과한</b> 복셀 전부에는 +1(자유공간)을 투표한다. 그 뒤는 truncate —
+      멀리 있는 복셀이 보지도 않은 표면에 소유되는 것을 막는다.
+    </figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/tsdf-grid.js<span class="ln">L147–163 · integrate()</span></div>
+<pre><span class="c">// Band: [L - tau, L + tau], signed distance measured along the ray.</span>
+const bandStart = Math.max(length - tau, 0);
+const bandSteps = Math.round((length + tau - bandStart) / step);
+for (let i = 0; i &lt;= bandSteps; i += 1) {
+  const t = bandStart + i * step;
+  <span class="hi">const sdf = Math.max(-1, Math.min(1, (length - t) / tau));</span>
+  this._fuse(cam[0] + ux*t, cam[1] + uy*t, cam[2] + uz*t, sdf, frameId, true, obsWeight);
+}
+
+<span class="c">// Free space: the ray got here, so nothing solid sits along it.</span>
+if (col % carveStride === 0 &amp;&amp; row % carveStride === 0 &amp;&amp; bandStart &gt; carveStart) {
+  const carveSteps = Math.floor((bandStart - carveStart) / step);
+  for (let i = 0; i &lt; carveSteps; i += 1) {
+    const t = carveStart + i * step;
+    <span class="hi">this._fuse(cam[0]+ux*t, cam[1]+uy*t, cam[2]+uz*t, 1, frameId, false, obsWeight);</span>
+  }
+}</pre>
+    <div class="code-note">
+      아래쪽 <b>카빙 루프</b>가 결정적이다. 이것이 있어야 “여기엔 아무것도 없다”는
+      <b>음성 증거</b>가 쌓인다. 카운팅 방식은 양성 증거만 모으므로 한 번 생긴 허공 복셀을 절대 지우지 못한다.
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-scroll">
+      <svg viewBox="0 0 900 285" role="img" aria-label="한 시점에서 세 번 관측되어 확정된 허공 복셀을 다른 시점의 광선이 그대로 통과하면서 자유공간 투표를 던져 solid 상태가 철회되는 그림">
+        <!-- 시점 1 -->
+        <polygon points="40,50 70,58 70,72 40,80" class="s-box2"/>
+        <text x="80" y="46" class="s-sub">시점 1 — 표면으로 확정</text>
+        <path d="M72 62 L420 116" class="s-thin"/>
+        <path d="M72 64 L424 128" class="s-thin"/>
+        <path d="M72 66 L426 140" class="s-thin"/>
+
+        <!-- 허공 복셀 -->
+        <rect x="420" y="110" width="34" height="34" rx="2" class="a-bg"/>
+        <text x="437" y="102" class="a-t t-mid">허공 노이즈 복셀</text>
+        <text x="437" y="166" class="s-mono t-mid">카운팅 → “확정” ✓</text>
+
+        <!-- 시점 2 -->
+        <polygon points="40,190 70,198 70,212 40,220" class="s-box2"/>
+        <text x="80" y="232" class="s-sub">시점 2 (나중)</text>
+        <path d="M72 205 L796 51" class="r-s" marker-end="url(#arwR)"/>
+        <text x="330" y="196" class="r-t">통과 → sdf = +1 자유공간 투표</text>
+
+        <!-- 벽 -->
+        <rect x="800" y="30" width="22" height="210" rx="2" class="s-box2"/>
+        <text x="811" y="22" class="s-sub t-mid">실제 벽</text>
+
+        <!-- 결과 -->
+        <rect x="520" y="196" width="360" height="60" rx="5" class="s-box"/>
+        <text x="700" y="220" class="s-lab t-mid">평균 sdf 가 밴드를 벗어남</text>
+        <text x="700" y="240" class="s-sub t-mid">→ solid 해제 · onCleared → 통행 격자에서 unobserve</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>철회(retraction).</b> TSDF는 복셀이 solid에서 <b>내려올 수</b> 있다. 그래서 시스템 전체가
+      <span class="m">onSolid</span> / <span class="m">onCleared</span> 양방향 콜백으로 설계돼 있고,
+      통행 격자에 <span class="m">unobserve()</span>가 존재한다.
+    </figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/tsdf-grid.js<span class="ln">L248–250 · _isSolid()</span></div>
+<pre>_isSolid(cell) {
+  return cell.weight &gt;= this.minWeight &amp;&amp; Math.abs(cell.tsdf) &lt; this.surfaceBand;
+}</pre>
+    <div class="code-note">
+      <b>누적 가중치가 문턱 이상</b>이고(<span class="m">weight ≥ 3</span>),
+      <b>평균 부호거리가 0 근처</b>일 것. 두 조건 중 하나라도 깨지면 복셀은 표면이 아니다.
+      여기서 <span class="m">weight</span>는 관측 <b>횟수가 아니라 거리 가중치의 합</b>이다 —
+      먼 샘플일수록 노이즈가 크므로 <span class="m">w = min(1, 2 m / L)</span>로 약하게 반영된다.
+      가까이서 본 표면은 3프레임이면 확정되지만, <b>4 m 밖에서 본 표면은 6프레임이 동의해야</b> 같은 문턱에 닿는다.
+    </div>
+  </div>
+
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th></th><th>단순 카운팅 (12단계)</th><th>TSDF fusion (14단계 · 현재 기본)</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>증거의 종류</td>
+        <td>양성만 — “여기 점이 찍혔다”</td>
+        <td>양성 + <strong>음성</strong> — “여기를 광선이 통과했다”</td>
+      </tr>
+      <tr>
+        <td>허공 노이즈</td>
+        <td><span class="pill no">영구 확정</span> 3시점에서 우연히 겹치면 끝</td>
+        <td><span class="pill ok">철회 가능</span> 나중 광선이 통과하면 해제</td>
+      </tr>
+      <tr>
+        <td>성긴 바닥</td>
+        <td>구멍 숭숭</td>
+        <td>근처 샘플이 하나의 연속 면으로 융합</td>
+      </tr>
+      <tr>
+        <td>먼 거리 샘플</td>
+        <td>가까운 것과 동등하게 1표</td>
+        <td>가중치 <span class="m">min(1, 2m / L)</span> — 더 많은 프레임의 동의를 요구</td>
+      </tr>
+      <tr>
+        <td>저장 스캔 2개 실측</td>
+        <td>기준</td>
+        <td class="num">허공 복셀 −35 % · 막힌 칸 −40 %</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>드리프트와 앵커 — 좌표계가 흔들리는 문제</h3>
+  <p>
+    AR에서 가장 배신당하기 쉬운 부분이다. <span class="pill">local</span> 기준 공간의 원점은
+    “세션 시작 시 폰이 있던 곳”인데, 이것은 <strong>추적기가 계속 수정하는 추정치</strong>다.
+    무늬 없는 복도를 걸었다 돌아오면 ARCore가 자기 위치 추정을 툭 보정하는데,
+    우리가 저장해둔 8만 개 복셀 좌표는 <em>따라 움직이지 않는다.</em>
+  </p>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+      <svg viewBox="0 0 1020 300" role="img" aria-label="드리프트 보정이 일어났을 때 앵커가 없으면 저장된 복셀 지도만 방과 어긋나지만, 원점에 앵커를 박아두면 앵커 포즈 갱신 하나로 지도 전체가 방에 다시 맞춰진다는 세 단계 비교 그림">
+        <!-- ① -->
+        <text x="20" y="46" class="s-lab">① 지도 생성 직후</text>
+        <rect x="20" y="70" width="290" height="170" rx="4" class="s-box2"/>
+        <g>
+          <rect x="42" y="90" width="246" height="128" fill="url(#cell18)" stroke="var(--ray-line)" stroke-width="1.4"/>
+          <circle cx="200" cy="180" r="7" class="a-f"/>
+        </g>
+        <circle cx="42" cy="90" r="5" fill="none" stroke="var(--ink-2)" stroke-width="1.6"/>
+        <text x="165" y="268" class="s-sub t-mid">복셀 좌표 = 세션 시작 위치 기준</text>
+
+        <!-- ② -->
+        <text x="360" y="46" class="s-lab">② 드리프트 보정 — 앵커 없음</text>
+        <rect x="360" y="70" width="290" height="170" rx="4" class="s-box2"/>
+        <g transform="rotate(-9 505 155) translate(22 12)">
+          <rect x="382" y="90" width="246" height="128" fill="url(#cell18)" stroke="var(--ray-line)" stroke-width="1.4"/>
+          <circle cx="540" cy="180" r="7" class="b-f"/>
+        </g>
+        <path d="M598 206 L634 228" class="b-s"/>
+        <text x="638" y="234" class="b-t">벽 속</text>
+        <text x="505" y="268" class="s-sub t-mid">원점이 재추정되어 지도만 어긋난다</text>
+
+        <!-- ③ -->
+        <text x="700" y="46" class="s-lab">③ 드리프트 보정 — 앵커 기준</text>
+        <rect x="700" y="70" width="290" height="170" rx="4" class="s-box2"/>
+        <g>
+          <rect x="722" y="90" width="246" height="128" fill="url(#cell18)" stroke="var(--ray-line)" stroke-width="1.4"/>
+          <circle cx="880" cy="180" r="7" class="a-f"/>
+        </g>
+        <circle cx="722" cy="90" r="7" class="a-s"/>
+        <circle cx="722" cy="90" r="3" class="a-f"/>
+        <path d="M760 78 Q800 62 838 78" class="a-s s-dash" marker-end="url(#arwA)"/>
+        <text x="845" y="290" class="a-t t-end">앵커 포즈가 지도를 끌고 온다</text>
+        <text x="845" y="268" class="s-sub t-end">못 하나의 포즈만 갱신 → 지도 전체가 따라옴</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>XRAnchor 는 현실에 박은 못이다.</b> 플랫폼이 매 프레임 “그 못이 지금 좌표계로는 어디인지”를
+      다시 알려주므로, 드리프트 보정이 일어나면 <b>변환 행렬 하나만 바뀌고</b> 지도 전체가 통째로 따라온다.
+      8만 개 복셀을 갱신하지 않는다.
+    </figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/map-anchor.js<span class="ln">L107–124 · 좌표계 왕복</span></div>
+<pre>toWorld([x, y, z]) {                <span class="c">// 지도 좌표 → 현재 월드 (그릴 때)</span>
+  const r = rotate(this.orientation, [x, y, z]);
+  return [r[0] + this.position[0], r[1] + this.position[1], r[2] + this.position[2]];
+}
+
+toAnchor([x, y, z]) {               <span class="c">// 현재 월드 → 지도 좌표 (저장할 때)</span>
+  const [qx, qy, qz, qw] = this.orientation;
+  return rotate([-qx, -qy, -qz, qw],
+    [x - this.position[0], y - this.position[1], z - this.position[2]]);
+}</pre>
+    <div class="code-note">
+      앵커를 지원하지 않는 기기에서는 포즈가 항등(identity)으로 남아 <b>두 함수가 그대로 항등함수</b>가 된다.
+      호출부는 지원 여부를 분기하지 않는다 — <span class="m">고정 local</span> 폴백.
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ 03 정합 ═══════════════ -->
+<section class="chapter" id="c3">
+  <div class="chapter-head">
+    <span class="chapter-num">03</span>
+    <h2>하츄핑을 그 위에 얹기</h2>
+    <span class="kicker">정합 · 정규화 · 가림</span>
+  </div>
+
+  <p>
+    하츄핑의 위치는 <strong>지도(앵커) 좌표계</strong>에 있고, 렌더링 직전에
+    <span class="m">toWorld()</span>로 현재 월드 좌표로 변환된다. three.js의 WebXR 매니저가
+    가상 카메라를 매 프레임 <span class="m">XRViewerPose</span>에 맞춰 놓기 때문에
+    <em>가상 카메라와 실제 카메라의 투영행렬이 동일</em>해지고, 그려진 픽셀이 영상 위 정확한 자리에 앉는다.
+  </p>
+
+  <h3>모델 정규화</h3>
+  <p>
+    스캔한 GLB는 자기 마음대로의 스케일과 원점을 갖고 온다. 바운딩 박스로부터
+    <strong>높이 34 cm에 맞추는 균일 스케일</strong>과 <strong>바닥이 y = 0에 닿고 수평 중심이 원점에 오는 오프셋</strong>을
+    계산해 “표면 위에 서 있는 모델”로 만든다.
+  </p>
+
+  <h3>가림(occlusion) — 완전히 다른 두 방식</h3>
+  <p>
+    현실 물체가 하츄핑을 가리려면, 현실의 거리가 <strong>렌더러의 깊이 버퍼에 들어와야</strong> 한다.
+    이 프로젝트에는 그 방법이 두 가지 있고, 모드마다 다른 쪽을 쓴다.
+  </p>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+      <svg viewBox="0 0 1000 345" role="img" aria-label="왼쪽은 깊이 메시로 픽셀 단위 가림을 하다가 노이즈 셀 하나에 캐릭터 전체가 사라지는 경우, 오른쪽은 몸을 일곱 개 점으로 대표시켜 가시도를 비율로 재는 방식의 비교">
+        <!-- A -->
+        <text x="250" y="42" class="s-lab t-mid">A · 픽셀 단위 — 깊이 메시</text>
+        <rect x="40" y="66" width="420" height="212" rx="4" class="s-box2"/>
+        <rect x="40" y="66" width="420" height="210" fill="url(#cell30)"/>
+        <g opacity="0.34">
+          <ellipse cx="250" cy="196" rx="30" ry="38" class="a-bg" stroke-dasharray="4 3"/>
+          <circle cx="250" cy="145" r="24" class="a-bg" stroke-dasharray="4 3"/>
+        </g>
+        <rect x="235" y="156" width="30" height="30" class="b-bg"/>
+        <path d="M212 128 L288 224 M288 128 L212 224" class="b-s" stroke-width="2.2"/>
+        <text x="250" y="300" class="b-t t-mid">노이즈 셀 하나 → 캐릭터 전체가 사라진다</text>
+        <text x="250" y="322" class="s-sub t-mid">80×60 · 66 ms 갱신 · 2 m 에서 몸은 겨우 몇 셀</text>
+
+        <!-- B -->
+        <text x="750" y="42" class="s-lab t-mid">B · 물체 단위 — 7점 실루엣</text>
+        <rect x="520" y="66" width="460" height="212" rx="4" class="s-box2"/>
+        <polygon points="536,168 566,176 566,190 536,198" class="s-box"/>
+        <text x="551" y="216" class="s-sub t-mid">카메라</text>
+
+        <!-- 장애물 -->
+        <rect x="690" y="172" width="16" height="60" rx="2" class="s-box"/>
+        <text x="698" y="248" class="s-sub t-mid">의자 등받이</text>
+
+        <!-- 실루엣 -->
+        <ellipse cx="800" cy="188" rx="26" ry="32" class="a-bg"/>
+        <circle cx="800" cy="146" r="20" class="a-bg"/>
+
+        <!-- 통과 광선 3 -->
+        <path d="M568 180 L796 148" class="r-s"/>
+        <path d="M568 181 L780 164" class="r-s"/>
+        <path d="M568 181 L812 164" class="r-s"/>
+        <!-- 막힌 광선 4 -->
+        <path d="M568 182 L690 180" class="b-s s-dash"/>
+        <path d="M568 183 L690 182" class="b-s s-dash"/>
+        <path d="M568 184 L690 190" class="b-s s-dash"/>
+        <path d="M568 186 L690 200" class="b-s s-dash"/>
+
+        <!-- 샘플 점 -->
+        <circle cx="800" cy="148" r="4" class="r-f"/>
+        <circle cx="784" cy="164" r="4" class="r-f"/>
+        <circle cx="816" cy="164" r="4" class="r-f"/>
+        <circle cx="800" cy="188" r="4" class="b-f"/>
+        <circle cx="777" cy="188" r="4" class="b-f"/>
+        <circle cx="823" cy="188" r="4" class="b-f"/>
+        <circle cx="800" cy="220" r="4" class="b-f"/>
+
+        <text x="750" y="300" class="a-t t-mid">가시도 3 / 7 = 0.43 → 채움 속도 0.62 배 · 모델 반투명</text>
+        <text x="750" y="322" class="s-sub t-mid">샘플 하나가 틀려도 답은 1/7 만 움직인다</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>왜 도망 모드는 픽셀 컷을 끄는가.</b> 2 m 거리에서 20 cm짜리 하츄핑은 깊이 격자에서 몇 셀밖에
+      차지하지 않는다. 셀 하나의 노이즈나 빠른 회전 시 메시 지연으로 <b>앞에 아무것도 없는데</b>
+      캐릭터가 통째로 사라진다. 대신 몸을 7개 점으로 대표시켜 <b>비율</b>로 답한다.
+    </figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/line-of-sight.js<span class="ln">L50–72 · bodySampleOffsets()</span></div>
+<pre><span class="c">// 시야 방향에 수직인 가로축 — 카메라가 실제로 마주하는 실루엣</span>
+const sx = planar &gt; 1e-6 ? -dz / planar : 1;
+const sz = planar &gt; 1e-6 ?  dx / planar : 0;
+const half = bodyHeightM / 2;
+
+return [
+  [0, 0, 0],                                  <span class="c">// centre of mass</span>
+  [0, half * 0.8, 0],                         <span class="c">// head</span>
+  [0, -half * 0.8, 0],                        <span class="c">// feet</span>
+  [sx * bodyRadiusM, 0, sz * bodyRadiusM],    <span class="c">// left flank</span>
+  [-sx * bodyRadiusM, 0, -sz * bodyRadiusM],  <span class="c">// right flank</span>
+  [sx * bodyRadiusM * 0.7, half * 0.5, sz * bodyRadiusM * 0.7],
+  [-sx * bodyRadiusM * 0.7, half * 0.5, -sz * bodyRadiusM * 0.7],
+];</pre>
+    <div class="code-note">
+      이 7점을 정의하는 곳은 <a class="src" href="src/line-of-sight.js">line-of-sight.js</a>지만,
+      <b>검거 판정이 실제로 쓰는 것은</b> <a class="src" href="src/live-visibility.js">live-visibility.js</a> —
+      <b>지금 이 프레임의 깊이 영상</b>에 대고 같은 7점을 묻는 쪽이다.
+      같은 파일의 복셀 지도 판정(<span class="m">segmentBlocked</span>)은 게임에서 더 이상 호출되지 않는다.
+      얼어붙은 지도는 드리프트에 대해 정직하지 않기 때문이다.
+    </div>
+  </div>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/live-visibility.js<span class="ln">L88–101 · 실측 가시도</span></div>
+<pre>for (const [ox, oy, oz] of offsets) {
+  const projected = projectToView([to[0]+ox, to[1]+oy, to[2]+oz], invViewMatrix, projectionMatrix);
+  if (!projected) continue;              <span class="c">// 화면 밖 = “못 잰다”, 절대 “가려짐”이 아니다</span>
+  sampled += 1;
+  const depth = readDepth(projected.u, projected.v);
+  <span class="hi">const blocked = depth &gt; 0 &amp;&amp; depth &lt; projected.depthM - clearanceM;</span>
+  if (!blocked) clear += 1;
+}
+return sampled === 0 ? null : clear / sampled;</pre>
+    <div class="code-note">
+      <span class="m">projectToView()</span>는 <span class="m">depthSampleToWorld()</span>의 <b>정확한 역함수</b>다 —
+      같은 (u, v) 규약, 같은 −Z 깊이. <span class="m">clearanceM = 0.25 m</span>는 ARCore 깊이 오차(2 m에서 수 cm)가
+      가림으로 오독되지 않게 하는 여유다.
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ 04 지형 ═══════════════ -->
+<section class="chapter" id="c4">
+  <div class="chapter-head">
+    <span class="chapter-num">04</span>
+    <h2>“무엇이 있다”를 “설 수 있다”로</h2>
+    <span class="kicker">통행 격자</span>
+  </div>
+
+  <p>
+    복셀 지도는 <em>점유</em>만 안다. 도망은 <em>“여기 설 수 있나, 여기서 저기로 갈 수 있나”</em>가 필요하다.
+    방을 위에서 내려다본 <strong>20 cm 셀 격자</strong>로 투영하고, 셀마다 높이를
+    <strong>10 cm 슬랩</strong>으로 쪼개 점유 여부를 <strong>64비트 비트마스크</strong>로 저장한다.
+  </p>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+      <svg viewBox="0 0 940 430" role="img" aria-label="한 셀의 세로 단면. 바닥과 책상 상판은 위로 34센티미터가 비어 있어 설 수 있는 레벨이 되지만, 천장은 바닥에서 0.85미터를 넘으므로 제외된다">
+        <!-- 좌측 비트마스크 -->
+        <text x="150" y="88" class="s-mono t-mid">슬랩 비트마스크</text>
+        <rect x="110" y="100" width="80" height="280" class="s-box2"/>
+        <g class="s-grid">
+          <path d="M110 120 H190 M110 140 H190 M110 160 H190 M110 180 H190 M110 200 H190 M110 220 H190 M110 240 H190 M110 260 H190 M110 280 H190 M110 300 H190 M110 320 H190 M110 340 H190 M110 360 H190"/>
+        </g>
+        <rect x="110" y="360" width="80" height="20" class="a-bg"/>
+        <rect x="110" y="240" width="80" height="20" class="a-bg"/>
+        <rect x="110" y="120" width="80" height="20" class="s-box" fill="var(--surface-2)"/>
+        <g class="s-num t-end">
+          <text x="104" y="374">1</text><text x="104" y="354">0</text><text x="104" y="334">0</text>
+          <text x="104" y="314">0</text><text x="104" y="294">0</text><text x="104" y="274">0</text>
+          <text x="104" y="254">1</text><text x="104" y="234">0</text><text x="104" y="214">0</text>
+          <text x="104" y="194">0</text><text x="104" y="174">0</text><text x="104" y="154">0</text>
+          <text x="104" y="134">1</text><text x="104" y="114">0</text>
+        </g>
+        <text x="150" y="400" class="s-sub t-mid">셀 하나 = 20×20 cm</text>
+
+        <!-- 우측 단면도 -->
+        <rect x="240" y="360" width="660" height="20" class="s-box2"/>
+        <text x="270" y="352" class="s-sub">바닥</text>
+
+        <rect x="560" y="240" width="260" height="20" class="s-box2"/>
+        <rect x="576" y="260" width="14" height="100" class="s-box2"/>
+        <rect x="790" y="260" width="14" height="100" class="s-box2"/>
+
+        <rect x="240" y="120" width="660" height="20" class="s-box2"/>
+        <text x="252" y="112" class="s-sub">천장 · 상단 구조물</text>
+
+        <!-- 0.85 m 상한 -->
+        <line x1="240" y1="210" x2="900" y2="210" class="a-s s-dash"/>
+        <text x="896" y="202" class="a-t t-end">바닥 + 0.85 m — 설 수 있는 면의 상한</text>
+
+        <!-- 바닥 하츄핑 -->
+        <ellipse cx="380" cy="332" rx="15" ry="21" class="a-bg"/>
+        <circle cx="380" cy="304" r="12" class="a-bg"/>
+        <path d="M340 360 V292" class="s-line s-dash" marker-start="url(#arw)" marker-end="url(#arw)"/>
+        <text x="334" y="330" class="s-sub t-end">34 cm 헤드룸</text>
+        <text x="404" y="352" class="s-mono">레벨 0</text>
+
+        <!-- 책상 하츄핑 -->
+        <ellipse cx="690" cy="212" rx="15" ry="21" class="a-bg"/>
+        <circle cx="690" cy="184" r="12" class="a-bg"/>
+        <path d="M650 240 V172" class="s-line s-dash" marker-start="url(#arw)" marker-end="url(#arw)"/>
+        <text x="644" y="210" class="s-sub t-end">34 cm</text>
+        <text x="714" y="234" class="s-mono">레벨 1</text>
+
+        <!-- 천장 배제 -->
+        <path d="M262 132 L286 156 M286 132 L262 156" class="b-s" stroke-width="2.2"/>
+        <text x="300" y="150" class="b-t">위가 비어 있어도 바닥 + 0.85 m 초과 → 제외</text>
+
+        <text x="690" y="400" class="s-sub t-mid">책상 밑 바닥도 그대로 레벨 0 — 한 셀이 두 레벨을 가진다</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>한 셀이 여러 레벨을 갖는다는 것이 핵심.</b> 책상 밑 바닥과 책상 위가 별개 노드이므로
+      하츄핑이 가구 위로 올라갈 수 있다. 상한이 없으면 <b>천장은 기하학적으로 완벽한 발판</b>이다 —
+      평평하고, 위가 뚫려 있다.
+    </figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/traversal-grid.js<span class="ln">L444–468 · levels()</span></div>
+<pre>for (let slab = 0; slab &lt; this.slabCount; slab += 1) {
+  if (!this.hasSlab(cell, slab)) continue;
+  <span class="c">// Too high above the floor to be anywhere a small character could get.</span>
+  <span class="hi">if (this.slabTopY(slab) &gt; ceiling) break;</span>
+  if (slab + this.headroomSlabs &gt;= this.slabCount) break;
+  let clear = true;
+  for (let above = 1; above &lt;= this.headroomSlabs; above += 1) {
+    <span class="hi">if (this.hasSlab(cell, slab + above)) { clear = false; break; }</span>
+  }
+  if (clear) levels.push(this.slabTopY(slab));
+}</pre>
+    <div class="code-note">
+      설 수 있다 = <b>점유된 슬랩</b> + <b>위로 몸 높이(34 cm)만큼 비어 있음</b> + <b>바닥에서 0.85 m 이내</b>.
+    </div>
+  </div>
+
+  <h3>노이즈를 막는 3중 방어</h3>
+  <ul>
+    <li><strong>슬랩당 최소 4개 복셀</strong> — 점 하나로 20×20 cm 발판이 생기지 않게. 완전히 관측된 평평한 바닥은 슬랩에 16개를 남기므로 4는 여유롭다.</li>
+    <li><strong>바닥 히스토그램</strong> — Y축 히스토그램에서 셀이 가장 많이 몰린 슬랩을 바닥으로 잡는다. 바닥 높이를 정하는 것은 <b>이것 하나뿐</b>이다.</li>
+    <li><strong><span class="m">hasRaisedSupport</span></strong> — 바닥에서 40 cm 이상 뜬 발판은 8-이웃 중 최소 2개가 비슷한 높이의 발판을 가져야 인정. 진짜 책상은 8/8, 허공의 노이즈 덩어리는 0/8.</li>
+  </ul>
+
+  <h3>지도를 얼린다 — 스캔과 플레이를 가르는 선</h3>
+  <p>
+    지도는 <strong>맵 생성 단계에서만 자란다.</strong> <span class="m">맵 생성 종료</span>를 누르는 순간
+    <span class="m">freezeMap()</span>이 깊이 공급을 끊고, 이후 도망·검거는 <strong>얼어붙은 지도 위에서만</strong> 돈다.
+    플레이 중에는 복셀 하나도 추가되지 않는다.
+  </p>
+  <div class="note">
+    <span class="tag">왜 얼리는가</span>
+    <p>
+      뛰고 있는 경로 밑에서 지형이 바뀌면 안 되기 때문이다. A*가 계산한 경로의 한 칸이
+      다음 프레임에 사라지면 하츄핑은 허공을 딛는다. 게다가 플레이 중에는 폰이 하츄핑을 쫓느라
+      빠르게 흔들려서 <b>스캔 품질이 가장 나쁜 구간</b>이다 — 그 관측을 지도에 섞으면
+      맵 생성 때 공들여 모은 것을 오염시킨다. 얼리는 대신 <b>가림 판정만 실시간 깊이</b>를 쓴다.
+    </p>
+  </div>
+  <p>
+    시작 조건도 여기서 걸린다. 걸을 수 있는 칸이 <strong>70칸(약 2.8 m²)</strong>에 못 미치면
+    도망이 시작되지 않고 <span class="m">“지도가 아직 부족합니다”</span>가 뜬다. 이 문턱은
+    <b>가장 얇은 정직한 스캔보다 아래</b>에 있어야 한다 — 높게 잡으면 짧게 걸은 방에서
+    하츄핑이 조용히 영영 나타나지 않는다.
+  </p>
+  <div class="note">
+    <span class="tag">선택 사항 · <span class="m">?floor=ransac</span></span>
+    <p>
+      성긴 바닥에 구멍이 많을 때를 위한 옵션이다. 복셀에 RANSAC으로 <b>수평에 가까운 평면</b>을 맞춰
+      “일관된 바닥이 존재한다”를 확인하고, 그 근거로 관측이 빠진 칸을 메운다.
+      다만 <b>평면의 높이는 쓰지 않는다</b> — 밀도가 가장 높은 면이 책상일 수도, 가장 낮은 점이
+      마룻바닥 아래 노이즈일 수도 있어서, 실제로 하츄핑이 바닥 밑으로 가라앉은 적이 있다.
+      높이는 어디까지나 히스토그램이 정하고, 평면은 <b>구멍 메우기에만</b> 쓴다.
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════════ 05 도망 ═══════════════ -->
+<section class="chapter" id="c5">
+  <div class="chapter-head">
+    <span class="chapter-num">05</span>
+    <h2>하츄핑은 어떻게 도망다니는가</h2>
+    <span class="kicker">엣지 · 비용 · 탐색</span>
+  </div>
+
+  <p>
+    노드는 <span class="m">(cx, cz, level)</span>, 엣지는 8방향 이웃의 <strong>모든 레벨</strong>에 대해 생성된다.
+    높이차가 엣지의 종류를 정하고, 그 이상은 <em>엣지 자체가 만들어지지 않는다</em> —
+    이것이 하츄핑을 벽 밖에, 선반 아래에 붙잡아 두는 장치다.
+  </p>
+
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>이웃 레벨과의 높이차</th><th>결과</th><th>추가 비용</th></tr></thead>
+    <tbody>
+      <tr><td class="num">≤ 0.15 m</td><td><span class="pill ok">WALK</span> 걷기</td><td>없음</td></tr>
+      <tr><td class="num">0.15 ~ 0.95 m 상승</td><td><span class="pill mid">JUMP</span> 점프 · 단 <span class="m">hasRaisedSupport</span> 통과 시</td><td class="num">0.6 + 높이 × 2.0</td></tr>
+      <tr><td class="num">하강 ~ 1.2 m</td><td><span class="pill mid">JUMP</span> 내려오기</td><td class="num">0.6 + 높이 × 0.5</td></tr>
+      <tr><td class="num">그 밖</td><td><span class="pill no">엣지 없음</span></td><td>—</td></tr>
+      <tr><td>바닥보다 높은 모든 스텝</td><td>—</td><td class="num">+ 고도 × 0.1 (매 스텝)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+
+  <figure>
+    <div class="fig-scroll">
+      <svg viewBox="0 0 460 300" role="img" aria-label="두 책상 사이를 이동할 때, 모든 레벨에 엣지가 있고 고도세가 부과되므로 바닥을 경유하는 경로가 가장 싸다는 그림">
+        <g transform="translate(-480,0)">
+        <text x="720" y="40" class="s-lab t-mid">모든 레벨을 엣지로 + 고도세</text>
+        <line x1="520" y1="250" x2="920" y2="250" class="s-line"/>
+        <rect x="560" y="176" width="100" height="14" class="s-box2"/>
+        <rect x="576" y="190" width="10" height="60" class="s-box2"/>
+        <rect x="634" y="190" width="10" height="60" class="s-box2"/>
+        <rect x="770" y="176" width="100" height="14" class="s-box2"/>
+        <rect x="786" y="190" width="10" height="60" class="s-box2"/>
+        <rect x="844" y="190" width="10" height="60" class="s-box2"/>
+        <circle cx="610" cy="164" r="9" class="a-f"/>
+        <path d="M620 168 Q664 208 700 240" class="a-s" marker-end="url(#arwA)"/>
+        <path d="M710 240 Q752 206 810 168" class="a-s" marker-end="url(#arwA)"/>
+        <text x="636" y="216" class="s-mono t-end">내려오기 ×0.5</text>
+        <text x="790" y="216" class="s-mono">오르기 ×2.0</text>
+        <text x="720" y="120" class="s-mono t-mid">고도세 0.1 / m · 매 스텝</text>
+        <text x="720" y="284" class="a-t t-mid">금지가 아니라 과세 — 바닥 경로가 저절로 싸진다</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>
+      <b>비용 함수가 곧 성격이다.</b> 가구 사용을 금지하지 않고 비싸게 만들었다.
+      작은 생물은 대체로 바닥을 달리고, 가구는 예외여야 한다 — 그 “대체로”를 숫자로 적은 것이 고도세다.
+    </figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/traversal-grid.js<span class="ln">L596–608 · neighbors() 비용</span></div>
+<pre><span class="c">// Climbing is charged double its height, dropping half: coming down</span>
+<span class="c">// must always look like the easy direction.</span>
+const jumpCost = jump
+  ? this.jumpBaseCost + (rise &gt; 0
+    ? rise * this.climbCostPerM        <span class="c">// 2.0 / m</span>
+    : Math.abs(rise) * this.dropCostPerM)  <span class="c">// 0.5 / m</span>
+  : 0;
+<span class="c">// Toll for walking above the floor, per step and proportional to altitude.</span>
+<span class="hi">const heightToll = floorY === null ? 0
+  : Math.max(0, levels[level] - floorY - this.slabHeight / 2) * this.heightTollPerM;</span>
+
+out.push({ cx: nx, cz: nz, level, rise, move: jump ? MOVE.JUMP : MOVE.WALK,
+           cost: planar + jumpCost + heightToll });</pre>
+  </div>
+
+  <h3>목표 선택과 경로</h3>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+      <svg viewBox="0 0 1020 300" role="img" aria-label="도망 알고리즘 세 단계. 도달 가능 영역을 flood fill 로 구하고, 후보 셀을 점수화해 목표를 고르고, A 스타로 경로를 찾는다">
+        <defs>
+          <g id="fleeBase">
+            <rect x="0" y="80" width="300" height="180" rx="3" fill="none" stroke="var(--rule)" stroke-width="1.4"/>
+            <rect x="0" y="80" width="300" height="180" fill="url(#cell20)"/>
+            <rect x="60" y="100" width="20" height="80" class="s-box" fill="var(--rule)"/>
+            <rect x="180" y="160" width="80" height="20" class="s-box" fill="var(--rule)"/>
+          </g>
+        </defs>
+
+        <!-- ① -->
+        <text x="20" y="60" class="s-lab">① reachableFrom — flood fill</text>
+        <rect x="20" y="80" width="300" height="180" rx="3" fill="var(--ray-soft)"/>
+        <rect x="240" y="80" width="80" height="60" fill="var(--surface-2)"/>
+        <rect x="240" y="80" width="80" height="60" fill="url(#hatch)" opacity="0.5"/>
+        <use href="#fleeBase" x="20" y="0"/>
+        <rect x="240" y="80" width="80" height="60" fill="none" stroke="var(--far)" stroke-width="1.4"/>
+        <text x="280" y="114" class="s-mono t-mid" style="fill:var(--far)">닿을 수 없음</text>
+        <circle cx="70" cy="230" r="8" class="a-f"/>
+        <text x="170" y="284" class="s-sub t-mid">벽 꼭대기는 “설 수 있지만 갈 수 없다”</text>
+
+        <!-- ② -->
+        <text x="380" y="60" class="s-lab">② chooseFleeTarget — 점수화</text>
+        <rect x="380" y="80" width="300" height="180" rx="3" fill="var(--surface-2)"/>
+        <use href="#fleeBase" x="380" y="0"/>
+        <circle cx="430" cy="230" r="8" class="a-f"/>
+        <rect x="400" y="200" width="80" height="40" fill="url(#hatch)" opacity="0.45"/>
+        <text x="440" y="256" class="s-mono t-mid">최근 방문 −6.0</text>
+        <polygon points="600,110 606,124 621,124 609,133 614,147 600,138 586,147 591,133 579,124 594,124" class="a-f"/>
+        <text x="600" y="102" class="a-t t-mid">선택</text>
+        <path d="M446 224 L580 132" class="s-thin s-dash" marker-end="url(#arw)"/>
+        <circle cx="500" cy="245" r="10" class="s-thin" fill="none"/>
+        <path d="M500 239 v12 M494 245 h12" class="s-thin"/>
+        <text x="500" y="272" class="s-mono t-mid">플레이어</text>
+        <text x="700" y="284" class="s-sub t-end">멀수록 + · 최근 방문 − · 진행방향 + · 가구 −</text>
+
+        <!-- ③ -->
+        <text x="720" y="60" class="s-lab">③ findPath — A*</text>
+        <rect x="720" y="80" width="300" height="180" rx="3" fill="var(--surface-2)"/>
+        <use href="#fleeBase" x="720" y="0"/>
+        <circle cx="770" cy="230" r="8" class="a-f"/>
+        <polyline points="770,230 790,210 810,190 830,190 850,170 870,150 890,130 910,130 940,130"
+                  class="a-s" stroke-width="2.4" marker-end="url(#arwA)"/>
+        <text x="870" y="284" class="s-sub t-mid">격자 엣지만 따라간다 — 순간이동 불가</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>세 단계.</b> ① 도달 가능 집합을 한 번 구해 불가능한 목표에 재계획을 낭비하지 않고,
+      ② 그 안에서 점수가 가장 높은 셀을 고르고, ③ A*로 격자 엣지만 밟아 간다.
+      경로가 격자 위에만 있으므로 <b>정상 플레이에서는 벽 통과와 순간이동이 구조적으로 불가능</b>하다.
+      예외는 아래 <b>끼임 탈출</b> 하나뿐이고, 그것은 의도적으로 규칙을 깬다.
+    </figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/chase-path.js<span class="ln">L149–176 · chooseFleeTarget() 점수</span></div>
+<pre><span class="c">// 플레이어에게서 멀수록 좋다 — 단 8 m 에서 포화. 안 그러면 늘 같은 구석으로 달린다</span>
+score += Math.min(away, 8) * 1.0;
+
+<span class="c">// 방금 지나온 곳은 고르지 않는다 (15초 창)</span>
+if (visitedAt !== undefined &amp;&amp; now - visitedAt &lt; recentWindowMs) {
+  const freshness = 1 - (now - visitedAt) / recentWindowMs;
+  <span class="hi">score -= 6.0 * freshness;</span>
+}
+
+<span class="c">// 되돌아가기보다 하던 방향으로 계속</span>
+score += dot * 1.6;
+if (travel &gt; maxDistance) score -= (travel - maxDistance) * 1.2;  <span class="c">// 순간이동처럼 보임</span>
+if (level &gt; 0) score += raisedTargetScore;                        <span class="c">// 가구는 예외</span>
+score += random() * 1.2;                                          <span class="c">// 예측 불가능성</span></pre>
+    <div class="code-note">
+      <b>최근 방문 감점이 “제자리 맴돌기”를 막는 장치다.</b> 이것이 없으면 하츄핑은
+      점수가 가장 높은 두 셀 사이를 왕복한다.
+    </div>
+  </div>
+
+  <h3>속도 — 잡을 수 있게 만드는 숫자</h3>
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/chase-runner.js<span class="ln">L18–26 · 속도 밴드</span></div>
+<pre><span class="c">// Measured on device: a player holding a phone at arm's length and watching</span>
+<span class="c">// the screen walks nowhere near normal walking pace. The first tuning pass used</span>
+<span class="c">// roughly double these numbers and Hachuping simply could not be caught.</span>
+export const CHASE_SPEED_BANDS = Object.freeze([
+  { withinM: 1.2,      speed: 0.50 },
+  { withinM: 2.0,      speed: 0.42 },
+  { withinM: 4.0,      speed: 0.28 },
+  <span class="hi">{ withinM: Infinity, speed: 0.12 },</span>  <span class="c">// 멀면 거의 멈춘다</span>
+]);</pre>
+    <div class="code-note">
+      멀면 거의 멈춰야 한다 — 안 그러면 방 반대편으로 사라져서 <b>추격이 시작되기도 전에 끝난다.</b>
+      밴드 경계에서 튀지 않도록 속도와 회전각 모두 비율 제한(<span class="m">approachValue</span> /
+      <span class="m">approachAngle</span>)으로 부드럽게 수렴시킨다.
+    </div>
+  </div>
+
+  <h3>목적지를 언제 갈아타는가</h3>
+  <p>
+    매 프레임 경로를 따라 전진하되, 목적지를 다시 고르는 것은 <strong>세 경우뿐</strong>이다 —
+    <em>도착했거나</em>, <em>전진이 멈췄거나</em>, <em>3초가 지났고 <b>동시에</b> 그 목적지가
+    실제로 나빠졌을 때</em>. 마지막 조건의 “나빠졌다”는 <b>플레이어가 그 목적지에 하츄핑보다
+    가까워진 것</b>을 뜻한다. 그대로 달려가면 플레이어 품으로 뛰어드는 셈이기 때문이다.
+  </p>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/chase-runner.js<span class="ln">L380–396 · ensurePath()</span></div>
+<pre>const mine   = 거리(목적지, 하츄핑);
+const theirs = 거리(목적지, 플레이어);
+<span class="hi">compromised = theirs &lt; mine;</span>          <span class="c">// 플레이어가 더 가깝다 = 목적지가 상했다</span>
+
+const timerDue = now - this.lastRetargetAt &gt; this.retargetMs;   <span class="c">// 3초</span>
+<span class="hi">if (!(pathDone || stuck || (timerDue &amp;&amp; compromised))) return;</span></pre>
+    <div class="code-note">
+      <b>순수한 3초 타이머였다면 안 된다.</b> 조금 멀거나 올라가야 하는 목적지는 3초 안에 닿지 못하는데,
+      매번 타이머가 갈아치우면 영영 도착하지 못한다. 실제로 그렇게 돌던 시절 <b>가구 목적지의 84%가
+      걸어가는 도중에 폐기</b>됐고, 그래서 하츄핑이 의자 위에 있는 모습을 거의 볼 수 없었다.
+      지금은 <b>가고 있는 목적지는 웬만하면 끝까지 간다.</b>
+    </div>
+  </div>
+
+  <ul>
+    <li><strong>끼임 탈출</strong> — 재계획이 3회 연속 실패하면 플레이어 쪽으로 <b>격자 엣지를 무시한 한 칸</b>을 만들어 활강한다. 위에서 말한 “구조적으로 불가능”을 <b>의도적으로 깨는 유일한 지점</b>이다. 지도가 아무 데와도 이어지지 않는 노이즈 섬에 갇혔을 때, 벽을 스치더라도 빠져나오는 편이 벽 안에 얼어붙어 있는 것보다 낫다. 플레이어가 있는 곳은 반드시 스캔된 진짜 공간이므로 그쪽으로 가면 유효한 지형을 다시 만난다.</li>
+    <li><strong>추적 손실</strong> — <span class="m">viewerPose</span>가 없으면 하츄핑도 <span class="m">setFrozen(true)</span>로 멈춘다. 추적 끊김이 공짜 도주가 되면 안 된다.</li>
+    <li><strong>피로</strong> — 게이지가 0.4를 넘으면 속도 0.7배, 0.7을 넘으면 0.45배. 추격의 마지막 구간이 수렴한다.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════ 06 검거 ═══════════════ -->
+<section class="chapter" id="c6">
+  <div class="chapter-head">
+    <span class="chapter-num">06</span>
+    <h2>노이즈를 견디는 게임 규칙</h2>
+    <span class="kicker">잡기 게이지</span>
+  </div>
+
+  <p>
+    세 조건이 <strong>동시에</strong> 만족되면 게이지가 찬다 — 거리 2 m 이내, 화면 중심에서 20° 이내,
+    그리고 가시도. 5초를 채우면 검거다. 여기서 중요한 것은 <em>조건을 놓쳤을 때 리셋이 아니라 감쇠</em>라는 점이다.
+  </p>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+      <svg viewBox="0 0 960 310" role="img" aria-label="왼쪽은 반경 2미터 20도 원뿔 안에 하츄핑이 있어야 한다는 조건, 오른쪽은 게이지가 완전 가시에서 빠르게, 부분 가림에서 느리게 차고 범위를 벗어나면 리셋이 아니라 천천히 감쇠하는 시간 그래프">
+        <!-- 좌: 원뿔 -->
+        <text x="140" y="40" class="s-lab t-mid">거리 · 각도</text>
+        <path d="M140 240 L82 80 A170 170 0 0 1 198 80 Z" fill="var(--accent-soft)" opacity="0.5"/>
+        <path d="M140 240 L110 73 A170 170 0 0 1 170 73 Z" class="a-bg"/>
+        <path d="M110 73 A170 170 0 0 1 170 73" class="a-s"/>
+        <path d="M82 80 A170 170 0 0 1 198 80" class="s-thin s-dash"/>
+        <polygon points="132,248 148,248 140,232" class="s-line" fill="var(--ink-2)"/>
+        <text x="140" y="268" class="s-sub t-mid">플레이어</text>
+        <circle cx="152" cy="122" r="8" class="a-f"/>
+        <text x="212" y="126" class="a-t">하츄핑</text>
+        <text x="140" y="64" class="a-t t-mid">20°</text>
+        <text x="238" y="86" class="s-mono">40° — 화살표 표시</text>
+        <text x="238" y="196" class="s-mono">반경 2 m</text>
+        <path d="M148 214 L230 190" class="s-thin"/>
+
+        <!-- 우: 게이지 -->
+        <text x="670" y="40" class="s-lab t-mid">게이지 — 리셋이 아니라 감쇠</text>
+        <line x1="440" y1="80" x2="440" y2="244" class="s-thin"/>
+        <line x1="440" y1="244" x2="920" y2="244" class="s-thin"/>
+        <text x="432" y="84" class="s-num t-end">1.0</text>
+        <text x="432" y="248" class="s-num t-end">0</text>
+
+        <path d="M440 244 L520 176" class="a-s" stroke-width="2.4"/>
+        <path d="M520 176 L600 136" class="a-s s-dash" stroke-width="2.4"/>
+        <path d="M600 136 L640 156" class="b-s" stroke-width="2.4"/>
+        <path d="M640 156 L720 84" class="a-s" stroke-width="2.4"/>
+        <line x1="720" y1="76" x2="720" y2="252" class="a-s s-dash"/>
+        <circle cx="720" cy="84" r="5" class="a-f"/>
+        <text x="732" y="80" class="a-t">검거</text>
+
+        <text x="480" y="272" class="s-mono t-mid">전방 2 m</text>
+        <text x="560" y="272" class="s-mono t-mid">일부 가림</text>
+        <text x="620" y="292" class="s-mono t-mid" style="fill:var(--block)">범위 이탈</text>
+        <text x="680" y="272" class="s-mono t-mid">재진입</text>
+        <text x="880" y="290" class="s-sub t-end">이탈해도 0.12 / s 로만 줄어든다</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>왜 리셋하지 않는가.</b> AR 거리값은 흔들리고 대상은 가구 뒤로 잠깐씩 사라진다.
+      그때마다 5초를 처음부터 다시 하면 <b>어렵다</b>가 아니라 <b>고장났다</b>로 느껴진다.
+    </figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-head"><span class="dot"></span>src/capture-gauge.js<span class="ln">L129–169 · update()</span></div>
+<pre>this.inRange  = distance &lt;= this.radius;    <span class="c">// 2.0 m</span>
+this.onScreen = angleDeg &lt;= this.angleDeg;  <span class="c">// 20°</span>
+
+<span class="c">// 깊이 노이즈로 값이 깜빡이므로 약 1/4 초에 걸쳐 이징</span>
+const ease = Math.min(1, this.visibilityEasePerSecond * dt);
+this.visibility += (measured - this.visibility) * ease;
+this.visibleScale = this.scaleForVisibility(this.visibility);
+
+const filling = this.inRange &amp;&amp; this.onScreen &amp;&amp; this.holding;
+<span class="hi">const step = filling
+  ? this.fillPerSecond * dt * this.visibleScale
+  : -this.decayPerSecond * dt;</span>
+this.value = Math.min(1, Math.max(0, this.value + step));
+if (this.value &gt;= 1) this.captured = true;</pre>
+    <div class="code-note">
+      <span class="m">scaleForVisibility()</span>는 절대 0을 반환하지 않는다 —
+      <b>완전히 가려져도 0.25배로는 찬다.</b> 가시도는 실시간 깊이 영상에 대고 7점을 묻는 값인데,
+      2 m 거리의 20 cm 캐릭터는 깊이 격자에서 몇 셀밖에 되지 않아 <b>앞에 아무것도 없는데 전부 가려짐으로 읽히는</b>
+      순간이 있다. 그때 게이지가 아예 멈추면 게임이 얼어붙은 것처럼 보인다.
+    </div>
+  </div>
+
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>가시도</th><th>게이지 채움</th><th>모델 표현</th><th>왜</th></tr></thead>
+    <tbody>
+      <tr><td class="num">≥ 0.60</td><td class="num">1.00 ×</td><td>불투명</td><td>완전히 보인다</td></tr>
+      <tr><td class="num">0.15 ~ 0.60</td><td class="num">비례 (0.25 ~ 1.00 ×)</td><td>반투명</td><td>의자 다리 하나는 벽과 다르다</td></tr>
+      <tr><td class="num">≤ 0.15</td><td class="num">0.25 ×</td><td>희미한 실루엣</td><td>깊이 한 조각의 오판을 견딘다</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ═══════════════ 부록 ═══════════════ -->
+<section class="chapter" id="map">
+  <div class="chapter-head">
+    <span class="chapter-num">부록</span>
+    <h2>받은 정보 → 만든 기능</h2>
+  </div>
+
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>ARCore / WebXR 가 준 것</th><th>우리가 한 CV 처리</th><th>만들어진 게임 기능</th></tr></thead>
+    <tbody>
+      <tr><td>6DoF 카메라 포즈</td><td>포즈 델타 게이팅</td><td>키프레임 선정 · 플레이어 위치 · 조준 판정</td></tr>
+      <tr><td>투영행렬 + 뷰행렬</td><td><strong>역투영 / 재투영</strong></td><td>깊이 픽셀 → 3D 점, 3D 점 → 화면 좌표</td></tr>
+      <tr><td>CPU 깊이맵</td><td>필터링 → <strong>TSDF fusion</strong></td><td>방의 복셀 지도</td></tr>
+      <tr><td class="s-sub">〃</td><td>격자 삼각형 메시화</td><td>픽셀 단위 실세계 가림</td></tr>
+      <tr><td class="s-sub">〃</td><td>7점 재투영 비교</td><td>가시도 → 모델 불투명도 + 검거 속도</td></tr>
+      <tr><td>복셀 지도 <span class="s-sub">(파생)</span></td><td>슬랩 비트마스크 + 바닥 추정</td><td><strong>통행 격자</strong> → 하츄핑 이동</td></tr>
+      <tr><td class="s-sub">〃</td><td>A* + flood fill</td><td>도망 경로</td></tr>
+      <tr><td class="s-sub">〃</td><td>후보 셀 풀</td><td>초기 배치 · 리스폰 위치</td></tr>
+      <tr><td>XRAnchor</td><td>앵커 좌표계 변환</td><td>드리프트 보정 시 지도 전체 정합 유지</td></tr>
+      <tr><td>XRHitTest</td><td>평면 위치 · 법선</td><td>(숨바꼭질 모드) 표면 후보 · 조준 링</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="closer">
+  <div class="principles">
+    <div class="principle">
+      <h4>순수 로직과 렌더링을 파일 경계로 가른다</h4>
+      <p>
+        <span class="m">depth-math</span>, <span class="m">tsdf-grid</span>, <span class="m">traversal-grid</span>,
+        <span class="m">chase-path</span>, <span class="m">chase-runner</span>, <span class="m">line-of-sight</span>,
+        <span class="m">capture-gauge</span> — 전부 three.js·DOM·WebXR을 import 하지 않는다.
+        WebXR은 실기기 없이는 실행조차 안 되므로, 폰을 꺼내야만 확인 가능한 코드의 비율을 줄이는 것이
+        개발 속도를 좌우한다. 456개 테스트가 PC의 <span class="m">node --test</span>로 돌고,
+        TSDF 융합은 저장된 스캔 JSON에 대해 <strong>폰에서 도는 것과 완전히 동일하게</strong> 재실행된다.
+      </p>
+    </div>
+    <div class="principle">
+      <h4>“재미” 파라미터의 대부분은 CV 불확실성에 대한 방어다</h4>
+      <p>
+        게이지 감쇠, 등급제 가시도, 화살표 히스테리시스(40°/30°), 속도 밴드 평활화,
+        25 cm 깊이 여유, 7점 샘플링, 최소 4복셀 슬랩 — 전부
+        <strong>“센서가 틀렸을 때 게임이 고장난 것처럼 보이지 않게”</strong> 하는 장치다.
+        AR 게임 로직의 상당 부분은 게임 규칙이 아니라 노이즈 대응이다.
+      </p>
+    </div>
+  </div>
+
+  <div class="colophon">
+    <div><span>대상 코드</span> &nbsp; miniproject_CV_ver02 · src/ 50개 모듈 · 자동 테스트 456개</div>
+    <div><span>기술 스택</span> &nbsp; WebXR immersive-ar (Android Chrome + ARCore) · three.js 0.180 · 빌드 없는 ES 모듈 · GitHub Pages</div>
+    <div><span>공개 데모</span> &nbsp; v4-chase.html — START AR → 맵 생성 → 방 스캔 → 맵 생성 종료 → 도망 모드 시작</div>
+  </div>
+</section>
+
+</div>
