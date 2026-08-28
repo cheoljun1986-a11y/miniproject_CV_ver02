@@ -1,10 +1,12 @@
 // Is the straight line between two world points interrupted by something the
 // traversal grid believes is solid?
 //
-// Used by the capture rule: aiming at where Hachuping *is* should not fill the
-// gauge when a scanned obstacle sits in between — with the voxel occluder on,
-// the player would be staring at a sofa while the HUD claims a capture is in
-// progress.
+// NOT wired into the capture rule any more. The gauge now grades visibility
+// from the LIVE depth image (live-visibility.js, measuredVisibleFraction), which
+// is honest about the current frame where this frozen-map test is not. What
+// still ships from this file is bodySampleOffsets — the seven-point body
+// silhouette live-visibility.js reuses; segmentBlocked and visibleFraction are
+// kept as the map-only reference implementation and have tests but no callers.
 //
 // The march samples the segment every stepM and asks the grid whether that
 // point falls inside an occupied slab. Both ends get a clearance band:

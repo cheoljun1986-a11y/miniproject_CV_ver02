@@ -50,7 +50,7 @@ export class TraversalGrid {
     // A ceiling is geometrically identical to a tabletop: a thin occupied slab
     // with clear air on one side. Only its height tells them apart, so cap how
     // far above the floor a surface may be and still count as standable.
-    maxStandAboveFloor = 1.3,
+    maxStandAboveFloor = 0.85,
     // How many cells must share a slab before it is believed to be the floor.
     // A handful of stray depth points below the real floor would otherwise
     // drag the ceiling up with them.

@@ -8,8 +8,8 @@ import {
 // touches three.js, and it touches it for exactly one thing: inverting the
 // view's projection matrix, the same call depth-cloud.js:67 already makes.
 //
-// Depth is read through getDepthInMeters(u, v) at the buffer's native
-// resolution. That deliberately avoids depthInformation.data, rawValueToMeters
+// Depth is read through getDepthInMeters(u, v) on a stride-subsampled grid (see
+// _capture). That deliberately avoids depthInformation.data, rawValueToMeters
 // and normDepthBufferFromNormView — no uint16/float32 branching to get wrong.
 export class KeyframeCapture {
   constructor({
@@ -57,9 +57,11 @@ export class KeyframeCapture {
     const nativeWidth = depthInformation.width || this.fallbackWidth;
     const nativeHeight = depthInformation.height || this.fallbackHeight;
 
-    // Stride is the escape hatch when a device reports an unexpectedly large
-    // buffer. Never read the buffer across frames instead: XRCPUDepthInformation
-    // is only valid for the frame it came from.
+    // maxSamples sets the working resolution, and for the game terrain it is
+    // routinely below native: TSDF_KEYFRAME_MAX_SAMPLES (4800) halves ARCore's
+    // usual 160x120 to 80x60. Only the diagnostic's larger cap captures at
+    // native resolution. Never read the buffer across frames instead:
+    // XRCPUDepthInformation is only valid for the frame it came from.
     let stride = 1;
     while ((Math.ceil(nativeWidth / stride) * Math.ceil(nativeHeight / stride)) > this.maxSamples) {
       stride += 1;

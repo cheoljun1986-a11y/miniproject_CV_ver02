@@ -30,13 +30,20 @@ export const TERRAIN_FUSIONS = Object.freeze({ TSDF: 'tsdf', COUNT: 'count' });
 // The game's space map, built from the same keyframe pipeline as the
 // ?voxel=debug diagnostic but run as an accumulator rather than a lab:
 //
-//   - no scan window and no keyframe cap — it captures for the whole session,
-//     so the map keeps growing wherever the player walks;
+//   - no scan window and no keyframe cap of its own — it accumulates for as
+//     long as it is fed. On the chase page that is the explicit 맵 생성 phase
+//     only: freezeMap() in main.js cuts the feed before play, so the map does
+//     NOT keep growing under a running path. On app.html, which has no map
+//     button, it does run for the whole session;
 //   - keyframes are folded into the grid the moment they land and then
 //     dropped, so memory scales with room size, not time walked;
-//   - a cell reaching VOXEL_TERRAIN_MIN_OBSERVATIONS distinct viewpoints is
-//     handed to onSolid once, the same contract VoxelMap.onSolid gave the
-//     chase TraversalGrid.
+//   - confirmed cells are handed to onSolid and retracted ones to onCleared.
+//     Under the default TSDF fusion that is NOT the count contract
+//     VoxelMap.onSolid gave: solidity is weight >= minWeight with
+//     |tsdf| < surfaceBand, weight is range-weighted rather than a viewpoint
+//     tally, and a cell can fire more than once as evidence flips it. Only the
+//     'count' fusion matches VOXEL_TERRAIN_MIN_OBSERVATIONS literally, and it
+//     never retracts.
 //
 // Exposes the VoxelMap surface main.js already reads (getSolidVoxels,
 // getSolidCount, getRevision, reset) so the operator view needs no changes.

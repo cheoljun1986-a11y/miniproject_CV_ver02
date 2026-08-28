@@ -25,9 +25,10 @@ export const CAPTURE_DECAY_PER_S = 0.12;
 //   at or below HIDDEN → fills at the slow floor below
 export const CAPTURE_VISIBLE_FULL = 0.6;
 export const CAPTURE_VISIBLE_HIDDEN = 0.15;
-// Even a fully blocked sight line still fills, just slowly. The terrain is a
-// 20cm grid and Hachuping is 20cm wide, so a single cell of reconstruction
-// noise hides it completely; refusing to fill at all made those false
+// Even a fully blocked sight line still fills, just slowly. Visibility is a
+// vote of seven body points against the live depth image, and at 2m a 20cm body
+// spans only a handful of depth cells — a bad patch can read as fully covered
+// with nothing really in front of it. Refusing to fill at all made those false
 // positives feel like the game had frozen.
 export const CAPTURE_HIDDEN_FILL_SCALE = 0.25;
 // Depth noise makes a sample flicker between blocked and clear. Easing the

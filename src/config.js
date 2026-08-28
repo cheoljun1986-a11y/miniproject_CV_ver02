@@ -48,9 +48,10 @@ export const OPERATOR_STATUS_GAP_MS = 200;
 export const OPERATOR_RENDER_GAP_MS = 100;
 
 // Keyframe voxel diagnostic (?voxel=debug mode). Unlike the cloud path above,
-// capture is gated on camera motion rather than a wall clock, and every filter
-// threshold below is a starting value the on-device sliders can re-tune without
-// a rescan.
+// capture is gated on camera motion rather than a wall clock. The filter
+// thresholds the on-device sliders re-tune without a rescan are not here — they
+// are the defaults in voxel-debug-params.js; what follows is the scan window,
+// the motion gate and the capture caps, none of which a slider touches.
 // The diagnostic scan runs until the panel's stop button, for practical
 // purposes: a room takes minutes to cover, and rebuild latency is acceptable
 // there because the mode exists to inspect the map, not to play on it.
@@ -95,14 +96,21 @@ export const CHASE_MAX_DROP_M = 1.2;
 // when the geometry is real. 0.85 keeps chairs and desks (measured on five
 // room scans) and removes 84% of the high cells.
 export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 0.85;
-// Refuse to start on a bare map. Tuned down from 120 when the default terrain
-// became the keyframe/TSDF pipeline: it confirms voxels far more conservatively
-// than the old legacy map, so the same walk yields fewer walkable cells. A real
-// on-device room scan (9 keyframes, a 47-point walk) reached only 104 walkable
-// cells, so the old 120 gate never opened and the chase — and Hachuping — never
-// started. 80 cells (~3.2 m2 at 0.2 m) still rejects a genuinely bare map while
-// letting a properly-walked room begin. See tests/chase-start-gate.test.mjs.
-export const CHASE_MIN_WALKABLE_CELLS = 80;
+// Refuse to start on a bare map. Walked down 120 -> 80 -> 70 as the terrain got
+// stricter: the keyframe/TSDF pipeline confirms voxels far more conservatively
+// than the old legacy map, and CHASE_MAX_STAND_ABOVE_FLOOR_M dropping to 0.85
+// took another slice off every scan. The gate has to sit under the THINNEST
+// honest scan, not the typical one, or a short walk silently never starts the
+// chase and Hachuping simply never appears.
+//
+// Measured over the eleven on-device scans in results/ plus the test fixture,
+// all at the shipped 0.85 cap: the fixture (9 keyframes, a 47-point walk) is
+// the floor of the range at 77 walkable cells, and the next thinnest real scan
+// is 322. 70 cells (~2.8 m2 at 0.2 m) clears the fixture with margin while
+// still rejecting a genuinely bare map. See tests/chase-start-gate.test.mjs,
+// which now builds its grid with the shipped cap — it did not, which is why
+// the 0.85 change went unnoticed here.
+export const CHASE_MIN_WALKABLE_CELLS = 70;
 export const CHASE_RETARGET_MS = 3000;
 export const CHASE_STUCK_MS = 4000;
 export const CHASE_RECENT_WINDOW_MS = 15000; // how long a visited cell stays penalised
@@ -153,11 +161,13 @@ export const VOXEL_OCCLUDER_POLYGON_OFFSET_UNITS = 1;
 // than leaving a gap in the map.
 export const VOXEL_TRAVERSAL_MIN_OBSERVATIONS = 3;
 
-// Keyframe terrain — opt-in game space map (?terrain=keyframe).
-// Same gate and filters as the diagnostic, but it runs for the whole session
-// with no keyframe cap and folds each keyframe into the grid the moment it
-// lands, keeping only the voxels. Memory therefore scales with room size, not
-// with time walked.
+// Keyframe terrain — the DEFAULT game space map. ?terrain=legacy is the opt-out
+// back to the old cloud path; there is nothing to opt in to.
+// Same gate and filters as the diagnostic, but it has no keyframe cap and folds
+// each keyframe into the grid the moment it lands, keeping only the voxels.
+// Memory therefore scales with room size, not with time walked. How long it
+// accumulates is the page's call: the chase page feeds it only during 맵 생성
+// and freezes it for play, app.html feeds it for the whole session.
 export const VOXEL_TERRAIN_MIN_OBSERVATIONS = 3;
 // Wider than the diagnostic's 250ms: a keyframe costs a full-resolution depth
 // read plus filter and unproject, and mid-chase the camera never stops moving.

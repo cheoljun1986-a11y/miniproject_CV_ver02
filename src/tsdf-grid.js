@@ -22,7 +22,8 @@
 // both transitions (onSolid / onCleared) and the consumers must support
 // retraction (TraversalGrid.unobserve).
 //
-// Cost model per keyframe (160x120 depth): every accepted pixel marches
+// Cost model per keyframe (80x60 after the capture stride — see
+// TSDF_KEYFRAME_MAX_SAMPLES): every accepted pixel marches
 // (2*truncationVoxels + 1) band steps; carving marches the whole ray from
 // carveStartM to the band but only on a carveStride sub-grid of pixels and
 // only touches cells that already exist, so memory scales with surface area
@@ -361,10 +362,10 @@ export function cellCenter(cell) {
   return [cell.sumX, cell.sumY, cell.sumZ];
 }
 
-// Drops every Nth column and row of a stored keyframe. The phone captures the
-// game terrain at half resolution (TSDF_KEYFRAME_MAX_SAMPLES), so an offline
-// rebuild has to subsample the full-resolution scan the same way or it is not
-// measuring what the game runs.
+// Keeps every Nth column and row of a stored keyframe and drops the rest. The
+// phone captures the game terrain at half resolution
+// (TSDF_KEYFRAME_MAX_SAMPLES), so an offline rebuild has to subsample the
+// full-resolution scan the same way or it is not measuring what the game runs.
 export function subsampleKeyframe(keyframe, stride = 1) {
   if (stride <= 1) return keyframe;
   const width = Math.ceil(keyframe.width / stride);

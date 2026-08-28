@@ -93,8 +93,11 @@ export function resolveFusionMode(search = '') {
 
 // How the frozen map decides where the floor is and where Hachuping may stand.
 //   histogram — the built-in slab-vote floor detection (default).
-//   ransac    — fit the dominant floor plane, correct the floor height, and fill
-//               sparse-scan gaps. Opt in with ?floor=ransac for on-device A/B.
+//   ransac    — additionally RANSAC-fit a floor plane and use it to fill
+//               sparse-scan gaps. It CONFIRMS a coherent horizontal floor
+//               exists; the height stays the histogram's, because trusting the
+//               plane's own height sank Hachuping below the floorboards.
+//               Opt in with ?floor=ransac for on-device A/B.
 export const FLOOR_MODES = Object.freeze({
   HISTOGRAM: 'histogram',
   RANSAC: 'ransac',
