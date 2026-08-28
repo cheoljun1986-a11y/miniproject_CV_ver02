@@ -1,9 +1,15 @@
 // Drives Hachuping along the traversal grid while the player chases it.
 //
-// Movement is deliberately not free-form: the runner only ever advances along
+// Movement is deliberately not free-form: normal play only ever advances along
 // a path returned by findPath, one grid cell at a time, so it cannot cut
 // through a wall or jump across the room. Height changes inside the path turn
 // into a short arc, which is how it gets onto a table.
+//
+// Two recovery paths break that rule ON PURPOSE, and they are the only ones
+// that do: maybeEscape() and validateGround() splice in a single synthetic hop
+// that findPath never produced. Both fire only when Hachuping is stranded on
+// terrain the map cannot connect to anything, where clipping a wall on the way
+// out beats standing frozen inside one.
 //
 // Speed is tied to how close the player is. Far away it almost stops — without
 // that it disappears across the room and the chase ends before it starts.
@@ -395,8 +401,11 @@ export class ChaseRunner {
     const timerDue = now - this.lastRetargetAt > this.retargetMs;
     if (!(pathDone || stuck || (timerDue && compromised))) return;
 
-    // Recomputed per retarget rather than per frame: the map grows while the
-    // chase runs, so yesterday's flood would miss newly scanned ground.
+    // Recomputed per retarget rather than per frame: the flood is relative to
+    // where Hachuping stands NOW, and a jump or an escape hop can move it into
+    // a differently connected pocket. (The map itself is frozen before play —
+    // freezeMap() in main.js — so it is the start node that changed, not the
+    // terrain.)
     this.reachable = reachableFrom(this.grid, this.node);
 
     const target = chooseFleeTarget(this.grid, {

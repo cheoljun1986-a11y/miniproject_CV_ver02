@@ -592,9 +592,11 @@ function freezeMap() {
   ui.setMessage(`지도 준비 완료 — 설 수 있는 자리 ${candidateCount}곳. 도망 모드 시작을 누르세요.`);
 }
 
-// Fit the dominant floor plane to the frozen map's voxels and hand it to the
-// chase grid. A failed fit (too few points, no dominant plane) leaves the grid
-// on its built-in histogram floor, so the game still works.
+// Fit a floor plane to the frozen map's voxels and hand it to the chase grid,
+// which uses it to fill sparse-scan gaps AT THE HISTOGRAM'S floor height — the
+// plane's own height is deliberately not trusted. A failed fit (too few points,
+// nothing near-horizontal) leaves the grid on its histogram floor alone, so the
+// game still works.
 function applyRansacFloor() {
   if (!chaseGrid) return;
   const points = chaseGrid.floorBandVoxelPoints({

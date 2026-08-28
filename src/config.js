@@ -48,9 +48,10 @@ export const OPERATOR_STATUS_GAP_MS = 200;
 export const OPERATOR_RENDER_GAP_MS = 100;
 
 // Keyframe voxel diagnostic (?voxel=debug mode). Unlike the cloud path above,
-// capture is gated on camera motion rather than a wall clock, and every filter
-// threshold below is a starting value the on-device sliders can re-tune without
-// a rescan.
+// capture is gated on camera motion rather than a wall clock. The filter
+// thresholds the on-device sliders re-tune without a rescan are not here — they
+// are the defaults in voxel-debug-params.js; what follows is the scan window,
+// the motion gate and the capture caps, none of which a slider touches.
 // The diagnostic scan runs until the panel's stop button, for practical
 // purposes: a room takes minutes to cover, and rebuild latency is acceptable
 // there because the mode exists to inspect the map, not to play on it.
@@ -153,11 +154,13 @@ export const VOXEL_OCCLUDER_POLYGON_OFFSET_UNITS = 1;
 // than leaving a gap in the map.
 export const VOXEL_TRAVERSAL_MIN_OBSERVATIONS = 3;
 
-// Keyframe terrain — opt-in game space map (?terrain=keyframe).
-// Same gate and filters as the diagnostic, but it runs for the whole session
-// with no keyframe cap and folds each keyframe into the grid the moment it
-// lands, keeping only the voxels. Memory therefore scales with room size, not
-// with time walked.
+// Keyframe terrain — the DEFAULT game space map. ?terrain=legacy is the opt-out
+// back to the old cloud path; there is nothing to opt in to.
+// Same gate and filters as the diagnostic, but it has no keyframe cap and folds
+// each keyframe into the grid the moment it lands, keeping only the voxels.
+// Memory therefore scales with room size, not with time walked. How long it
+// accumulates is the page's call: the chase page feeds it only during 맵 생성
+// and freezes it for play, app.html feeds it for the whole session.
 export const VOXEL_TERRAIN_MIN_OBSERVATIONS = 3;
 // Wider than the diagnostic's 250ms: a keyframe costs a full-resolution depth
 // read plus filter and unproject, and mid-chase the camera never stops moving.

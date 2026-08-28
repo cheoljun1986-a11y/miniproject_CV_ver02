@@ -1,12 +1,15 @@
-// Pure RANSAC fit of the dominant near-horizontal plane (the floor) to a point
-// cloud, modelled as a height field y = a*x + b*z + c. No three.js dependency so
-// it can be unit-tested directly.
+// Pure RANSAC fit of the floor plane to a point cloud, modelled as a height
+// field y = a*x + b*z + c. No three.js dependency so it can be unit-tested
+// directly.
 //
 // A height field cannot represent a vertical wall — a wall stacks many y values
 // over one (x, z) footprint — so walls drop out for free. A slope cap
 // (maxTiltDeg) rejects steep surfaces, and RANSAC's inlier vote rejects
-// floating-pixel noise. The hypothesis with the most inliers wins, which in an
-// ordinary room is the floor: the single largest flat area.
+// floating-pixel noise.
+//
+// Among the hypotheses that survive that, the LOWEST substantial one wins, not
+// the one with the most inliers — see fitFloorPlane below for why. Most-inliers
+// is still available as select: 'dominant', but nothing ships with it.
 
 // Height-field plane through three points, or null if they are collinear in xz.
 function planeFromThree(p1, p2, p3) {

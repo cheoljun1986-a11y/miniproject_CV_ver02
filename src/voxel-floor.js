@@ -7,7 +7,7 @@
 
 const DEFAULTS = {
   binM: 0.05,
-  // A desk sits ~0.70m above the floor — five times outside this window.
+  // A desk sits ~0.70m above the floor — twice this window, so it cannot win.
   searchSpanM: 0.35,
   // Percentile, not minimum: flying pixels below the floor would drag the
   // window down and anchor it to noise. 5% rather than 1% because the real

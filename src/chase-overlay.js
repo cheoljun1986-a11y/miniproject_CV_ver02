@@ -24,10 +24,10 @@ import {
 // a drift correction would move the character and leave the tiles behind —
 // exactly the mismatch this overlay exists to rule out.
 //
-// depthWrite stays false so the tiles never occlude the character. depthTest is
-// caller-controlled: with the CPU depth mesh live, real-world depth would cull
-// every tile lying on the real floor, so main.js turns the occluder off while
-// the overlay is on rather than drawing tiles that lie about where they are.
+// depthWrite stays false so the tiles never occlude the character. depthTest
+// stays ON: with the CPU depth mesh live, real-world depth would cull every tile
+// lying on the real floor, so main.js turns the occluder off while the overlay
+// is on rather than drawing tiles that lie about where they are.
 export class ChaseOverlay {
   constructor({
     scene,
