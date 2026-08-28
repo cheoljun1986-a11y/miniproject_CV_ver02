@@ -19,6 +19,7 @@ import {
   CHASE_CELL_SIZE_M,
   CHASE_SLAB_HEIGHT_M,
   CHASE_MIN_WALKABLE_CELLS,
+  CHASE_MAX_STAND_ABOVE_FLOOR_M,
   FLOOR_RANSAC_ITERATIONS,
   FLOOR_RANSAC_DISTANCE_M,
   FLOOR_RANSAC_MAX_TILT_DEG,
@@ -45,9 +46,15 @@ function mulberry32(seed) {
 function loadRoomGrid() {
   const path = fileURLToPath(new URL('./fixtures/room-scan-keyframe.json', import.meta.url));
   const scan = JSON.parse(readFileSync(path, 'utf8'));
+  // Every value main.js passes that changes the walkable count must be passed
+  // here too. Leaving maxStandAboveFloor to the constructor default is what let
+  // the 1.3 -> 0.85 change slip through: the grid under test was standing on
+  // ceilings the shipped game rejects, so this measured 84 cells where the game
+  // measured 77.
   const grid = new TraversalGrid({
     cellSize: CHASE_CELL_SIZE_M,
     slabHeight: CHASE_SLAB_HEIGHT_M,
+    maxStandAboveFloor: CHASE_MAX_STAND_ABOVE_FLOOR_M,
   });
   // cells: [ix, iy, iz, count, cx, cy, cz] — world centre is columns 4..6, the
   // same value main.js feeds chaseGrid.observe(toMapSpace(center)).

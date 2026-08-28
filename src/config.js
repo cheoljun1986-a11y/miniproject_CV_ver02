@@ -96,14 +96,21 @@ export const CHASE_MAX_DROP_M = 1.2;
 // when the geometry is real. 0.85 keeps chairs and desks (measured on five
 // room scans) and removes 84% of the high cells.
 export const CHASE_MAX_STAND_ABOVE_FLOOR_M = 0.85;
-// Refuse to start on a bare map. Tuned down from 120 when the default terrain
-// became the keyframe/TSDF pipeline: it confirms voxels far more conservatively
-// than the old legacy map, so the same walk yields fewer walkable cells. A real
-// on-device room scan (9 keyframes, a 47-point walk) reached only 104 walkable
-// cells, so the old 120 gate never opened and the chase — and Hachuping — never
-// started. 80 cells (~3.2 m2 at 0.2 m) still rejects a genuinely bare map while
-// letting a properly-walked room begin. See tests/chase-start-gate.test.mjs.
-export const CHASE_MIN_WALKABLE_CELLS = 80;
+// Refuse to start on a bare map. Walked down 120 -> 80 -> 70 as the terrain got
+// stricter: the keyframe/TSDF pipeline confirms voxels far more conservatively
+// than the old legacy map, and CHASE_MAX_STAND_ABOVE_FLOOR_M dropping to 0.85
+// took another slice off every scan. The gate has to sit under the THINNEST
+// honest scan, not the typical one, or a short walk silently never starts the
+// chase and Hachuping simply never appears.
+//
+// Measured over the eleven on-device scans in results/ plus the test fixture,
+// all at the shipped 0.85 cap: the fixture (9 keyframes, a 47-point walk) is
+// the floor of the range at 77 walkable cells, and the next thinnest real scan
+// is 322. 70 cells (~2.8 m2 at 0.2 m) clears the fixture with margin while
+// still rejecting a genuinely bare map. See tests/chase-start-gate.test.mjs,
+// which now builds its grid with the shipped cap — it did not, which is why
+// the 0.85 change went unnoticed here.
+export const CHASE_MIN_WALKABLE_CELLS = 70;
 export const CHASE_RETARGET_MS = 3000;
 export const CHASE_STUCK_MS = 4000;
 export const CHASE_RECENT_WINDOW_MS = 15000; // how long a visited cell stays penalised
